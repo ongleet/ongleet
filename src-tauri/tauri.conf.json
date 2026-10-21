@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Terminal Stack Prototype",
+  "productName": "Terminal Workspace",
   "version": "0.1.0",
   "identifier": "io.local.terminal-stack-prototype",
   "build": {
@@ -10,7 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{ "title": "Terminal stack prototype — validation pending", "width": 1100, "height": 760, "minWidth": 640, "minHeight": 400 }],
+    "windows": [{ "title": "Terminal Workspace — preview", "width": 1100, "height": 760, "minWidth": 640, "minHeight": 400 }],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost 'self'; img-src 'self' data:"
     }

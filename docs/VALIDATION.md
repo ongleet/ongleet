@@ -12,14 +12,18 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY integration tests | Passed: four tests using actual Linux PTYs |
+| Native PTY, workspace and tab integration tests | Passed: ten tests, including sibling PTYs, confirmation, launch modes, directory inheritance, and directory non-mutation. Login-shell test passes outside the sandbox. |
+| Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Desktop connection from agent environment | Blocked: `Gtk.init_check()` returned false |
 | Launch compiled Tauri executable from agent environment | Blocked: GTK backend initialization failed before opening a window |
 | Outside-sandbox desktop attempt | Rejected by session approval policy |
 | Interactive Codex in the Tauri WebKitGTK window | Pending |
 | Native keyboard, selection, clipboard, scrolling, mouse, resize | Pending |
-| Clipboard user test | Browser API failed with NotAllowedError; replaced with native clipboard plugin, awaiting retest |
-| Hidden-window output, workspace/tab switching, persistence, CLI | Not implemented; later stages |
+| Clipboard user test | Native plugin fix confirmed working by the user |
+| Workspace sidebar and terminal tabs | Implemented at user request: in-memory metadata, independent terminals, remembered selected tabs; native switching acceptance pending |
+| Hidden-window output, persistence, CLI | Not implemented; later stages |
+
+The earlier desktop-access failures describe the initial sandboxed environment. Desktop initialization now succeeds outside the sandbox. This is not a claim that all interactive checks have passed.
 
 ## Interactive procedure
 
@@ -32,4 +36,24 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 7. Close a running session, first cancelling and then confirming. Verify ordinary shell jobs terminate. The escaped-descendant limitation in STACK.md remains a blocker even if this check passes.
 8. Inspect screen during normal and alternate-screen use. Compare plain text with the display, including wide characters and combining marks. Close the session and confirm screen inspection becomes unavailable. No CLI snapshot support exists yet.
 
-The next stage starts only after the native interactive gate has passed and remaining renderer/input blockers have been explicitly reviewed.
+## Sidebar acceptance
+
+1. Create two workspaces using existing directories, including a path with spaces. Use the native picker and manually entered paths. Reject blank names and missing directories without creating anything on disk.
+2. Start a shell or command in both. Print distinct markers, run a continuously emitting command in one, and switch repeatedly. Verify the original process and screen remain, hidden output appears on return, and dimensions remain valid.
+3. Edit names, reorder using the Up/Down buttons, and navigate using the keyboard. Verify selection stays associated with the same workspace ID.
+4. Update a base directory while its shell is running. Confirm its existing working directory is unchanged; close/restart its terminal and verify the new launch uses the updated base directory unless explicitly overridden.
+5. Cancel closure of a workspace containing a session, then confirm it. Verify other workspaces keep running and the closed workspace's directory and contents remain intact. The documented escaped-descendant limitation still applies.
+6. Verify stopped workspaces close without a process confirmation, closing the selected workspace selects a neighbor, and closing the last workspace shows the creation screen.
+7. Restart the app and verify the interface correctly makes no persistence promise: workspaces are currently session-only. Window close still quits after confirmation.
+
+Remaining native checks and process-containment blockers must be resolved before claiming version-one guarantees.
+
+## Terminal-tab acceptance
+
+1. Create several tabs in one workspace, then another workspace with different tabs. Start a shell, Codex, and a continuously emitting command independently. Switch tabs/workspaces and verify each process, screen, scrollback, and selected tab are preserved without zero-size resizes.
+2. Rename and reorder running tabs; verify their original processes and screens remain. Use arrows/Home/End in the tab bar, and test names long enough to require horizontal scrolling.
+3. Launch an executable with literal arguments containing shell operators. Confirm no shell evaluation occurs. Then explicitly choose Shell command and verify shell syntax works. Test independent environment overrides in two tabs without saving the inherited environment.
+4. Launch tabs with and without directory overrides. Change the workspace directory and verify existing processes remain unchanged, future launches without overrides follow the new base, and explicit overrides stay fixed. Try a missing launch directory and invalid executable.
+5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. The escaped-descendant limitation remains.
+6. Let a process exit with a nonzero code; verify its tab shows the code and its output stays available. Use Restart for an explicit relaunch or Stop session to retain a stopped configuration. Close the last tab and create a replacement from the empty state.
+7. Verify native clipboard, selection, mouse reporting, and alternate-screen restoration after repeatedly switching between tabs. Compare hidden-output flood responsiveness and memory to the single-terminal baseline.

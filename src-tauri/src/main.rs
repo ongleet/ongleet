@@ -3,16 +3,14 @@
 compile_error!("This prototype currently supports Linux only");
 
 mod session;
-use session::{Launch, Output, Status, TerminalSession};
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Mutex,
-};
+mod workspace;
+use session::{Output, Status, TerminalSession};
+use std::sync::Mutex;
 use tauri::{ipc::Channel, Manager, State};
+use workspace::{Snapshot, TabConfig, WorkspaceRegistry};
 
 #[derive(Default)]
-struct Sessions(Mutex<Option<TerminalSession>>);
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+struct Sessions(Mutex<WorkspaceRegistry>);
 
 fn with_session<T>(
     state: &Sessions,
@@ -21,21 +19,73 @@ fn with_session<T>(
 ) -> Result<T, String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     let session = guard
-        .as_mut()
-        .filter(|s| s.id == id)
+        .sessions
+        .values_mut()
+        .find(|s| s.id == id)
         .ok_or("Session is unavailable")?;
     operation(session)
 }
 
 #[tauri::command]
-fn start(state: State<Sessions>, launch: Launch, output: Channel<Output>) -> Result<u64, String> {
+fn start(
+    state: State<Sessions>,
+    tab_id: u64,
+    cols: u16,
+    rows: u16,
+    output: Channel<Output>,
+) -> Result<u64, String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    if guard.is_some() {
-        return Err("Close the existing prototype session first".into());
-    }
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    *guard = Some(TerminalSession::spawn(id, launch, output)?);
-    Ok(id)
+    guard.start(tab_id, cols, rows, output)
+}
+
+#[tauri::command]
+fn create_tab(state: State<Sessions>, workspace_id: u64) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create_tab(workspace_id)
+}
+
+#[tauri::command]
+fn select_tab(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+    state.0.lock().map_err(|e| e.to_string())?.select_tab(id)
+}
+
+#[tauri::command]
+fn rename_tab(state: State<Sessions>, id: u64, name: String) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .rename_tab(id, name)
+}
+
+#[tauri::command]
+fn configure_tab(state: State<Sessions>, id: u64, config: TabConfig) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .configure_tab(id, config)
+}
+
+#[tauri::command]
+fn reorder_tab(state: State<Sessions>, id: u64, position: usize) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .reorder_tab(id, position)
+}
+
+#[tauri::command]
+fn close_tab(state: State<Sessions>, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .close_tab(id, confirmed)
 }
 
 #[tauri::command]
@@ -66,17 +116,71 @@ fn status(state: State<Sessions>, id: u64) -> Result<Status, String> {
 #[tauri::command]
 fn close_session(state: State<Sessions>, id: u64, confirmed: bool) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    let session = guard
-        .as_mut()
-        .filter(|s| s.id == id)
-        .ok_or("Session is unavailable")?;
-    // Even an exited shell may have remaining background jobs.
-    if !confirmed {
-        return Err("Explicit confirmation is required to terminate session processes".into());
-    }
-    session.close()?;
-    guard.take();
-    Ok(())
+    guard.close_session(id, confirmed)
+}
+
+#[tauri::command]
+fn workspaces(state: State<Sessions>) -> Result<Snapshot, String> {
+    Ok(state.0.lock().map_err(|e| e.to_string())?.snapshot())
+}
+
+#[tauri::command]
+fn create_workspace(
+    state: State<Sessions>,
+    name: String,
+    directory: String,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create(name, directory)
+}
+
+#[tauri::command]
+fn update_workspace(
+    state: State<Sessions>,
+    id: u64,
+    name: String,
+    directory: String,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .update(id, name, directory)
+}
+
+#[tauri::command]
+fn select_workspace(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+    state.0.lock().map_err(|e| e.to_string())?.select(id)
+}
+
+#[tauri::command]
+fn reorder_workspace(state: State<Sessions>, id: u64, position: usize) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .reorder(id, position)
+}
+
+#[tauri::command]
+fn close_workspace(state: State<Sessions>, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .close(id, confirmed)
+}
+
+#[tauri::command]
+fn shutdown(state: State<Sessions>, confirmed: bool) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .shutdown(confirmed)
 }
 
 #[tauri::command]
@@ -90,6 +194,7 @@ fn defaults() -> Result<(String, String), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Sessions::default())
         .invoke_handler(tauri::generate_handler![
             start,
@@ -98,14 +203,27 @@ fn main() {
             resize,
             status,
             close_session,
-            defaults
+            defaults,
+            workspaces,
+            create_workspace,
+            update_workspace,
+            select_workspace,
+            reorder_workspace,
+            close_workspace,
+            create_tab,
+            select_tab,
+            rename_tab,
+            configure_tab,
+            reorder_tab,
+            close_tab,
+            shutdown
         ])
         .build(tauri::generate_context!())
         .expect("Unable to build terminal prototype")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
                 if let Ok(mut session) = app.state::<Sessions>().0.lock() {
-                    session.take();
+                    let _ = session.shutdown(true);
                 }
             }
         });

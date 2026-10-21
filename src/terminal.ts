@@ -3,10 +3,12 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, SCROLLBACK_LINES } from './byte-transport';
+import { suppressHiddenRendering } from './render-visibility';
+
+let sharedGhostty: Promise<Ghostty> | undefined;
 
 export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: number };
 type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'eof' } | { type: 'error'; message: string };
-export type Launch = { executable: string | null; args: string[]; cwd: string; env: Record<string, string> };
 
 export class TerminalFrontend {
   private term?: Terminal;
@@ -16,13 +18,22 @@ export class TerminalFrontend {
   private timer?: ReturnType<typeof setTimeout>;
   private inputQueue: Promise<void> = Promise.resolve();
   private queuedInput = 0;
-  private ghostty?: Promise<Ghostty>;
+  private visible = true;
+  private fitVisible?: () => void;
 
-  constructor(private host: HTMLElement, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {}
+  constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {}
 
-  async start(launch: Launch) {
+  setVisible(visible: boolean) {
+    this.visible = visible;
+    if (!visible) { this.term?.blur(); return; }
+    this.fitVisible?.();
+    const term = this.term;
+    if (term?.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
+  }
+
+  async start() {
     if (this.id !== undefined) throw new Error('Close the existing session first.');
-    const ghostty = await (this.ghostty ??= Ghostty.load(wasmUrl));
+    const ghostty = await (sharedGhostty ??= Ghostty.load(wasmUrl));
     this.disposeEmulator();
     const term = new Terminal({ ghostty, cols: 80, rows: 24, fontSize: 14, scrollback: SCROLLBACK_LINES,
       theme: { background: '#12161d', foreground: '#dce3ec', cursor: '#a3e6cc', selectionBackground: '#355369' } });
@@ -30,9 +41,11 @@ export class TerminalFrontend {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
+    if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible);
     const fitVisible = () => {
-      if (this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
+      if (this.visible && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
     };
+    this.fitVisible = fitVisible;
     fitVisible();
     this.observer = new ResizeObserver(fitVisible);
     this.observer.observe(this.host);
@@ -65,7 +78,7 @@ export class TerminalFrontend {
         } else if (event.type === 'error') this.error(event.message);
       })().catch(this.error);
     };
-    started = invoke<number>('start', { launch: { ...launch, cols: term.cols, rows: term.rows }, output }).then(id => {
+    started = invoke<number>('start', { tabId: this.tabId, cols: term.cols, rows: term.rows, output }).then(id => {
       // Output may arrive before invoke resolves. Publish the ID before any
       // waiting output handler resumes, or the first ACK would be lost.
       this.id = id;
@@ -76,7 +89,7 @@ export class TerminalFrontend {
       this.changed({ state: 'running' });
       fitVisible();
       this.poll(this.id);
-      term.focus();
+      if (this.visible) term.focus();
     } catch (error) {
       this.disposeEmulator();
       throw error;
@@ -150,6 +163,7 @@ export class TerminalFrontend {
     this.subscriptions.splice(0).forEach(s => s.dispose());
     this.term?.dispose();
     this.term = undefined;
+    this.fitVisible = undefined;
     this.host.replaceChildren();
   }
 

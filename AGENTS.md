@@ -10,7 +10,7 @@
 
 ## Scope and implementation order
 
-This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and eventually SQLite. The current implementation is a single-terminal prototype.
+This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and eventually SQLite. The current preview has an in-memory workspace sidebar and multiple retained terminal tabs per workspace. Persistence remains pending; do not claim unresolved lifecycle guarantees.
 
 1. Validate the terminal stack inside Tauri's WebKitGTK WebView with interactive Codex, including Wayland where available.
 2. Complete reliable single-terminal lifecycle, process containment, and bounded IPC.
@@ -51,9 +51,11 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 
 - `src/terminal.ts`: persistent frontend controller, Ghostty integration, input/output attachment, resizing, clipboard, snapshots.
 - `src/byte-transport.ts`: shared raw-byte adapter and transport limits.
+- `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden workspaces while VT parsing continues.
 - `src/main.tsx`: prototype React interface.
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application setup.
+- `src-tauri/src/workspace.rs`: in-memory metadata, selection/order, independent sessions, and workspace operations shared by Tauri commands.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/terminal-probe.py`: interactive Unicode, flood, keyboard, mouse, and alternate-screen probes.
 
@@ -65,6 +67,7 @@ Run checks appropriate to the change:
 mise exec -- npm run check:host
 mise exec -- npm run build
 mise exec -- npm run check:wasm
+mise exec -- npm run check:rendering
 mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline
 mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline
