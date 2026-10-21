@@ -143,13 +143,14 @@ def run(args):
         client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
         wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group One action')"), "scoped actions")
         assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group Two action')")
-        client.click("//dialog[@open]//button[normalize-space()='Group One action']", "xpath")
-        tab = wait_for(lambda: client.invoke("workspaces")["workspaces"][0]["selectedTabId"], "selected action")
+        client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
+        assert len(workspace["tabs"]) == 1 and workspace["tabs"][0]["name"] == "Group One action"
+        tab = workspace["selectedTabId"]
         wait_for(lambda: "TICK=" in client.screen(tab), "group action running")
         terminal_pid = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
         assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
         session_id = client.state(tab)["sessionId"]
-        mark("Workgroup creation defaults workspace path and New tab shows only that group's YAML actions")
+        mark("New workspace automatically starts its first YAML action as its only tab, in the default group path")
         before = client.screen(tab)
         client.click(f'[data-workgroup-id="{first["id"]}"] .workgroup-toggle')
         wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0]).hidden", first["id"]), "folded workspace list")
@@ -182,7 +183,7 @@ def run(args):
         client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
         mark("Workgroup editing exposes its config path, preserves running cwd, and workspace directory overrides work")
         client.invoke("close_workspace", {"id": workspace["id"], "confirmed": True})
-        client.invoke("close_workspace", {"id": overridden["id"], "confirmed": False})
+        client.invoke("close_workspace", {"id": overridden["id"], "confirmed": True})
         for group in groups: client.invoke("close_workgroup", {"id": group["id"]})
         assert list(first_root.iterdir()) == [first_root / "keep"]
         assert list(second_root.iterdir()) == [second_root / "keep"]
@@ -196,8 +197,8 @@ def run(args):
             pid = connect()
             if args.workgroups: workgroups_check()
             workspace = client.invoke("create_workspace", {"name": "Lifecycle", "directory": str(directory)})["workspaces"][0]
-            snapshot = client.invoke("create_tab", {"workspaceId": workspace["id"], "typeId": "stream"})
-            tab = snapshot["workspaces"][0]["selectedTabId"]
+            assert len(workspace["tabs"]) == 1 and workspace["tabs"][0]["name"] == "Stream"
+            tab = workspace["selectedTabId"]
             client.request("POST", "/refresh", {})
             wait_for(lambda: "TICK=" in client.screen(tab), "stream running")
             before = client.screen(tab)

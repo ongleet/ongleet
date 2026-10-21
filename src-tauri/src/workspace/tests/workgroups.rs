@@ -174,3 +174,49 @@ fn failed_workgroup_migration_rolls_back_schema_and_keeps_existing_rows() {
         0
     );
 }
+
+#[test]
+fn new_workspace_uses_first_configured_action_and_rejects_invalid_yaml_atomically() {
+    let data = Directory::new();
+    let config = Directory::new();
+    let root = Directory::new();
+    let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+    let group = registry.workgroups[0].id;
+    crate::tab_types::load_workgroup(&config.0, group).unwrap();
+    let path = crate::tab_types::workgroup_path(&config.0, group);
+    let action = serde_json::json!({"id":"custom", "name":"Project shell", "kind":"terminal", "config":{
+        "executable":"/usr/bin/python3", "args":["-u","-c","import os,time; print(os.getcwd(),flush=True); time.sleep(60)"], "env":{"ACTION_TEST":"literal value"}
+    }});
+    fs::write(&path, serde_json::to_vec(&serde_json::json!({"tab_types":[action, {"id":"second","name":"Second action","kind":"terminal","config":{"executable":"/bin/false"}}]})).unwrap()).unwrap();
+    let snapshot = registry
+        .create_from_first_action(Some(group), "Project".into(), root.path(), &config.0)
+        .unwrap();
+    let workspace = &snapshot.workspaces[0];
+    assert_eq!(workspace.tabs.len(), 1);
+    let tab = &workspace.tabs[0];
+    assert_eq!(tab.name, "Project shell");
+    assert_eq!(workspace.selected_tab_id, Some(tab.id));
+    assert!(tab.is_open && tab.resume_on_start);
+    assert_eq!(tab.config.env["ACTION_TEST"], "literal value");
+    let (channel, receive) = output();
+    registry
+        .connect(tab.id, 80, 24, channel, tab.resume_on_start)
+        .unwrap()
+        .unwrap();
+    assert_eq!(read_cwd(&registry, tab.id, &receive), root.path());
+    fs::write(&path, "tab_types: []").unwrap();
+    let expected = serde_json::to_value(registry.snapshot()).unwrap();
+    assert!(registry
+        .create_from_first_action(Some(group), "Rejected".into(), root.path(), &config.0)
+        .is_err());
+    assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+    registry.shutdown(true).unwrap();
+    drop(registry);
+    let restored = WorkspaceRegistry::open(&data.0).unwrap();
+    assert_eq!(restored.workspaces[0].tabs.len(), 1);
+    assert_eq!(restored.workspaces[0].tabs[0].name, "Project shell");
+    assert_eq!(
+        restored.workspaces[0].tabs[0].config.env["ACTION_TEST"],
+        "literal value"
+    );
+}

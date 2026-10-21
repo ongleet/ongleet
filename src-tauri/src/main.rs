@@ -269,17 +269,18 @@ fn workspaces(state: State<Sessions>) -> Result<Snapshot, String> {
 
 #[tauri::command]
 fn create_workspace(
+    app: tauri::AppHandle,
     state: State<Sessions>,
     name: String,
     directory: String,
     workgroup_id: Option<u64>,
 ) -> Result<Snapshot, String> {
-    let mut registry = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(group) = workgroup_id {
-        registry.create_in_workgroup(group, name, directory)
-    } else {
-        registry.create(name, directory)
-    }
+    let directory_config = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create_from_first_action(workgroup_id, name, directory, &directory_config)
 }
 
 #[tauri::command]

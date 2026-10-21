@@ -1,6 +1,7 @@
 use super::{Snapshot, TabConfig, TerminalTab, WorkspaceRegistry};
 
 impl WorkspaceRegistry {
+    #[cfg(test)]
     pub fn create_tab(&mut self, workspace_id: u64) -> Result<Snapshot, String> {
         self.insert_tab(workspace_id, None)
     }
@@ -14,7 +15,7 @@ impl WorkspaceRegistry {
         self.insert_tab(workspace_id, Some((name, config)))
     }
 
-    fn insert_tab(
+    pub(super) fn insert_tab(
         &mut self,
         workspace_id: u64,
         template: Option<(String, TabConfig)>,

@@ -127,7 +127,27 @@ impl WorkspaceRegistry {
         }
     }
 
-    // The compatibility entry point uses the first group; UI callers explicitly target one.
+    pub fn create_from_first_action(
+        &mut self,
+        workgroup_id: Option<u64>,
+        name: String,
+        directory: String,
+        config_directory: &std::path::Path,
+    ) -> Result<Snapshot, String> {
+        let group = workgroup_id
+            .or_else(|| self.workgroups.first().map(|g| g.id))
+            .ok_or("Create a workgroup first")?;
+        self.workgroup(group)?;
+        // Validate the YAML before changing metadata. Each opening owns its copy.
+        let action = crate::tab_types::load_workgroup(config_directory, group)?
+            .into_iter()
+            .next()
+            .ok_or("Workgroup has no actions")?;
+        self.insert_workspace(group, name, directory, Some((action.name, action.config)))
+    }
+
+    // Legacy stopped fixtures for restoration and explicit-start integration tests.
+    #[cfg(test)]
     pub fn create(&mut self, name: String, directory: String) -> Result<Snapshot, String> {
         valid_name(name.clone())?;
         validate_directory(&directory)?;
@@ -137,11 +157,22 @@ impl WorkspaceRegistry {
         self.create_in_workgroup(self.workgroups[0].id, name, directory)
     }
 
+    #[cfg(test)]
     pub fn create_in_workgroup(
         &mut self,
         workgroup_id: u64,
         name: String,
         directory: String,
+    ) -> Result<Snapshot, String> {
+        self.insert_workspace(workgroup_id, name, directory, None)
+    }
+
+    fn insert_workspace(
+        &mut self,
+        workgroup_id: u64,
+        name: String,
+        directory: String,
+        initial_action: Option<(String, TabConfig)>,
     ) -> Result<Snapshot, String> {
         let name = valid_name(name)?;
         let root = self.workgroup(workgroup_id)?.root_directory.clone();
@@ -167,7 +198,7 @@ impl WorkspaceRegistry {
             .unwrap()
             .collapsed = false;
         self.selected_id = Some(self.next_id);
-        self.create_tab(self.next_id)
+        self.insert_tab(self.next_id, initial_action)
     }
 
     pub fn update_in_workgroup(
