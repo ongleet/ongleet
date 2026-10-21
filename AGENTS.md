@@ -54,6 +54,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src/byte-transport.ts`: shared raw-byte adapter and transport limits.
 - `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden workspaces while VT parsing continues.
 - `src/main.tsx`: prototype React interface.
+- `src/WorkspaceSidebar.tsx`: per-workspace action menus, drag handles and keyboard reordering.
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application setup.
 - `src-tauri/src/workspace.rs`: durable metadata, definition/opening state, resume policy, independent sessions, and operations shared by Tauri commands.

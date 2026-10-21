@@ -4,11 +4,12 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { TerminalFrontend, type ProcessStatus } from './terminal';
+import { WorkspaceSidebar } from './WorkspaceSidebar';
 import './style.css';
 
 type TabConfig = { cwdOverride: string | null; executable: string | null; args: string[]; env: Record<string, string>; shellCommand: string | null };
 type TerminalTab = { id: number; kind: string; isOpen: boolean; resumeOnStart: boolean; name: string; displayOrder: number; config: TabConfig };
-type Workspace = { id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
+export type Workspace = { id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
 type WorkspaceSnapshot = { workspaces: Workspace[]; selectedId: number | null };
 type Report = (error: unknown) => void;
 
@@ -247,35 +248,17 @@ function App() {
   }
 
   const disabled = busy || restoring > 0;
-  const selected = state.workspaces.find(workspace => workspace.id === state.selectedId);
   return <main className="app">
-    <aside className="sidebar" aria-label="Workspaces">
-      <div className="sidebar-heading"><strong>Workspaces</strong><button disabled={!ready || disabled} onClick={() => setEditor('new')} aria-label="Create workspace" title="Create workspace">+</button></div>
-      <nav className="workspace-list" aria-label="Select workspace"><ol>
-        {state.workspaces.map(workspace => <li key={workspace.id}>
-          <button className="workspace-choice" aria-current={state.selectedId === workspace.id ? 'page' : undefined}
-            disabled={disabled} title={workspace.baseDirectory} onClick={() => void mutate('select_workspace', { id: workspace.id })}>
-            <span className={`status-dot ${workspace.tabs.some(tab => statuses[tab.id]?.state === 'running') ? 'running' : workspace.tabs.some(tab => statuses[tab.id]?.state === 'exited') ? 'exited' : 'stopped'}`} aria-label={workspace.tabs.some(tab => statuses[tab.id]?.state === 'running') ? 'running' : workspace.tabs.some(tab => statuses[tab.id]?.state === 'exited') ? 'exited' : 'stopped'} />
-            <span className="workspace-name">{workspace.name}</span>
-          </button>
-        </li>)}
-      </ol></nav>
-      {selected && <div className="workspace-management" aria-label="Selected workspace actions">
-        <button disabled={disabled} onClick={() => setEditor(selected)}>Edit workspace</button>
-        <div className="reorder-actions">
-          <button disabled={disabled || selected.displayOrder === 0} aria-label="Move workspace up" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder - 1 })}>↑ Up</button>
-          <button disabled={disabled || selected.displayOrder === state.workspaces.length - 1} aria-label="Move workspace down" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder + 1 })}>↓ Down</button>
-        </div>
-        <button disabled={disabled} onClick={() => {
-          const confirmed = selected.tabs.some(tab => !!statuses[tab.id]);
-          if (confirmed && !window.confirm(`Close “${selected.name}” and terminate all its terminal sessions and jobs?`)) return;
-          void mutate('close_workspace', { id: selected.id, confirmed }).then(closed => {
-            if (closed) setStatuses(previous => { const next = { ...previous }; for (const tab of selected.tabs) delete next[tab.id]; return next; });
-          });
-        }}>Close workspace</button>
-      </div>}
-      <p className="sidebar-note">Workspaces and tab definitions are saved. Previously running tabs restart as new processes.</p>
-    </aside>
+    <WorkspaceSidebar workspaces={state.workspaces} selectedId={state.selectedId} statuses={statuses} disabled={disabled} ready={ready}
+      create={() => { setError(''); setEditor('new'); }} edit={workspace => { setError(''); setEditor(workspace); }}
+      select={id => void mutate('select_workspace', { id })} reorder={(id, position) => mutate('reorder_workspace', { id, position })}
+      remove={workspace => {
+        const hasSessions = workspace.tabs.some(tab => !!statuses[tab.id]);
+        if (!window.confirm(`Delete workspace “${workspace.name}” and its saved tab definitions?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`)) return;
+        void mutate('close_workspace', { id: workspace.id, confirmed: true }).then(closed => {
+          if (closed) setStatuses(previous => { const next = { ...previous }; for (const tab of workspace.tabs) delete next[tab.id]; return next; });
+        });
+      }} />
     <div className="main-pane">
       {error && <div role="alert" className="error">{error}</div>}
       {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
