@@ -399,6 +399,17 @@ impl WorkspaceRegistry {
             .iter_mut()
             .find(|w| w.id == workspace_id)
             .ok_or("Workspace is unavailable")?;
+        let base_name = name;
+        let mut name = base_name.clone();
+        let mut suffix = 2;
+        while workspace
+            .tabs
+            .iter()
+            .any(|tab| tab.is_open && tab.name == name)
+        {
+            name = format!("{base_name} {suffix}");
+            suffix += 1;
+        }
         self.next_tab_id += 1;
         workspace.tabs.push(TerminalTab {
             kind: "terminal".into(),
@@ -986,6 +997,42 @@ mod tests {
             )
             .is_err());
         registry.shutdown(true).unwrap();
+    }
+
+    #[test]
+    fn new_tab_names_avoid_open_sibling_collisions() {
+        let directory = Directory::new();
+        let mut registry = WorkspaceRegistry::default();
+        let workspace = registry
+            .create("Names".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        let create = |registry: &mut WorkspaceRegistry, workspace| {
+            let state = registry
+                .create_typed_tab(workspace, "Bash".into(), TabConfig::default())
+                .unwrap();
+            let workspace = state.workspaces.iter().find(|w| w.id == workspace).unwrap();
+            let tab = workspace
+                .tabs
+                .iter()
+                .find(|t| Some(t.id) == workspace.selected_tab_id)
+                .unwrap();
+            (tab.id, tab.name.clone())
+        };
+        let (first, name) = create(&mut registry, workspace);
+        assert_eq!(name, "Bash");
+        registry.rename_tab(first, "Bash 2".into()).unwrap();
+        assert_eq!(create(&mut registry, workspace).1, "Bash");
+        assert_eq!(create(&mut registry, workspace).1, "Bash 3");
+        registry.close_tab(first, false).unwrap();
+        assert_eq!(create(&mut registry, workspace).1, "Bash 2");
+        let other = registry
+            .create("Other".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        assert_eq!(create(&mut registry, other).1, "Bash");
     }
 
     #[test]
