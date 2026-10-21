@@ -95,7 +95,9 @@ The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), v
 
 ## CLI
 
-Build the frontend with `mise exec -- npm run build`, then both standalone executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. The CLI is `src-tauri/target/debug/terminal-workspace`; use `--help` for every command. Until packaging installs it on PATH, substitute that path for `terminal-workspace` in these examples:
+Build the frontend with `mise exec -- npm run build`, then both standalone executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. App-launched terminals automatically prepend the application executable directory to PATH, so `terminal-workspace` is available there when built alongside the GUI. This does not change your personal PATH or shell configuration. Explicit workgroup/action PATH overrides take precedence, and shell startup files may replace PATH. Existing terminals retain their environment; open a new tab after restarting the updated app.
+
+The CLI is `src-tauri/target/debug/terminal-workspace`; use `--help` for every command. Outside app terminals, until packaging installs it on PATH, substitute that path for `terminal-workspace` in these examples:
 
 ```bash
 terminal-workspace workgroup list

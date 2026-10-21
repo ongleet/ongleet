@@ -420,3 +420,29 @@ fn missing_directory_and_executable_fail_without_creating_directories() {
     request.executable = Some("/nonexistent/terminal-prototype-executable".into());
     assert!(TerminalSession::spawn(5, request, output).is_err());
 }
+
+#[test]
+fn terminal_path_includes_application_directory_and_explicit_override_wins() {
+    let parent = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn(
+        901,
+        launch("import os; print(os.environ['PATH'], end='')"),
+        output,
+    )
+    .unwrap();
+    let path = String::from_utf8(drain(&session, &receive)).unwrap();
+    assert_eq!(std::env::split_paths(&path).next().unwrap(), parent);
+    session.close().unwrap();
+
+    let (output, receive) = channel();
+    let mut command = launch("import os; print(os.environ['PATH'], end='')");
+    command.env.insert("PATH".into(), "/usr/bin:/bin".into());
+    let mut session = TerminalSession::spawn(902, command, output).unwrap();
+    assert_eq!(drain(&session, &receive), b"/usr/bin:/bin");
+    session.close().unwrap();
+}

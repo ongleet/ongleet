@@ -206,6 +206,18 @@ impl TerminalSession {
         cmd.arg(executable);
         cmd.args(launch.args);
         cmd.cwd(launch.cwd);
+        // Make the sibling CLI available inside app-launched processes without
+        // changing the desktop environment or any shell configuration.
+        let application = std::env::current_exe().map_err(|e| e.to_string())?;
+        let directory = application
+            .parent()
+            .ok_or("Application directory is unavailable")?;
+        let inherited = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(
+            std::iter::once(directory.to_path_buf()).chain(std::env::split_paths(&inherited)),
+        )
+        .map_err(|e| format!("Cannot construct terminal PATH: {e}"))?;
+        cmd.env("PATH", path);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         for (key, value) in launch.env {

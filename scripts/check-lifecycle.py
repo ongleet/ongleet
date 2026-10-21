@@ -276,10 +276,15 @@ def run(args):
         # Use a known long-running first action, never the user's configuration.
         config_path = config / f'workgroups/{gid}'
         config_path.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(config / 'workgroups/1/actions.yaml', config_path / 'actions.yaml')
+        actions = json.loads((config / 'workgroups/1/actions.yaml').read_text())
+        probe = str(native.ROOT / 'scripts/terminal-probe.py')
+        actions['actions'][0]['config']['args'] = ['-u', '-c',
+            "import subprocess,os,json,sys,runpy; result=subprocess.run(['terminal-workspace','workspace','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
+        (config_path / 'actions.yaml').write_text(json.dumps(actions))
         first = cli('workspace', 'create', '--workgroup', gid, '--name', 'CLI first')
         wid, tab = first['id'], first['selectedTabId']
         wait_for(lambda: 'TICK=' in client.screen(tab), 'CLI-created action running without reload')
+        assert 'CLI_ON_PATH' in client.screen(tab)
         terminal_pid = next(int(line.split('=',1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith('PID='))
         session = client.state(tab)['sessionId']
         assert Path(f'/proc/{terminal_pid}/cwd').resolve() == root
