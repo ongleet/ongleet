@@ -1,4 +1,4 @@
-use crate::session::{Launch, Output, Status, TerminalSession};
+use crate::session::{Attachment, Launch, Output, Status, TerminalSession};
 use crate::storage::{Metadata, MetadataStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -166,6 +166,29 @@ impl WorkspaceRegistry {
         self.workspaces.insert(position, workspace);
         self.normalize_order();
         self.persist()
+    }
+
+    pub fn connect(
+        &mut self,
+        tab_id: u64,
+        cols: u16,
+        rows: u16,
+        output: Channel<Output>,
+        start_if_stopped: bool,
+    ) -> Result<Option<Attachment>, String> {
+        if let Some(session) = self.sessions.get(&tab_id) {
+            return session.attach(output).map(Some);
+        }
+        if !start_if_stopped {
+            return Ok(None);
+        }
+        let id = self.start(tab_id, cols, rows, output)?;
+        Ok(Some(Attachment {
+            id,
+            cols,
+            rows,
+            replay: false,
+        }))
     }
 
     pub fn start(
@@ -1033,6 +1056,37 @@ mod tests {
             .selected_id
             .unwrap();
         assert_eq!(create(&mut registry, other).1, "Bash");
+    }
+
+    #[test]
+    fn reload_connect_reuses_live_session_and_never_starts_stopped_tabs() {
+        let directory = Directory::new();
+        let mut registry = WorkspaceRegistry::default();
+        let workspace = registry
+            .create("Reload".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        let tab = registry.snapshot().workspaces[0].selected_tab_id.unwrap();
+        let (channel, _) = output();
+        assert!(registry
+            .connect(tab, 80, 24, channel, false)
+            .unwrap()
+            .is_none());
+        let (channel, receive) = output();
+        let first = start_test(&mut registry, tab, directory.path(), channel);
+        let initial = receive.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(initial, Output::Data { .. }));
+        let (channel, _) = output();
+        let connection = registry
+            .connect(tab, 90, 30, channel, true)
+            .unwrap()
+            .unwrap();
+        assert_eq!(connection.id, first);
+        assert!(connection.replay);
+        assert_eq!(registry.sessions.len(), 1);
+        assert_eq!(registry.snapshot().selected_id, Some(workspace));
+        registry.shutdown(true).unwrap();
     }
 
     #[test]

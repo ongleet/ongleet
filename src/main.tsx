@@ -65,12 +65,10 @@ function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
       reportStatus(tab.id, status);
     }, report);
     frontend.current = terminal;
-    // Only the initial attachment may resume a restored/reopened tab. Later
-    // metadata snapshots must never launch a second process for a live tab.
-    if (tab.resumeOnStart) {
-      markRestoring(1);
-      void terminal.start().catch(report).finally(() => markRestoring(-1));
-    }
+    // Reconnect live/exited sessions after a WebView reload. Only eligible
+    // stopped configurations may launch a new process.
+    markRestoring(1);
+    void terminal.start(tab.resumeOnStart).catch(report).finally(() => markRestoring(-1));
     return () => { terminal.dispose(); frontend.current = null; };
   }, [tab.id, reportStatus, markRestoring]);
   useEffect(() => { frontend.current?.setVisible(visible); }, [visible]);

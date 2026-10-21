@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     io::{Read, Write},
     sync::{mpsc, Arc, Condvar, Mutex},
     time::Duration,
@@ -9,6 +9,7 @@ use std::{
 use tauri::ipc::Channel;
 
 const CHUNK: usize = 16 * 1024;
+const REPLAY_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,8 @@ pub struct Launch {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Output {
     Data { seq: u64, bytes: Vec<u8> },
+    Size { seq: u64, cols: u16, rows: u16 },
+    Ready { seq: u64 },
     Eof,
     Error { message: String },
 }
@@ -36,11 +39,82 @@ pub enum Status {
     Exited { code: u32 },
 }
 
+#[derive(Clone)]
+enum Record {
+    Data(Vec<u8>),
+    Size(u16, u16),
+    Ready,
+}
+
+impl Record {
+    fn cost(&self) -> usize {
+        32 + match self {
+            Self::Data(bytes) => bytes.len(),
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Flow {
     sent: u64,
     acked: u64,
     closed: bool,
+    output: Option<Channel<Output>>,
+    journal: Vec<Record>,
+    journal_bytes: usize,
+    incomplete: bool,
+    pending: VecDeque<Record>,
+    ended: bool,
+}
+
+impl Flow {
+    fn record(&mut self, record: Record) {
+        if self.incomplete {
+            return;
+        }
+        if self.journal_bytes + record.cost() > REPLAY_LIMIT {
+            self.journal.clear();
+            self.journal_bytes = 0;
+            self.incomplete = true;
+        } else {
+            self.journal_bytes += record.cost();
+            self.journal.push(record);
+        }
+    }
+
+    // Only one envelope may await ACK, including during historical replay.
+    fn dispatch(&mut self) {
+        if self.closed || self.sent != self.acked {
+            return;
+        }
+        if let Some(record) = self.pending.pop_front() {
+            self.sent += 1;
+            let seq = self.sent;
+            let event = match record {
+                Record::Data(bytes) => Output::Data { seq, bytes },
+                Record::Size(cols, rows) => Output::Size { seq, cols, rows },
+                Record::Ready => Output::Ready { seq },
+            };
+            if let Some(output) = &self.output {
+                let _ = output.send(event);
+            }
+            // A disconnected frontend leaves this envelope pending until attach.
+        } else if self.ended {
+            if let Some(output) = &self.output {
+                let _ = output.send(Output::Eof);
+            }
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: u64,
+    pub cols: u16,
+    pub rows: u16,
+    pub replay: bool,
 }
 
 struct Input {
@@ -49,10 +123,12 @@ struct Input {
 }
 
 // This boundary owns native resources; React only owns an emulator and attachment.
-// The single-session prototype intentionally has no persistence or daemon.
+// Replay data is bounded and in-memory only; no terminal daemon is involved.
 pub struct TerminalSession {
     pub id: u64,
     pid: i32,
+    initial_cols: u16,
+    initial_rows: u16,
     master: Option<Box<dyn MasterPty + Send>>,
     input: Option<mpsc::SyncSender<Input>>,
     child: Box<dyn Child + Send + Sync>,
@@ -92,7 +168,13 @@ impl TerminalSession {
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         let pid = child.process_id().expect("Unix child has a PID") as i32;
         drop(pair.slave);
-        let flow = Arc::new((Mutex::new(Flow::default()), Condvar::new()));
+        let flow = Arc::new((
+            Mutex::new(Flow {
+                output: Some(output),
+                ..Default::default()
+            }),
+            Condvar::new(),
+        ));
         let (input, pending_input) = mpsc::sync_channel::<Input>(1);
         std::thread::spawn(move || {
             while let Ok(request) = pending_input.recv() {
@@ -109,10 +191,9 @@ impl TerminalSession {
             let (lock, changed) = &*reader_flow;
             let mut bytes = [0u8; CHUNK];
             loop {
-                // At most one chunk may be in the Tauri channel. A slow or hidden
-                // frontend backs up the PTY rather than allocating an output log.
+                // Reading waits for frontend consumption, including replay.
                 let mut state = lock.lock().unwrap();
-                while !state.closed && state.acked != state.sent {
+                while !state.closed && (state.acked != state.sent || !state.pending.is_empty()) {
                     state = changed
                         .wait_timeout(state, Duration::from_secs(1))
                         .unwrap()
@@ -124,7 +205,9 @@ impl TerminalSession {
                 drop(state);
                 match reader.read(&mut bytes) {
                     Ok(0) => {
-                        let _ = output.send(Output::Eof);
+                        let mut state = lock.lock().unwrap();
+                        state.ended = true;
+                        state.dispatch();
                         break;
                     }
                     Ok(n) => {
@@ -132,23 +215,20 @@ impl TerminalSession {
                         if state.closed {
                             break;
                         }
-                        state.sent += 1;
-                        let seq = state.sent;
-                        drop(state);
-                        if output
-                            .send(Output::Data {
-                                seq,
-                                bytes: bytes[..n].to_vec(),
-                            })
-                            .is_err()
-                        {
-                            break;
-                        }
+                        let record = Record::Data(bytes[..n].to_vec());
+                        state.record(record.clone());
+                        state.pending.push_back(record);
+                        state.dispatch();
                     }
                     Err(e) => {
-                        let _ = output.send(Output::Error {
-                            message: e.to_string(),
-                        });
+                        let mut state = lock.lock().unwrap();
+                        state.ended = true;
+                        if let Some(output) = &state.output {
+                            let _ = output.send(Output::Error {
+                                message: e.to_string(),
+                            });
+                        }
+                        state.dispatch();
                         break;
                     }
                 }
@@ -157,12 +237,40 @@ impl TerminalSession {
         Ok(Self {
             id,
             pid,
+            initial_cols: launch.cols,
+            initial_rows: launch.rows,
             master: Some(pair.master),
             input: Some(input),
             child,
             status: Status::Running,
             flow,
             closed: false,
+        })
+    }
+
+    pub fn attach(&self, output: Channel<Output>) -> Result<Attachment, String> {
+        let (lock, changed) = &*self.flow;
+        let mut flow = lock.lock().map_err(|e| e.to_string())?;
+        if flow.closed {
+            return Err("Terminal is stopped".into());
+        }
+        flow.output = Some(output);
+        // Sequence numbers never reset: an old frontend cannot ACK replay data.
+        flow.acked = flow.sent;
+        flow.pending = flow.journal.clone().into();
+        if flow.incomplete {
+            let _ = flow.output.as_ref().unwrap().send(Output::Error {
+                message: "Previous terminal screen unavailable: the 4 MiB reload replay limit was exceeded. The process is still running; only new output is shown.".into(),
+            });
+        }
+        flow.pending.push_back(Record::Ready);
+        flow.dispatch();
+        changed.notify_all();
+        Ok(Attachment {
+            id: self.id,
+            cols: self.initial_cols,
+            rows: self.initial_rows,
+            replay: true,
         })
     }
 
@@ -173,6 +281,7 @@ impl TerminalSession {
             return Err("Unexpected output acknowledgement".into());
         }
         flow.acked = seq;
+        flow.dispatch();
         changed.notify_all();
         Ok(())
     }
@@ -201,7 +310,13 @@ impl TerminalSession {
             .as_ref()
             .ok_or("Terminal is stopped")?
             .resize(size(cols, rows))
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        self.flow
+            .0
+            .lock()
+            .map_err(|e| e.to_string())?
+            .record(Record::Size(cols, rows));
+        Ok(())
     }
 
     pub fn status(&mut self) -> Result<Status, String> {
@@ -328,6 +443,9 @@ mod tests {
                     result.extend(bytes);
                     session.acknowledge(seq).unwrap();
                 }
+                Output::Size { seq, .. } | Output::Ready { seq } => {
+                    session.acknowledge(seq).unwrap()
+                }
                 Output::Eof => return result,
                 Output::Error { message } => panic!("PTY read failed: {message}"),
             }
@@ -353,6 +471,127 @@ mod tests {
         }
         session.close().unwrap();
         session.close().unwrap(); // Resource cleanup is idempotent.
+    }
+
+    #[test]
+    fn reload_replays_pending_bytes_and_resizes_then_resumes_same_pty() {
+        let (old_output, old_receive) = channel();
+        let mut session = TerminalSession::spawn(20, launch(
+            "import os,time; os.write(1,'before café 日本語 🙂'.encode()); input(); os.write(1,b'after-reload'); time.sleep(60)"
+        ), old_output).unwrap();
+        let Output::Data {
+            seq: old_seq,
+            bytes: original,
+        } = old_receive.recv_timeout(Duration::from_secs(5)).unwrap()
+        else {
+            panic!("Expected initial output")
+        };
+        session.resize(103, 31).unwrap();
+        let (new_output, new_receive) = channel();
+        let attached = session.attach(new_output).unwrap();
+        assert_eq!(
+            (attached.id, attached.cols, attached.rows, attached.replay),
+            (20, 80, 24, true)
+        );
+        assert!(
+            session.acknowledge(old_seq).is_err(),
+            "Old frontend released new attachment's pending data"
+        );
+        let mut replayed = Vec::new();
+        let mut resized = false;
+        loop {
+            let event = new_receive.recv_timeout(Duration::from_secs(5)).unwrap();
+            let (seq, ready) = match event {
+                Output::Data { seq, bytes } => {
+                    replayed.extend(bytes);
+                    (seq, false)
+                }
+                Output::Size { seq, cols, rows } => {
+                    assert_eq!((cols, rows), (103, 31));
+                    resized = true;
+                    (seq, false)
+                }
+                Output::Ready { seq } => (seq, true),
+                _ => panic!("Unexpected replay event"),
+            };
+            assert!(
+                new_receive.recv_timeout(Duration::from_millis(25)).is_err(),
+                "Replay bypassed ACK backpressure"
+            );
+            session.acknowledge(seq).unwrap();
+            if ready {
+                break;
+            }
+        }
+        assert_eq!(replayed, original);
+        assert!(resized);
+        session
+            .queue_input(b"\n".to_vec())
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        let mut live = Vec::new();
+        while !live
+            .windows(b"after-reload".len())
+            .any(|bytes| bytes == b"after-reload")
+        {
+            let Output::Data { seq, bytes } =
+                new_receive.recv_timeout(Duration::from_secs(5)).unwrap()
+            else {
+                panic!("Expected live output")
+            };
+            live.extend(bytes);
+            session.acknowledge(seq).unwrap();
+        }
+        assert!(matches!(session.status().unwrap(), Status::Running));
+        session.close().unwrap();
+    }
+
+    #[test]
+    fn reload_replays_acknowledged_output_after_process_exit() {
+        let (output, receive) = channel();
+        let mut session = TerminalSession::spawn(
+            21,
+            launch("import os; os.write(1,'finished café 🙂'.encode())"),
+            output,
+        )
+        .unwrap();
+        let original = drain(&session, &receive);
+        let (output, receive) = channel();
+        session.attach(output).unwrap();
+        let mut replayed = Vec::new();
+        let mut ready = false;
+        loop {
+            match receive.recv_timeout(Duration::from_secs(5)).unwrap() {
+                Output::Data { seq, bytes } => {
+                    replayed.extend(bytes);
+                    session.acknowledge(seq).unwrap();
+                }
+                Output::Ready { seq } => {
+                    ready = true;
+                    session.acknowledge(seq).unwrap();
+                }
+                Output::Eof => break,
+                _ => panic!("Unexpected replay event"),
+            }
+        }
+        assert!(ready);
+        assert_eq!(replayed, original);
+        session.close().unwrap();
+    }
+
+    #[test]
+    fn replay_budget_discards_incomplete_history_instead_of_replaying_partial_vt() {
+        let mut flow = Flow::default();
+        for _ in 0..(REPLAY_LIMIT / CHUNK + 2) {
+            flow.record(Record::Data(vec![b'x'; CHUNK]));
+        }
+        assert!(flow.incomplete);
+        assert!(flow.journal.is_empty());
+        assert_eq!(flow.journal_bytes, 0);
+        flow.record(Record::Size(100, 30));
+        assert!(flow.journal.is_empty());
     }
 
     #[test]

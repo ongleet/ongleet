@@ -21,7 +21,7 @@ In 0.4.0, `write` parses into WASM synchronously; its optional completion callba
 ## Ownership and limits
 
 - `TerminalSession` owns the PTY and child independently of React. Commands address a session ID. This provides a boundary that can later move behind a daemon; no daemon exists here.
-- Rust reads raw bytes in chunks up to 16 KiB. Exactly one data envelope can remain unacknowledged in the Tauri channel. Reading stops until the frontend ACKs, so pressure propagates back to the PTY producer. There is no accumulating raw-output log.
+- Rust reads raw bytes in chunks up to 16 KiB. Exactly one data envelope can remain unacknowledged in the Tauri channel. Reading stops until the frontend ACKs, so pressure propagates back to the PTY producer. A raw byte/resize replay journal is bounded by a 4 MiB per-session accounting budget; replay holds at most one additional bounded copy plus a live chunk. On overflow the journal is discarded and reconnection explicitly warns that the previous screen cannot be restored. No output is persisted to disk.
 - JavaScript converts byte arrays directly to Uint8Array. It does not decode each chunk independently. Ghostty retains partial UTF-8 and VT parser state.
 - Scrollback is configured to 2,000 lines. Input has a 64 KiB frontend budget, 8 KiB native writes, and a bounded one-request native input queue. A dedicated writer avoids holding the session lock while waiting for PTY input space.
 - React keeps one persistent controller per tab, keyed by its stable ID inside its workspace. Container resizing uses ResizeObserver and ignores zero-sized containers. Closing explicitly disposes emulator resources and subscriptions. Tab/workspace selection and reordering change visibility/order rather than mounting new terminals.
@@ -34,10 +34,10 @@ In 0.4.0, `write` parses into WASM synchronously; its optional completion callba
 
 1. Remaining interactive Codex and browser-facing checks are tracked in the native validation checklist. User feedback authorized the sidebar work; builds and engine checks alone still do not certify those behaviors.
 2. The prototype terminates Linux processes sharing the PTY session ID, including separate foreground/background job-control groups, using SIGKILL. This intentionally prioritizes termination over graceful shutdown. A process that escapes with setsid(), delegates to another service, or forks during enumeration can escape. `/proc` enumeration also has PID reuse races. **This does not satisfy version one's no-orphan guarantee.** Stage two needs an enforceable containment strategy, likely a per-terminal cgroup under a delegated user hierarchy, with explicit failure when containment cannot be established. Killing only the shell/process group is insufficient.
-3. The leader is reaped on status polling; PTY handles are finally released on explicit close. Eager, race-safe release and attachment-loss recovery belong to stage two.
+3. The leader is reaped on status polling; PTY handles are finally released on explicit close. Eager, race-safe resource release remains pending. Attachment replacement now reconnects with bounded replay and replaces a lost pending ACK; it also works after reader EOF.
 4. Browser clipboard reads failed with NotAllowedError during user testing. Ctrl+Shift+C/V use Tauri's native clipboard-manager plugin with text-only read/write permissions. Paste still goes through Ghostty's paste API to preserve bracketed paste. The user confirmed the fix works; the broader selection/clipboard checklist remains open.
 5. Hidden painting suppression and independent screen updates pass the automated adapter check. Native workspace switching, selection retention, and flood performance across multiple terminals still require interactive observation.
-6. There is no distribution package, control socket or window hide/reopen flow yet. Closing the window still quits after confirmation. Processes do not survive termination; eligible commands are launched anew at the next startup. No output history is saved.
+6. There is no distribution package, control socket or window hide/reopen flow yet. Closing the window still quits after confirmation. Processes do not survive termination; eligible commands are launched anew at the next startup. No output history is saved to disk.
 
 ## SQLite design
 
@@ -48,3 +48,9 @@ Successful launches set the resume flag. Explicit Stop/close and observed exit c
 An exclusive file lock prevents a second metadata writer and duplicate restoration launches. It does not yet forward requests or focus the existing window. The application data directory is owner-only and the database is mode 0600. A missing workspace directory is retained without being recreated.
 
 No fallback terminal engine is selected. If ghostty-web fails the native gate, report the failing behavior and options before proceeding.
+
+## Frontend reconnection
+
+The connect operation reuses an existing live or exited session by stable tab ID before considering a new launch. Stopped tabs only launch when explicitly eligible under the existing startup policy. Attach replaces the channel, retires its pending acknowledgement and issues monotonically increasing sequence numbers, so a stale ACK cannot advance the replacement connection. Replay and live output share a single-envelope ACK window. A failed channel send pauses the reader until reattachment rather than discarding the PTY reader.
+
+Replay rebuilds Ghostty from complete raw history and recorded resize events at its original dimensions. The frontend suppresses outbound input, terminal query responses and automatic resizing until a sequenced ready marker, then fits the visible container. The raw journal is transport recovery data, not a second terminal emulator or authoritative plain-text screen. Rendering, selection and scroll position are not checkpointed. Resize recording follows native processing order; timing relative to output already queued in the WebView is not a pixel-perfect frontend checkpoint. Native WebKitGTK reload/Codex behavior still requires interactive acceptance.

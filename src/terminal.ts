@@ -9,7 +9,7 @@ import { createEngineLoader } from './engine-loader';
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
 export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: number };
-type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'eof' } | { type: 'error'; message: string };
+type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'size'; seq: number; cols: number; rows: number } | { type: 'ready'; seq: number } | { type: 'eof' } | { type: 'error'; message: string };
 
 export class TerminalFrontend {
   private term?: Terminal;
@@ -21,28 +21,31 @@ export class TerminalFrontend {
   private queuedInput = 0;
   private visible = true;
   private fitVisible?: () => void;
+  private replaying = false;
+  private disposed = false;
 
   constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {}
 
   setVisible(visible: boolean) {
     this.visible = visible;
     if (!visible) { this.term?.blur(); return; }
-    this.fitVisible?.();
+    if (!this.replaying) this.fitVisible?.();
     const term = this.term;
     if (term?.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
   }
 
-  async start() {
+  async start(startIfStopped = true) {
     if (this.id !== undefined) throw new Error('Close the existing session first.');
     let ghostty: Ghostty;
     try {
       ghostty = await loadGhostty();
     } catch (cause) {
       const hint = import.meta.env.DEV
-        ? ' Check that the development server is running: mise exec -- npm run tauri -- dev. Then try Start again.'
-        : ' Try Start again. If the problem persists, restart the application.';
+        ? ' Check that the development server is running: mise exec -- npm run tauri -- dev. Then close this tab and open a new one.'
+        : ' Close this tab and open a new one. If the problem persists, restart the application.';
       throw new Error(`Unable to load the terminal engine.${hint}`, { cause });
     }
+    if (this.disposed) return;
     this.disposeEmulator();
     const term = new Terminal({ ghostty, cols: 80, rows: 24, fontSize: 14, scrollback: SCROLLBACK_LINES,
       theme: { background: '#12161d', foreground: '#dce3ec', cursor: '#a3e6cc', selectionBackground: '#355369' } });
@@ -52,7 +55,7 @@ export class TerminalFrontend {
     term.open(this.host);
     if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible);
     const fitVisible = () => {
-      if (this.visible && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
+      if (!this.replaying && this.visible && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
     };
     this.fitVisible = fitVisible;
     fitVisible();
@@ -60,7 +63,7 @@ export class TerminalFrontend {
     this.observer.observe(this.host);
     this.subscriptions.push(term.onData(text => this.send(text)));
     this.subscriptions.push(term.onResize(({ cols, rows }) => {
-      if (this.id !== undefined) void invoke('resize', { id: this.id, cols, rows }).catch(this.error);
+      if (this.id !== undefined && !this.replaying) void invoke('resize', { id: this.id, cols, rows }).catch(this.error);
     }));
     // ghostty-web's custom handler returns true when it handled the event.
     term.attachCustomKeyEventHandler(event => {
@@ -72,11 +75,11 @@ export class TerminalFrontend {
       return false;
     });
     const output = new Channel<Output>();
-    let started: Promise<number>;
+    let started: Promise<number | undefined>;
     output.onmessage = event => {
       void (async () => {
         const id = await started;
-        if (this.id !== id || this.term !== term) return;
+        if (id === undefined || this.id !== id || this.term !== term || this.disposed) return;
         if (event.type === 'data') {
           // Preserve byte boundaries all the way into Ghostty's stateful VT
           // parser. Never decode each PTY chunk as an independent UTF-8 string.
@@ -84,18 +87,31 @@ export class TerminalFrontend {
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.
           await invoke('acknowledge', { id, seq: event.seq });
+        } else if (event.type === 'size') {
+          term.resize(event.cols, event.rows);
+          await invoke('acknowledge', { id, seq: event.seq });
+        } else if (event.type === 'ready') {
+          this.replaying = false;
+          fitVisible();
+          await invoke('acknowledge', { id, seq: event.seq });
         } else if (event.type === 'error') this.error(event.message);
       })().catch(this.error);
     };
-    started = invoke<number>('start', { tabId: this.tabId, cols: term.cols, rows: term.rows, output }).then(id => {
-      // Output may arrive before invoke resolves. Publish the ID before any
-      // waiting output handler resumes, or the first ACK would be lost.
-      this.id = id;
-      return id;
+    type Attachment = { id: number; cols: number; rows: number; replay: boolean };
+    started = invoke<Attachment | null>('connect', { tabId: this.tabId, cols: term.cols, rows: term.rows, output, startIfStopped }).then(connection => {
+      if (!connection || this.disposed || this.term !== term) return undefined;
+      this.replaying = connection.replay;
+      if (connection.replay) term.resize(connection.cols, connection.rows);
+      // Publish the ID before waiting output handlers resume.
+      this.id = connection.id;
+      return connection.id;
     });
     try {
-      this.id = await started;
-      this.changed({ state: 'running' });
+      await started;
+      if (this.disposed || this.id === undefined) return;
+      const status = await invoke<ProcessStatus>('status', { id: this.id });
+      if (this.disposed || this.term !== term) return;
+      this.changed(status);
       fitVisible();
       this.poll(this.id);
       if (this.visible) term.focus();
@@ -116,7 +132,7 @@ export class TerminalFrontend {
   }
 
   private send(text: string) {
-    if (this.id === undefined) return;
+    if (this.id === undefined || this.replaying || this.disposed) return;
     // Count UTF-8 bytes, including bracketed-paste framing. Reject a whole
     // oversized paste instead of silently truncating commands.
     if (text.length > 65536) { this.error('Input queue limit (64 KiB) exceeded'); return; }
@@ -177,6 +193,8 @@ export class TerminalFrontend {
   }
 
   dispose() {
+    this.disposed = true;
+    this.id = undefined;
     clearTimeout(this.timer);
     this.disposeEmulator();
     // Detaching a frontend must not implicitly kill a backend process.

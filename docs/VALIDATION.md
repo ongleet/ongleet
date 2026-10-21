@@ -12,7 +12,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY, workspace, tab and SQLite tests | Passed: sixteen tests, including YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
+| Native PTY, workspace, tab and SQLite tests | Passed: twenty-one tests, including PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Desktop connection from agent environment | Blocked: `Gtk.init_check()` returned false |
 | Launch compiled Tauri executable from agent environment | Blocked: GTK backend initialization failed before opening a window |
@@ -73,3 +73,13 @@ Remaining native checks and process-containment blockers must be resolved before
 2. Add a type with literal arguments, environment overrides and a directory override. Reopen the picker without restarting; verify the new type and launch configuration. Existing tabs must remain unchanged.
 3. Try malformed YAML, duplicate IDs, unknown fields/kinds and conflicting shell/executable modes. Verify a clear error without replacing the file or launching a tab. Fix it and retry.
 4. Close a running tab with confirmation; verify no configured-tab reopening selector remains. Restart and verify the existing resume policy is preserved.
+
+## WebView reload acceptance
+
+1. Run Bash and Codex, note shell PIDs and print distinct Unicode markers. Reload the WebView (not the whole Rust application). Verify the same processes remain, screens return without the existing-session error, and input/copy/paste/resize still work.
+2. Reload during continuous output and repeatedly with hidden workspaces/tabs. Verify output resumes once, siblings stay independent, and no terminal query replies or commands are sent during replay.
+3. Let a command exit with a nonzero code and reload. Verify output and exit code return without relaunching it. Legacy stopped configurations must remain stopped.
+4. Exceed the 4 MiB journal budget, then reload. Expect an explicit previous-screen-unavailable warning and continuing process/new output. No silently truncated byte history may be replayed. A full-screen program may need to redraw/reinitialize its modes.
+5. Resize while producing output and before reload; inspect normal/alternate screens. Selection and scroll position are not restored. Compare memory during repeated reloads and floods. The engine replay check covers cold engines with split Unicode, normal/alternate buffers, modes and resize events; it does not certify native rendering or interactive Codex.
+
+Exploratory engine evidence: comparing replay terminals created in the same WASM instance after the flood/resize/free test produced a stale-cell mismatch. The cold-instance replay test matches a WebView reload's fresh WASM context and passes. Heap reuse after terminal disposal remains a separate compatibility check; this change does not certify it.

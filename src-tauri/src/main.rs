@@ -29,6 +29,22 @@ fn with_session<T>(
 }
 
 #[tauri::command]
+fn connect(
+    state: State<Sessions>,
+    tab_id: u64,
+    cols: u16,
+    rows: u16,
+    output: Channel<Output>,
+    start_if_stopped: bool,
+) -> Result<Option<session::Attachment>, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .connect(tab_id, cols, rows, output, start_if_stopped)
+}
+
+#[tauri::command]
 fn start(
     state: State<Sessions>,
     tab_id: u64,
@@ -224,6 +240,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             start,
+            connect,
             input,
             acknowledge,
             resize,
