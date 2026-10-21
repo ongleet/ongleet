@@ -9,6 +9,7 @@
     "tauri": "tauri",
     "check:host": "bash scripts/check-host.sh",
     "check:wasm": "node scripts/check-wasm.mjs",
+    "check:terminal-reuse": "node scripts/check-terminal-reuse.mjs",
     "check:rendering": "node scripts/check-rendering.mjs",
     "check:engine-loader": "node scripts/check-engine-loader.mjs"
   },

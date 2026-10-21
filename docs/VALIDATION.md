@@ -4,7 +4,7 @@ Do not mark a check passed without observing it. Record the OS, display backend,
 
 ## Current evidence
 
-Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; ghostty-web 0.4.0.
+Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland desktop with XWayland available; ghostty-web 0.4.0; interactive Codex UI 0.163.0 in the observed Wayland run.
 
 | Check | Result |
 | --- | --- |
@@ -14,16 +14,18 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
 | Native PTY, workspace, tab and SQLite tests | Passed: twenty-one tests, including PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
-| Desktop connection from agent environment | Blocked: `Gtk.init_check()` returned false |
-| Launch compiled Tauri executable from agent environment | Blocked: GTK backend initialization failed before opening a window |
-| Outside-sandbox desktop attempt | Rejected by session approval policy |
-| Interactive Codex in the Tauri WebKitGTK window | Pending |
-| Native keyboard, selection, clipboard, scrolling, mouse, resize | Pending |
+| Native Tauri/WebKitGTK automation | Observed outside the sandbox on Wayland and X11/XWayland, using isolated temporary metadata/configuration |
+| Interactive Codex in the Tauri WebKitGTK window | Wayland: startup, prompt/cursor editing, slash menu, resize/reload and unsent draft preservation passed; no task submitted. Multiline paste, approval prompts, scrolling and interrupt behavior remain manual |
+| Native keyboard, Unicode and clipboard | Shell typing, arrows, wide characters/emoji, deliberately split UTF-8 and native Ctrl+Shift+C/V passed on Wayland and X11. Pointer selection, IME, primary selection and broader key coverage remain pending |
+| Native curses and resizing | Actual PTY dimensions, alternate-screen replay and return to normal passed on Wayland and X11 |
+| Native live output and reuse | Repeated hidden-stream reloads, unchanged shell PID, suppression of replayed DSR replies, exited output replay, ten tab create/close cycles and clean post-stress screen passed on Wayland and X11 |
+| Mouse reporting | Blocked: Wayland curses received no click reports. ghostty-web 0.4.0 browser handlers implement selection but no PTY mouse-report forwarding was found. X11 pointer automation timed out; subsequent X11 run explicitly skipped it |
+| Shared WASM reuse | Reproduced closed-tab cell leakage. Explicit RIS after initial fitting and immediate canvas redraw fixes the observed case; thirty shared-engine cycles and native post-flood checks pass |
 | Clipboard user test | Native plugin fix confirmed working by the user |
 | Workspace sidebar, terminal tabs and persistence | Implemented: durable definitions/openings and selective command restart; native acceptance pending |
 | Hidden-window output and CLI | Not implemented; later stages |
 
-The earlier desktop-access failures describe the initial sandboxed environment. Desktop initialization now succeeds outside the sandbox. This is not a claim that all interactive checks have passed.
+The earlier desktop-access failures were sandbox limitations. Current native observations are from 2026-10-21. The terminal validation gate remains open because mouse reporting is blocked and the remaining interactive checks are incomplete.
 
 ## Interactive procedure
 
@@ -80,6 +82,31 @@ Remaining native checks and process-containment blockers must be resolved before
 2. Reload during continuous output and repeatedly with hidden workspaces/tabs. Verify output resumes once, siblings stay independent, and no terminal query replies or commands are sent during replay.
 3. Let a command exit with a nonzero code and reload. Verify output and exit code return without relaunching it. Legacy stopped configurations must remain stopped.
 4. Exceed the 4 MiB journal budget, then reload. Expect an explicit previous-screen-unavailable warning and continuing process/new output. No silently truncated byte history may be replayed. A full-screen program may need to redraw/reinitialize its modes.
-5. Resize while producing output and before reload; inspect normal/alternate screens. Selection and scroll position are not restored. Compare memory during repeated reloads and floods. The engine replay check covers cold engines with split Unicode, normal/alternate buffers, modes and resize events; it does not certify native rendering or interactive Codex.
+5. Resize while producing output and before reload; inspect normal/alternate screens. Selection and scroll position are not restored. Compare memory during repeated reloads and floods. The engine replay check now covers a reused WASM instance after flood/free as well as a fresh reload instance, with split Unicode, normal/alternate buffers, modes and resize events. Native evidence is recorded separately above.
 
-Exploratory engine evidence: comparing replay terminals created in the same WASM instance after the flood/resize/free test produced a stale-cell mismatch. The cold-instance replay test matches a WebView reload's fresh WASM context and passes. Heap reuse after terminal disposal remains a separate compatibility check; this change does not certify it.
+## Reproduce the native checks
+
+Use an isolated bundled build rather than the user's running dev window:
+
+```bash
+mise exec -- npm run build -- --mode native-validation
+mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --skip-mouse --skip-codex
+```
+
+Install Ubuntu's `webkitgtk-webdriver` package or supply `--driver /path/to/WebKitWebDriver`. The observed run used matching version 2.52.6, downloaded/extracted under `/tmp` without a system installation. Python uses only its standard library. Run outside a restrictive sandbox with access to the desktop. Wayland uses `/run/user/<uid>`; X11 was tested through XWayland on the same Wayland desktop, not a separate Xorg session.
+
+The harness creates private temporary app data/config/cache, uses the real Tauri application and IPC, drives native WebDriver keyboard/pointer input, and reads bounded snapshots from the existing Ghostty controller. The diagnostic bridge is imported only in Vite's explicit `native-validation` mode and is absent from normal bundles. It never controls the user's existing window. Clipboard checks back up and restore the desktop content; an unavailable/custom clipboard backup skips those checks explicitly. Test-owned processes are identified by a unique inherited marker and cleaned up even after failure; this harness cleanup does not establish the application's general no-orphan guarantee. No shell or Codex configuration is edited and no Codex task is submitted.
+
+Each run prints its report path and keeps diagnostics under `/tmp/terminal-native-validation-*`. Exit 0 means the selected automated checks passed, exit 1 indicates a failure, and exit 2 explicitly reports unresolved blockers. Both completed runs currently return 2 due to mouse reporting or an explicitly skipped pointer check. Do not treat this as a passing whole-stage gate.
+
+Restore a normal frontend bundle afterward:
+
+```bash
+mise exec -- npm run build
+```
+
+The complete Wayland run observed 150,000 + 100,000 + 100,000 output lines, scrollback at most 2,000 lines, an explicit 4 MiB replay-overflow warning, and tab-switch interactions of about 22–75 ms during output. Debug-build WebKit WebProcess RSS was approximately 371 MiB before floods, then 383, 370 and 364 MiB after each closed flood tab. Native app RSS was approximately 197 MiB before and 201 MiB afterward. These are finite-run measurements including runtime caches, not a proof of a global memory bound or release-build performance. X11 independently completed the same output/reuse checks with pointer automation explicitly skipped.
+
+The original stale-cell check failed on the first newly allocated terminal after freeing a filled terminal (`ALT CLOSED` appeared in a blank row). Resetting before fitting was insufficient in native stress checks: fitting can reuse additional cells. Production now resets at the initial fitted size before connecting output, then redraws immediately. The thirty-cycle shared-engine regression and the native single-line post-stress probe independently check that only the new terminal's output appears. This fixes the observed reuse failure without replacing Ghostty or adding an emulator.

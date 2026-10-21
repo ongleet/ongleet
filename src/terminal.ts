@@ -2,7 +2,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
-import { consumeOutput, SCROLLBACK_LINES } from './byte-transport';
+import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from './byte-transport';
 import { suppressHiddenRendering } from './render-visibility';
 import { createEngineLoader } from './engine-loader';
 
@@ -23,8 +23,21 @@ export class TerminalFrontend {
   private fitVisible?: () => void;
   private replaying = false;
   private disposed = false;
+  private unregisterValidation?: () => void;
 
-  constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {}
+  constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {
+    if (import.meta.env.MODE === 'native-validation') {
+      void import('./native-validation').then(({ registerTerminal }) => {
+        if (this.disposed) return;
+        this.unregisterValidation = registerTerminal(this.tabId, {
+          state: () => ({ sessionId: this.id, replaying: this.replaying, cols: this.term?.cols, rows: this.term?.rows,
+            scrollback: this.term?.wasmTerm?.getScrollbackLength(), alternate: this.term?.wasmTerm?.isAlternateScreen() }),
+          snapshot: () => this.snapshot(),
+          selectAll: () => this.term?.selectAll(),
+        });
+      });
+    }
+  }
 
   setVisible(visible: boolean) {
     this.visible = visible;
@@ -59,6 +72,10 @@ export class TerminalFrontend {
     };
     this.fitVisible = fitVisible;
     fitVisible();
+    initializeTerminal(term);
+    // Clear the canvas immediately too; do not display recycled cells until
+    // the library's next animation frame catches up with the reset VT state.
+    if (term.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
     this.observer = new ResizeObserver(fitVisible);
     this.observer.observe(this.host);
     this.subscriptions.push(term.onData(text => this.send(text)));
@@ -194,6 +211,7 @@ export class TerminalFrontend {
 
   dispose() {
     this.disposed = true;
+    this.unregisterValidation?.();
     this.id = undefined;
     clearTimeout(this.timer);
     this.disposeEmulator();

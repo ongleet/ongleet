@@ -23,7 +23,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 
 ## Terminal invariants
 
-- Ghostty's VT engine and the browser renderer are separate layers. WASM alone does not provide rendering, input, or selection. Verify behavior under WebKitGTK, not only Chromium or the standalone engine.
+- Ghostty's VT engine and the browser renderer are separate layers. Native validation found mouse-report forwarding missing in ghostty-web 0.4.0; keep this blocker explicit until a browser adapter is implemented and tested. WASM alone does not provide rendering, input, or selection. Verify behavior under WebKitGTK, not only Chromium or the standalone engine.
+- Initialize new Ghostty emulators with RIS after the initial container fit and redraw before connecting output; shared WASM allocation reuse otherwise exposed closed-tab cells. Never reset live emulators during navigation or routine resizing.
 - Keep PTY ownership in Rust behind a terminal-session boundary independent of React. Do not recreate emulators during ordinary renders or navigation. Do not implement a daemon in version one.
 - Launch executables with argument arrays. Shell syntax requires an explicit shell-command mode. Inherit the normal process environment and apply only explicit overrides.
 - Preserve raw bytes across IPC, including split UTF-8 and escape sequences. Use bounded queues and backpressure through frontend consumption; a bounded reader queue alone does not bound Tauri's pending messages.
@@ -61,6 +62,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `config/tab-types.yaml` and `src-tauri/src/tab_types.rs`: default YAML launch types and validated user configuration, reloaded for New tab. Existing openings keep independent SQLite configuration.
 - `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
+- `scripts/check-native.py` and `src/native-validation.ts`: isolated WebKitGTK automation and mode-gated bounded diagnostics; never target the user's live app.
+- `scripts/check-terminal-reuse.mjs`: shared-WASM create/free/resize regression.
 - `scripts/terminal-probe.py`: interactive Unicode, flood, keyboard, mouse, and alternate-screen probes.
 
 ## Verification
@@ -71,6 +74,7 @@ Run checks appropriate to the change:
 mise exec -- npm run check:host
 mise exec -- npm run build
 mise exec -- npm run check:wasm
+mise exec -- npm run check:terminal-reuse
 mise exec -- npm run check:rendering
 mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Ghostty } from 'ghostty-web';
-import { consumeOutput, SCROLLBACK_LINES, MAX_OUTPUT_CHUNK } from '../src/byte-transport.ts';
+import { consumeOutput, initializeTerminal, SCROLLBACK_LINES, MAX_OUTPUT_CHUNK } from '../src/byte-transport.ts';
 
 // Exercise the production byte adapter against the actual pinned WASM, not a
 // simulated terminal. This does not certify rendering or WebKitGTK input.
@@ -49,10 +49,11 @@ try {
 
 // Reload rebuilds the existing engine from a bounded native byte/resize journal.
 // Check the screen and modes, including split UTF-8 and alternate-screen state.
-const replayEngine = await Ghostty.load(`data:application/wasm;base64,${wasm.toString('base64')}`);
-const live = replayEngine.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
+const live = ghostty.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
 const reloadedEngine = await Ghostty.load(`data:application/wasm;base64,${wasm.toString('base64')}`);
 const reloaded = reloadedEngine.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
+initializeTerminal(live);
+initializeTerminal(reloaded);
 const journal = [];
 function recordText(text) {
   for (const byte of encoder.encode(text)) {

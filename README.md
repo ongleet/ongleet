@@ -78,6 +78,7 @@ Ordinary React renders do not recreate the terminal. Closing a session asks for 
 ```bash
 mise exec -- npm run build
 mise exec -- npm run check:wasm
+mise exec -- npm run check:terminal-reuse
 mise exec -- npm run check:rendering
 mise exec -- npm run check:engine-loader
 mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline
@@ -93,3 +94,9 @@ Use [the native validation checklist](docs/VALIDATION.md) before proceeding to t
 ## Development server unavailable
 
 The development WebView loads terminal WASM lazily when a terminal frontend connects. If Vite has stopped, an already-open window can still display its interface but cannot fetch the terminal engine. Start the application with `mise exec -- npm run tauri -- dev`, which starts both Vite and the Rust app. After a temporary asset-load failure, a new tab retries instead of retaining the failed engine request. If restarting the whole development app, close the previous window using its confirmation flow first. Installed builds load their bundled assets and do not require Vite.
+
+## Native stability checks
+
+The repeatable [native validation procedure](docs/VALIDATION.md#reproduce-the-native-checks) runs an isolated bundled Tauri application through WebKitGTK WebDriver, using temporary metadata instead of your saved workspaces. It covers reload/reconnection, hidden output, native clipboard shortcuts, actual PTY resizing, repeated tab creation and unsent Codex prompt editing. A special frontend build exposes bounded diagnostics only for that test mode; normal builds contain no validation bridge.
+
+Current blocker: ghostty-web 0.4.0's browser layer does not forward mouse reports to terminal applications. WASM mouse-mode support alone is insufficient. Native runs record this explicitly and return exit code 2; the full terminal validation gate is not complete. Closed-tab cell reuse was reproduced and the app now resets new emulators after their initial fit before attaching output. No terminal engine was replaced.

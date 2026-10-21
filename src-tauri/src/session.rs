@@ -260,7 +260,7 @@ impl TerminalSession {
         flow.pending = flow.journal.clone().into();
         if flow.incomplete {
             let _ = flow.output.as_ref().unwrap().send(Output::Error {
-                message: "Previous terminal screen unavailable: the 4 MiB reload replay limit was exceeded. The process is still running; only new output is shown.".into(),
+                message: "Previous terminal screen unavailable: the 4 MiB reload replay limit was exceeded. The terminal session is retained; only new output is shown.".into(),
             });
         }
         flow.pending.push_back(Record::Ready);

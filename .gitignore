@@ -3,3 +3,5 @@ dist/
 target/
 src-tauri/gen/
 .validation/
+__pycache__/
+*.pyc
