@@ -48,7 +48,7 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .tab-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 26px; padding: 3px; border: 0; background: transparent; color: #9cabbf; }
 .tab-icon:last-child { margin-right: 4px; }
 .tab-close { font-size: 20px; line-height: 1; }
-.tab-close:hover:not(:disabled) { background: #563039; color: #ffc5c5; }
+.tab-close:hover:not(:disabled) { color: #ffc5c5; }
 .tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 select { min-width: 0; width: 100%; font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }
 h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
@@ -70,3 +70,10 @@ dialog p { margin: 0; }
 .sidebar-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; touch-action: none; z-index: 10; }
 .sidebar-resizer:hover, .sidebar-resizer:focus-visible { background: #a3e6cc66; }
 .sidebar-resize-overlay { position: fixed; inset: 0; z-index: 40; cursor: col-resize; user-select: none; }
+
+.workspace-row > button:hover:not(:disabled), .tab-item > button:hover:not(:disabled) { background: transparent; }
+.workspace-row:has(.workspace-choice:hover:not(:disabled), .workspace-grip:hover:not(:disabled)),
+.tab-item:has([role="tab"]:hover:not(:disabled)) { background: #303e50; }
+.workspace-row.selected:has(.workspace-choice:hover:not(:disabled), .workspace-grip:hover:not(:disabled)),
+.tab-item.selected:has([role="tab"]:hover:not(:disabled)) { background: #30494a; }
+.workspace-menu-trigger:hover:not(:disabled), .workspace-grip:hover:not(:disabled) { color: #dce3ec; }
