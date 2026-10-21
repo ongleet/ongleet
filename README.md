@@ -4,7 +4,7 @@ A native Linux terminal workspace preview with a compact workspace sidebar and *
 
 Workspace/tab metadata, ordering and selection are saved transactionally. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
-Each workspace has a vertical **⋮** menu for editing and deletion. Drag its grip to reorder; the drop indicator shows the insertion point. Keyboard users can use Move up/down in the menu or Alt+Up/Down while the grip is focused. Deletion removes saved workspace/tab metadata and terminates its sessions after confirmation; the directory stays untouched.
+Each workspace has a vertical **⋮** menu for editing and deletion. Drag its grip to reorder; the drop indicator shows the insertion point. Keyboard users can use Alt+Up/Down while the grip is focused. Deletion removes saved workspace/tab metadata and terminates its sessions after confirmation; the directory stays untouched.
 
 The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git integration, or agent orchestration.
 

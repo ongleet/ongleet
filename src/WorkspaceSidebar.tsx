@@ -22,7 +22,8 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, stat
   useLayoutEffect(() => {
     if (menuId === null) return;
     const rect = trigger()?.getBoundingClientRect();
-    if (rect) setMenuPosition({ left: Math.max(8, Math.min(rect.right - 180, window.innerWidth - 188)), top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 180)) });
+    const height = menuRef.current?.offsetHeight ?? 90;
+    if (rect) setMenuPosition({ left: Math.max(8, Math.min(rect.right - 180, window.innerWidth - 188)), top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - height - 8)) });
     menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }, [menuId]);
 
@@ -110,8 +111,6 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, stat
         if (event.key === 'Tab') setMenuId(null);
       }}>
       <button role="menuitem" onClick={() => { setMenuId(null); edit(menuWorkspace); }}>Edit workspace</button>
-      <button role="menuitem" disabled={menuWorkspace.displayOrder === 0} onClick={() => move(menuWorkspace, menuWorkspace.displayOrder - 1)}>Move up</button>
-      <button role="menuitem" disabled={menuWorkspace.displayOrder === workspaces.length - 1} onClick={() => move(menuWorkspace, menuWorkspace.displayOrder + 1)}>Move down</button>
       <div role="separator" />
       <button role="menuitem" className="danger" onClick={() => { setMenuId(null); remove(menuWorkspace); }}>Delete workspace</button>
     </div>, document.body)}
