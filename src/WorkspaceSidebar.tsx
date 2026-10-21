@@ -90,6 +90,7 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, crea
           <button className="workspace-choice" aria-current={selectedId === workspace.id ? 'page' : undefined} disabled={disabled}
             title={workspace.baseDirectory} onClick={() => { setMenuId(null); select(workspace.id); }}>
             <span className="workspace-name">{workspace.name}</span>
+            <span className="workspace-directory">{workspace.baseDirectory}</span>
           </button>
           <button id={`workspace-menu-${workspace.id}`} className="workspace-menu-trigger" disabled={disabled}
             aria-label={`Actions for ${workspace.name}`} aria-haspopup="menu" aria-expanded={menuId === workspace.id}

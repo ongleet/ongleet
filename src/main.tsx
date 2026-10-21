@@ -134,7 +134,6 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
     void mutate('select_tab', { id }).then(selected => { if (selected) document.getElementById(`tab-${id}`)?.focus(); });
   }
   return <section className="workspace-pane" hidden={!visible} aria-label={workspace.name}>
-    <header className="workspace-heading"><div><h1>{workspace.name}</h1><p title={workspace.baseDirectory}>{workspace.baseDirectory}</p></div></header>
     <div className="tab-bar">
       <div role="tablist" aria-label={`${workspace.name} terminals`} className="tab-list" onDragLeave={event => {
         if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setTabDrop(null);

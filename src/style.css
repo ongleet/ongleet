@@ -20,7 +20,7 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .workspace-row.drop-before::before, .workspace-row.drop-after::after { content: ''; position: absolute; height: 2px; background: #a3e6cc; left: 0; right: 0; pointer-events: none; }
 .workspace-row.drop-before::before { top: -3px; }
 .workspace-row.drop-after::after { bottom: -3px; }
-.workspace-choice { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; text-align: left; border: 0; background: transparent; padding: 10px 3px; }
+.workspace-choice { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: stretch; gap: 3px; text-align: left; border: 0; background: transparent; padding: 10px 3px; }
 .workspace-grip, .workspace-menu-trigger { display: flex; flex-shrink: 0; align-items: center; justify-content: center; border: 0; background: transparent; color: #94a3b7; padding: 7px 4px; }
 .workspace-grip { cursor: grab; }
 .workspace-grip:active { cursor: grabbing; }
@@ -29,10 +29,11 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .workspace-menu button { display: block; width: 100%; border: 0; background: transparent; text-align: left; padding: 8px; }
 .workspace-menu [role="separator"] { height: 1px; background: #45546a; margin: 4px 0; }
 .workspace-menu .danger { color: #ffb1b1; }
+.workspace-directory { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #9cabbf; }
 .workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .workspace-pane, .tab-terminal { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.tab-bar { display: flex; gap: 8px; padding: 0 14px; border-bottom: 1px solid #354051; }
+.tab-bar { display: flex; gap: 8px; padding: 8px 14px 0; border-bottom: 1px solid #354051; }
 .tab-bar > button { flex-shrink: 0; margin-bottom: 5px; }
 .tab-bar > select { width: auto; max-width: 210px; min-width: 100px; margin-bottom: 5px; }
 .tab-list { display: flex; min-width: 0; flex: 1; gap: 4px; overflow-x: auto; }
@@ -50,11 +51,7 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .tab-close:hover:not(:disabled) { background: #563039; color: #ffc5c5; }
 .tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 select { min-width: 0; width: 100%; font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }
-.workspace-heading { display: flex; gap: 12px; align-items: center; padding: 18px 20px 14px; }
 h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
-.workspace-heading > div { min-width: 0; }
-.workspace-heading p { color: #9cabbf; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-heading output { margin-left: auto; white-space: nowrap; color: #a3e6cc; }
 label { display: grid; gap: 6px; flex: 1; min-width: 130px; color: #b6c3d4; }
 .terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 8px 14px; }
 .error { padding: 10px 14px; background: #562b32; overflow-wrap: anywhere; }
@@ -67,6 +64,6 @@ dialog form { display: grid; gap: 16px; }
 dialog h2 { font-size: 18px; margin: 0; }
 dialog p { margin: 0; }
 .dialog-actions { display: flex; justify-content: end; gap: 8px; }
-@media (max-width: 760px) { .sidebar { width: 180px; min-width: 150px; } .workspace-heading { padding: 12px; } }
+@media (max-width: 760px) { .sidebar { width: 180px; min-width: 150px; } }
 
 .tab-type-options { display: grid; gap: 8px; margin: 16px 0; }
