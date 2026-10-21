@@ -6,6 +6,8 @@ use std::{
     path::Path,
 };
 
+pub mod external;
+
 const DEFAULTS: &str = include_str!("../../config/actions.yaml");
 const MAX_BYTES: u64 = 65_536;
 
@@ -51,11 +53,21 @@ pub fn parse_config(text: &str) -> Result<Config, String> {
         {
             return Err("Actions require unique nonempty IDs and nonempty names".into());
         }
-        if template.kind != "terminal" {
+        if !matches!(template.kind.as_str(), "terminal" | "command") {
             return Err(format!("Unsupported action kind: {}", template.kind));
         }
         let launch = &template.config;
-        launch.validate()?;
+        let mut validation = launch.clone();
+        if template.kind == "command"
+            && validation
+                .cwd_override
+                .as_ref()
+                .is_some_and(|s| s.contains("{{"))
+        {
+            // The resolved path is validated again immediately before launch.
+            validation.cwd_override = None;
+        }
+        validation.validate()?;
         if launch.shell_command.is_some() {
             if launch.executable.is_some()
                 || !launch.args.is_empty()

@@ -212,11 +212,40 @@ fn create_tab(
         .into_iter()
         .find(|t| t.id == action_id)
         .ok_or("Action is unavailable")?;
+    if template.kind != "terminal" {
+        return Err("External actions cannot open a tab".into());
+    }
     state.0.lock().map_err(|e| e.to_string())?.create_typed_tab(
         workspace_id,
         template.name,
         template.config,
     )
+}
+
+#[tauri::command]
+async fn run_external_action(
+    app: tauri::AppHandle,
+    state: State<'_, Sessions>,
+    workspace_id: u64,
+    action_id: String,
+) -> Result<u32, String> {
+    let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let prepared = registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .prepare_external(workspace_id, &action_id, &directory)?;
+        actions::external::launch(
+            prepared,
+            Arc::new(move |exit| {
+                use tauri::Emitter;
+                let _ = app.emit("external-action-exited", exit);
+            }),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -542,6 +571,7 @@ fn run() -> Result<(), String> {
             reorder_workspace,
             close_workspace,
             create_tab,
+            run_external_action,
             actions,
             select_tab,
             rename_tab,

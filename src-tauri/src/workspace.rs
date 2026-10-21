@@ -195,8 +195,8 @@ impl WorkspaceRegistry {
         // Validate the YAML before changing metadata. Each opening owns its copy.
         let action = crate::actions::load_workgroup(config_directory, group)?
             .into_iter()
-            .next()
-            .ok_or("Workgroup has no actions")?;
+            .find(|action| action.kind == "terminal")
+            .ok_or("Workgroup needs a terminal action to initialize a workspace")?;
         self.insert_workspace(group, name, directory, Some((action.name, action.config)))
     }
 

@@ -7,13 +7,13 @@ type Action = { id: string; name: string; kind: string; config: {
   executable: string | null; args: string[]; env: Record<string, string>;
   cwdOverride: string | null; shellCommand: string | null;
 } };
-type Draft = { id: string; name: string; mode: 'executable' | 'shell'; executable: string;
+type Draft = { id: string; name: string; kind: string; mode: 'executable' | 'shell'; executable: string;
   args: string; env: string; cwd: string; shell: string };
 type Settings = { env: Record<string, string>; actions: Action[] };
 type EnvRow = { id: string; name: string; value: string };
 const envRows = (env: Record<string, string>): EnvRow[] => Object.entries(env).map(([name, value], index) => ({ id: `env-${index}`, name, value }));
 type View = 'general' | 'actions' | 'yaml';
-const drafts = (actions: Action[]): Draft[] => actions.map(action => ({ id: action.id, name: action.name,
+const drafts = (actions: Action[]): Draft[] => actions.map(action => ({ id: action.id, name: action.name, kind: action.kind,
   mode: action.config.shellCommand === null ? 'executable' : 'shell', executable: action.config.executable ?? '',
   args: JSON.stringify(action.config.args), env: JSON.stringify(action.config.env),
   cwd: action.config.cwdOverride ?? '', shell: action.config.shellCommand ?? '' }));
@@ -23,7 +23,7 @@ function actionsFrom(draft: Draft[]): Action[] {
     const env: unknown = JSON.parse(action.env);
     if (!Array.isArray(args) || !args.every(value => typeof value === 'string')) throw new Error(`${action.name}: arguments must be a JSON array of strings.`);
     if (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every(value => typeof value === 'string')) throw new Error(`${action.name}: environment must be a JSON object of strings.`);
-    return { id: action.id, name: action.name, kind: 'terminal', config: {
+    return { id: action.id, name: action.name, kind: action.kind, config: {
       executable: action.mode === 'executable' ? action.executable : null, args,
       env: env as Record<string, string>, cwdOverride: action.cwd.trim() || null,
       shellCommand: action.mode === 'shell' ? action.shell : null,
@@ -93,7 +93,7 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
     try {
       const text = view === 'actions' ? await invoke<string>('format_actions', { config: settingsFromForm() }) : yaml;
       await invoke('save_workgroup_actions', { id: workgroup.id, yaml: text });
-      setYaml(text); setDirty(false); setNotice('Actions saved. New openings will use these settings.');
+      setYaml(text); setDirty(false); setNotice('Actions saved. New launches will use these settings.');
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
   }
@@ -130,7 +130,7 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
       </form>
     </section>
     <section id="settings-panel-actions" role="tabpanel" aria-labelledby="settings-actions" hidden={view !== 'actions'} className="action-form">
-      <p className="muted">The first action starts automatically in new workspaces. Changes apply to new openings.</p>
+      <p className="muted">The first terminal action starts automatically in new workspaces. External commands open applications without a tab.</p>
       <section className="common-env" aria-label="Common environment variables">
         <h3>Common environment variables</h3>
         <p className="muted">Shared by all actions in this workgroup. Action-specific overrides take precedence. Changes apply to future launches.</p>
@@ -144,6 +144,8 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
       {draft.map((action, index) => <fieldset key={action.id} disabled={busy}>
         <legend>{index + 1}. {action.name || 'New action'}</legend>
         <label>Name<input aria-label="Action name" value={action.name} onChange={event => patch(action.id, { name: event.target.value })} /></label>
+        <label>Action type<select aria-label="Action type" value={action.kind} onChange={event => patch(action.id, { kind: event.target.value })}><option value="terminal">Terminal tab</option><option value="command">External command</option></select></label>
+        {action.kind === 'command' && <p className="muted">Runs independently of workspace tabs. Arguments and directory support {'{{workspace.path}}'}, {'{{workspace.name}}'} and {'{{workgroup.path}}'}. Output is discarded. Use WORKSPACE_PATH and WORKGROUP_PATH environment variables in shell-command mode.</p>}
         <label>Launch mode<select value={action.mode} onChange={event => patch(action.id, { mode: event.target.value as Draft['mode'] })}><option value="executable">Executable + arguments</option><option value="shell">Shell command</option></select></label>
         {action.mode === 'executable' ? <>
           <label>Executable<input aria-label="Executable" value={action.executable} onChange={event => patch(action.id, { executable: event.target.value })} /></label>
@@ -157,12 +159,12 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
           <button type="button" disabled={draft.length <= 1} onClick={() => { setDraft(current => current.filter(item => item.id !== action.id)); setDirty(true); setNotice(''); }}>Remove action</button>
         </div>
       </fieldset>)}
-      <button type="button" disabled={busy || draft.length >= 100} onClick={() => { setDraft(current => [...current, { id: `action-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`, name: 'New action', mode: 'executable', executable: 'bash', args: '[]', env: '{}', cwd: '', shell: '' }]); setDirty(true); setNotice(''); }}>Add action</button>
+      <button type="button" disabled={busy || draft.length >= 100} onClick={() => { setDraft(current => [...current, { id: `action-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`, name: 'New action', kind: 'terminal', mode: 'executable', executable: 'bash', args: '[]', env: '{}', cwd: '', shell: '' }]); setDirty(true); setNotice(''); }}>Add action</button>
     </section>
     <section id="settings-panel-yaml" role="tabpanel" aria-labelledby="settings-yaml" hidden={view !== 'yaml'} className="action-yaml">
       <label htmlFor="workgroup-actions-yaml">Actions (YAML)</label>
       <textarea id="workgroup-actions-yaml" spellCheck={false} maxLength={65536} value={yaml} disabled={busy || !loaded} onChange={event => { setYaml(event.target.value); setDirty(true); setNotice(''); }} />
-      <p className="muted">Use the actions list. The first entry is the default for new workspaces.</p>
+      <p className="muted">Use the actions list. The first terminal entry is the default for new workspaces.</p>
     </section>
     {(error || externalError) && <p role="alert" className="error">{error || externalError}</p>}
     {notice && <p role="status">{notice}</p>}

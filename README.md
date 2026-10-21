@@ -35,7 +35,7 @@ Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in
 
 ## Workgroups and actions (YAML)
 
-A workgroup has a name and an existing root directory. Use the sidebar's top **+** to create one, its **⋮** menu to edit it, and its own **+** to create a workspace inside it. New workspace paths default to that group's root; you can override the directory. Creating a workspace immediately opens and starts the first action listed in its workgroup YAML, using the action name for the tab. Put your preferred default first (Bash in the shipped configuration). Invalid YAML prevents creation instead of leaving an empty placeholder terminal. The workspace editor also lets you move an existing workspace to another workgroup. Group root changes affect the default for future workspaces, while existing workspace paths and running processes stay unchanged.
+A workgroup has a name and an existing root directory. Use the sidebar's top **+** to create one, its **⋮** menu to edit it, and its own **+** to create a workspace inside it. New workspace paths default to that group's root; you can override the directory. Creating a workspace immediately opens and starts the first terminal action listed in its workgroup YAML, using the action name for the tab. Put your preferred default first (Bash in the shipped configuration). Invalid YAML prevents creation instead of leaving an empty placeholder terminal. The workspace editor also lets you move an existing workspace to another workgroup. Group root changes affect the default for future workspaces, while existing workspace paths and running processes stay unchanged.
 
 Click the group's chevron/name to fold or unfold its workspace list. Folding is persisted and only hides sidebar entries: it does not close workspaces, change the active terminal, or interrupt output. Reorder workspaces inside their group with their existing drag grips/keyboard shortcuts. A group can be deleted only after its workspaces have been moved or closed. Workspace/root directories and group configuration files are never deleted by these operations.
 
@@ -93,6 +93,35 @@ Each terminal joins a private cgroup before the requested executable runs. Confi
 
 The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID on both ends, and accepts versioned bounded JSON requests. Ubuntu packaging will provide the desktop launcher; launching the same executable already performs activation.
 
+## External actions
+
+In **Edit workgroup → Actions**, choose **External command** as the action type. Use the **Actions** button beside **New tab** to launch it. New tab lists terminal actions only, and new workspaces automatically start the first terminal action even when external actions precede it. A workgroup needs a terminal action to create a workspace.
+
+External commands launch without a PTY or application tab. They inherit the desktop application's environment, apply common workgroup variables and then action-specific overrides, and default to the workspace directory. Launch errors and nonzero exits are reported while the frontend is connected; stdout/stderr are discarded. Launch acceptance does not guarantee a visible window, particularly for applications that delegate to an already-running instance. Install/configure the external application yourself; actions never modify shell configuration.
+
+Example entries in a workgroup's `actions` list:
+
+```yaml
+  - id: vscode
+    name: Open in VS Code
+    kind: command
+    config:
+      executable: code
+      args: ["--new-window", "{{workspace.path}}"]
+  - id: desktop-terminal
+    name: Open external terminal
+    kind: command
+    config:
+      executable: gnome-terminal
+      args: ["--working-directory={{workspace.path}}"]
+```
+
+Choose an installed executable and its supported arguments. These examples are opt-in; Bash and Codex remain the shipped defaults. Direct executable mode passes argument arrays without shell evaluation. External action executable, arguments, directory override and environment values support `{{workspace.path}}`, `{{workspace.name}}`, `{{workspace.id}}`, `{{workgroup.path}}`, `{{workgroup.name}}`, and `{{workgroup.id}}`. Values come from current workspace metadata at launch, not a shell's current directory. Substitution is a single literal pass, preserving spaces, Unicode, braces and shell metacharacters inside argument values. Unknown or unclosed placeholders fail the launch. Tilde and arbitrary environment-variable expansion are not supported. Placeholder expansion is currently for external actions only.
+
+Shell-command mode instead exposes `WORKSPACE_PATH`, `WORKSPACE_NAME`, `WORKGROUP_PATH`, and `WORKGROUP_NAME` as reserved environment variables; for example `code --new-window "$WORKSPACE_PATH"`. Placeholder syntax is rejected inside `shellCommand` to avoid interpolating a path into executable shell syntax. Arguments containing shell programs are still your responsibility; prefer direct executable mode. The reserved context variables take precedence over configured values of the same names. Common environment values are also interpolated when used by an external action; terminal actions retain their existing literal environment behavior.
+
+External applications are deliberately independent of managed terminal sessions. The app does not terminate them on workspace close or Quit, and never restores them. Their ultimate lifetime also depends on the desktop/session manager or the launched application. The app reaps directly launched children while running and permits at most 64 outstanding direct children; launcher applications may delegate to desktop services. External processes are excluded from terminal running counts and close/Quit confirmations. These actions are explicit launches and are never run automatically on workspace creation or restoration.
+
 ## CLI
 
 Build the frontend with `mise exec -- npm run build`, then both standalone executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. App-launched terminals automatically prepend the application executable directory to PATH, so `terminal-workspace` is available there when built alongside the GUI. This does not change your personal PATH or shell configuration. Explicit workgroup/action PATH overrides take precedence, and shell startup files may replace PATH. Existing terminals retain their environment; open a new tab after restarting the updated app.
@@ -113,7 +142,7 @@ terminal-workspace app status
 terminal-workspace app quit --confirm
 ```
 
-IDs are stable positive integers returned by list/create, not names or list indexes. Reorder positions are zero-based within the workspace's workgroup. Omitting `--directory` on creation uses the group's root; relative paths resolve from the CLI's current directory. Creating a workspace selects it and opens its first configured action through the connected frontend, including when the window is hidden. The response may report `starting` before that frontend launches the process; a disconnected/reloading frontend delays launch. Poll `workspace list` for observed process status. Directory changes affect future launches and never change an existing process's cwd or create/move/delete directories.
+IDs are stable positive integers returned by list/create, not names or list indexes. Reorder positions are zero-based within the workspace's workgroup. Omitting `--directory` on creation uses the group's root; relative paths resolve from the CLI's current directory. Creating a workspace selects it and opens its first configured terminal action through the connected frontend, including when the window is hidden. The response may report `starting` before that frontend launches the process; a disconnected/reloading frontend delays launch. Poll `workspace list` for observed process status. Directory changes affect future launches and never change an existing process's cwd or create/move/delete directories.
 
 Workgroup commands support `create --name NAME --root PATH`, `list`, `rename ID --name NAME`, `directory ID --directory PATH`, `fold ID`, `unfold ID`, and `close ID` (empty groups only). `workspace move ID --workgroup ID` changes membership while preserving running processes. UI and CLI call the same Rust registry methods; successful CLI changes refresh the sidebar automatically.
 

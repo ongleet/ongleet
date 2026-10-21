@@ -98,21 +98,23 @@ function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
   </section>;
 }
 
-function NewTabPicker({ workspaceId, disabled, create }: { workspaceId: number; disabled: boolean; create: (actionId: string) => Promise<boolean> }) {
+function NewTabPicker({ workspaceId, disabled, create, external = false }: { workspaceId: number; disabled: boolean; create: (actionId: string) => Promise<boolean>; external?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   async function open() {
     setError(''); setTypes([]); setLoading(true); dialog.current!.showModal();
-    try { setTypes(await invoke<{ id: string; name: string }[]>('actions', { workspaceId })); }
+    try { setTypes((await invoke<{ id: string; name: string; kind: string }[]>('actions', { workspaceId })).filter(action => action.kind === (external ? 'command' : 'terminal'))); }
     catch (error) { setError(String(error)); }
     finally { setLoading(false); }
   }
   return <>
-    <button disabled={disabled} onClick={() => void open()}>+ New tab</button>
-    <dialog ref={dialog} aria-label="New tab">
-      <h2>New tab</h2>
+    <button disabled={disabled} onClick={() => void open()}>{external ? 'Actions' : '+ New tab'}</button>
+    <dialog ref={dialog} aria-label={external ? "External actions" : "New tab"}>
+      <h2>{external ? "External actions" : "New tab"}</h2>
+      {external && <p className="muted">Launch independently without opening a tab. Closing a workspace or quitting this app does not stop external applications.</p>}
+      {!loading && !error && types.length === 0 && <p>No actions configured. Add one in Edit workgroup → Actions.</p>}
       {loading && <p role="status">Loading actions…</p>}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="tab-type-options">{types.map(type => <button key={type.id} disabled={disabled} onClick={() => {
@@ -188,6 +190,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
         </div>)}
       </div>
       <NewTabPicker workspaceId={workspace.id} disabled={disabled} create={actionId => mutate('create_tab', { workspaceId: workspace.id, actionId })} />
+      <NewTabPicker external workspaceId={workspace.id} disabled={disabled} create={actionId => mutate('run_external_action', { workspaceId: workspace.id, actionId })} />
     </div>
     {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
     {openTabs.map(tab => <TabTerminal key={tab.id} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
@@ -244,6 +247,9 @@ function App() {
     if (!isTauri()) { report('Native backend unavailable. Start with mise exec -- npm run tauri -- dev.'); return; }
     let disposed = false;
     let pending: ReturnType<typeof setTimeout> | undefined;
+    const unlistenExternal = listen<{ name: string; code: number | null; error: string | null }>('external-action-exited', event => {
+      if (event.payload.code !== 0) report(`${event.payload.name}: ${event.payload.error ?? `exited with ${event.payload.code ?? 'a signal'}`}. External command output is not captured.`);
+    });
     const unlisten = listen('workspace-changed', () => {
       clearTimeout(pending);
       pending = setTimeout(() => { if (!disposed) void refresh().catch(report); }, 25);
@@ -253,7 +259,7 @@ function App() {
       const [, defaults] = await Promise.all([refresh(), invoke<[string, string]>('defaults')]);
       if (!disposed) { setDefaults(defaults); setReady(true); }
     }).catch(report);
-    return () => { disposed = true; clearTimeout(pending); ++refreshSequence.current; void unlisten.then(off => off()).catch(report); };
+    return () => { disposed = true; clearTimeout(pending); ++refreshSequence.current; void unlisten.then(off => off()).catch(report); void unlistenExternal.then(off => off()).catch(report); };
   }, [refresh]);
 
   async function quit() {
@@ -270,7 +276,7 @@ function App() {
 
   async function mutate(command: string, args: Record<string, unknown>): Promise<boolean> {
     markBusy(true); setError('');
-    try { await invoke<WorkspaceSnapshot>(command, args); await refresh(); return true; }
+    try { await invoke<unknown>(command, args); await refresh(); return true; }
     catch (error) { report(error); return false; }
     finally { markBusy(false); }
   }

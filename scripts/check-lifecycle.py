@@ -177,7 +177,31 @@ def run(args):
         settings('actions')
         assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
         assert client.js("return Array.from(document.querySelectorAll('.env-row input')).some(input=>input.value==='EDITOR_COMMON')")
+        client.click("//button[normalize-space()='Add action']", 'xpath')
+        field = '#settings-panel-actions fieldset:nth-of-type(2) '
+        client.fill(field + '[aria-label="Action name"]', 'External probe')
+        client.js("const select=document.querySelector(arguments[0]);select.value='command';select.dispatchEvent(new Event('change',{bubbles:true}))", field + '[aria-label="Action type"]')
+        client.fill(field + '[aria-label="Executable"]', '/usr/bin/python3')
+        artifact = directory / 'external-result.json'
+        script = "import os,sys,json; open(" + repr(str(artifact)) + ",'w').write(json.dumps({'args':sys.argv[1:],'cwd':os.getcwd(),'env':os.getenv('WORKSPACE_PATH'),'common':os.getenv('EDITOR_COMMON')}))"
+        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-c',script,'{{workspace.path}}','literal ; $(touch nope)']))
+        client.click("//button[normalize-space()='Save actions']", 'xpath')
+        wait_for(lambda: 'kind: command' in config.read_text(), 'external action saved')
+        settings('yaml')
+        assert 'kind: command' in client.js("return document.querySelector('#workgroup-actions-yaml').value")
+        settings('actions')
+        assert client.js("return document.querySelector(arguments[0]).value", field + '[aria-label="Action type"]') == 'command'
         client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
+        workspace_before = next(w for w in client.invoke('workspaces')['workspaces'] if w['workgroupId'] == group['id'])
+        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='Actions']", 'xpath')
+        client.click("//dialog[@aria-label='External actions']//button[normalize-space()='External probe']", 'xpath')
+        wait_for(artifact.exists, 'external command completed')
+        result = json.loads(artifact.read_text())
+        assert result['args'] == [workspace_before['baseDirectory'],'literal ; $(touch nope)']
+        assert result['cwd'] == workspace_before['baseDirectory'] and result['env'] == result['cwd'] and result['common'] == 'shared'
+        assert len(next(w for w in client.invoke('workspaces')['workspaces'] if w['id'] == workspace_before['id'])['tabs']) == len(workspace_before['tabs'])
+        assert client.state(old_tab)['sessionId'] == session_id and pid_alive(terminal_pid)
+        mark('External action form/YAML persists, launches with literal workspace placeholders and common environment, and creates no tab')
         mark('Common environment form/YAML roundtrip, override precedence and edited command launch preserve the live sibling')
 
     def workgroups_check():

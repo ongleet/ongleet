@@ -297,3 +297,50 @@ fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
         "second"
     );
 }
+
+#[test]
+fn external_actions_resolve_context_without_tabs_and_default_skips_commands() {
+    let data = Directory::new();
+    let config = Directory::new();
+    let root = Directory::new();
+    let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+    let group = registry.workgroups[0].id;
+    let document = serde_json::json!({"env":{"COMMON":"{{workspace.name}}","OVERRIDE":"group"},"actions":[
+        {"id":"editor","name":"Editor","kind":"command","config":{"executable":"code","cwdOverride":"{{workspace.path}}","args":["--new-window","{{workspace.path}}","{{workspace.name}}"],"env":{"OVERRIDE":"action"}}},
+        {"id":"bash","name":"Bash","kind":"terminal","config":{"executable":"bash"}}
+    ]});
+    crate::actions::save_workgroup_yaml(&config.0, group, &document.to_string()).unwrap();
+    let snapshot = registry
+        .create_from_first_action(
+            Some(group),
+            "A ; $(literal) {{braces}}".into(),
+            root.path(),
+            &config.0,
+        )
+        .unwrap();
+    let id = snapshot.selected_id.unwrap();
+    assert_eq!(snapshot.workspaces[0].tabs[0].name, "Bash");
+    let prepared = registry.prepare_external(id, "editor", &config.0).unwrap();
+    assert_eq!(
+        prepared.config.args,
+        vec![
+            "--new-window".to_string(),
+            root.path(),
+            "A ; $(literal) {{braces}}".into()
+        ]
+    );
+    assert_eq!(prepared.config.env["COMMON"], "A ; $(literal) {{braces}}");
+    assert_eq!(prepared.config.env["OVERRIDE"], "action");
+    assert_eq!(prepared.config.env["WORKSPACE_PATH"], root.path());
+    assert_eq!(registry.workspaces[0].tabs.len(), 1);
+    assert!(registry.sessions.is_empty());
+    assert!(registry.prepare_external(id, "bash", &config.0).is_err());
+    assert!(registry.prepare_external(id, "absent", &config.0).is_err());
+    let mut only_external = document;
+    only_external["actions"].as_array_mut().unwrap().pop();
+    crate::actions::save_workgroup_yaml(&config.0, group, &only_external.to_string()).unwrap();
+    assert!(registry
+        .create_from_first_action(Some(group), "No default".into(), root.path(), &config.0)
+        .is_err());
+    assert_eq!(registry.workspaces.len(), 1);
+}
