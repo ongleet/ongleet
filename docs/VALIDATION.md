@@ -12,7 +12,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland desktop with XWayla
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY, workspace, tab and SQLite tests | Passed: twenty-one tests, including PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
+| Native PTY, workspace, tab and SQLite tests | Passed: twenty-six Rust tests plus one helper integration check, including cgroup detached/double-fork cleanup, app-death cleanup, eager PTY release without status polling, blocked input/output closure, and PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Native Tauri/WebKitGTK automation | Observed outside the sandbox on Wayland and X11/XWayland, using isolated temporary metadata/configuration |
 | Interactive Codex in the Tauri WebKitGTK window | Wayland: startup, prompt/cursor editing, slash menu, resize/reload and unsent draft preservation passed; no task submitted. Multiline paste, approval prompts, scrolling and interrupt behavior remain manual |
@@ -23,7 +23,8 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland desktop with XWayla
 | Shared WASM reuse | Reproduced closed-tab cell leakage. Explicit RIS after initial fitting and immediate canvas redraw fixes the observed case; thirty shared-engine cycles and native post-flood checks pass |
 | Clipboard user test | Native plugin fix confirmed working by the user |
 | Workspace sidebar, terminal tabs and persistence | Implemented: durable definitions/openings and selective command restart; native acceptance pending |
-| Hidden-window output and CLI | Not implemented; later stages |
+| Hidden-window lifecycle | Native X11/XWayland close/hide, continued output with same PID, --show, second-launch activation, explicit Quit, socket cleanup and fresh-process restart passed. Wayland terminal regressions pass separately; native Wayland window-manager close remains manual |
+| Full Unix-socket CLI | Pending; only bounded private single-instance show activation is implemented |
 
 The earlier desktop-access failures were sandbox limitations. Current native observations are from 2026-10-21. The terminal validation gate remains open because mouse reporting is blocked and the remaining interactive checks are incomplete.
 
@@ -34,8 +35,8 @@ The earlier desktop-access failures were sandbox limitations. Current native obs
 3. Add a YAML tab type for the Python fixture: executable `/usr/bin/python3`, arguments `["/absolute/path/to/scripts/terminal-probe.py", "unicode"]`. Check the deliberately split bytes produce intact text. Repeat with `flood`; interact with the window during output, scroll afterward, and inspect process memory while repeating it. Engine-only tests do not prove bounded total WebView memory or responsiveness.
 4. Run the same fixture with `screen`. Check alternate screen, arrow and function keys, scrolling/mouse reports, and resize handling. Press q and verify restoration of the normal screen. Test selection with mouse reporting enabled and document the modifier behavior.
 5. Choose Codex from New tab, or type `codex` in the shell. Check prompt editing, Unicode, multiline paste, menus, scrolling, Ctrl+C, approval prompts, full-screen/alternate-screen behavior where used, and resizing while Codex is active. Do not change shell/Codex configuration automatically.
-6. Resize repeatedly and minimize/restore the window. A hidden window must never trigger a zero-size PTY resize. Confirm the terminal state remains intact. Window-close/hide behavior is intentionally not implemented in this prototype.
-7. Close a running session, first cancelling and then confirming. Verify ordinary shell jobs terminate. The escaped-descendant limitation in STACK.md remains a blocker even if this check passes.
+6. Resize repeatedly and minimize/restore the window. A hidden window must never trigger a zero-size PTY resize. Confirm the terminal state remains intact. Close the window and reopen by launching the same binary or using --show. Verify the same shell PID, screen and continuing output. Quit explicitly from the footer when finished.
+7. Close a running session, first cancelling and then confirming. Verify ordinary shell jobs terminate. Repeat with setsid/double-fork children and check the terminal cgroup becomes empty. Lifecycle containment does not include deliberate cgroup migration or externally delegated services.
 8. When a snapshot consumer is available, inspect screen snapshots during normal and alternate-screen use. The inspection button has been removed; the frontend adapter remains. Compare plain text with the display, including wide characters and combining marks. Close the session and confirm screen inspection becomes unavailable. No CLI snapshot support exists yet.
 
 ## Sidebar acceptance
@@ -44,11 +45,11 @@ The earlier desktop-access failures were sandbox limitations. Current native obs
 2. Start a shell or command in both. Print distinct markers, run a continuously emitting command in one, and switch repeatedly. Verify the original process and screen remain, hidden output appears on return, and dimensions remain valid.
 3. Edit names from each workspace's vertical menu, drag the grips to reorder, and test Alt+Up/Down on a focused grip. Verify selection stays associated with the same workspace ID and the bottom sidebar text is absent.
 4. Update a base directory while its shell is running. Confirm its existing working directory is unchanged; close/restart its terminal and verify the new launch uses the updated base directory unless explicitly overridden.
-5. Cancel closure of a workspace containing a session, then confirm it. Verify other workspaces keep running and the closed workspace's directory and contents remain intact. The documented escaped-descendant limitation still applies.
+5. Cancel closure of a workspace containing a session, then confirm it. Verify other workspaces keep running and the closed workspace's directory and contents remain intact. Inherited detached descendants must also terminate.
 6. Verify stopped workspaces close without a process confirmation, closing the selected workspace selects a neighbor, and closing the last workspace shows the creation screen.
-7. Restart and verify saved workspaces, definitions, ordering and selection return. Window close still quits after confirmation; previously running commands start anew on next launch.
+7. Restart and verify saved workspaces, definitions, ordering and selection return. Window close hides without terminating processes; explicit Quit confirms running processes. Previously running commands start anew after an actual application restart.
 
-Remaining native checks and process-containment blockers must be resolved before claiming version-one guarantees.
+Remaining interactive checks and Linux environment coverage must be completed before claiming version-one compatibility.
 
 ## Terminal-tab acceptance
 
@@ -56,7 +57,7 @@ Remaining native checks and process-containment blockers must be resolved before
 2. Close tabs with their crosses; renaming controls are temporarily hidden. Drag running tabs before/after one another; verify original processes/screens remain. Test both directions, cancellation, same-position drops, and ordering with closed definitions still saved. Use arrows/Home/End for selection and Alt+Left/Right for reordering; test names long enough to require horizontal scrolling.
 3. Launch an executable with literal arguments containing shell operators. Confirm no shell evaluation occurs. Then explicitly choose Shell command and verify shell syntax works. Test independent environment overrides in two tabs without saving the inherited environment.
 4. Launch tabs with and without directory overrides. Change the workspace directory and verify existing processes remain unchanged, future launches without overrides follow the new base, and explicit overrides stay fixed. Try a missing launch directory and invalid executable.
-5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. The escaped-descendant limitation remains.
+5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. Verify inherited detached descendants also terminate.
 6. Let a process exit with a nonzero code; verify its tab shows the code and its output stays available. Close it and use New tab for an explicit new launch. Close the last tab and create a replacement from the empty state.
 7. Verify native clipboard, selection, mouse reporting, and alternate-screen restoration after repeatedly switching between tabs. Compare hidden-output flood responsiveness and memory to the single-terminal baseline.
 
@@ -64,9 +65,9 @@ Remaining native checks and process-containment blockers must be resolved before
 
 1. Save several workspaces and definitions, reorder/select them, close one tab, and restart. Verify metadata survives and closed metadata stays closed and New tab offers the YAML types instead of a reopening menu.
 2. Leave one command running, explicitly stop another, let a third exit, and close a fourth tab. Restart: only the formerly running command should launch automatically, once, with a new PID and fresh terminal state. Stopped open tabs remain stopped; closed definitions remain available without running.
-3. Close the window with confirmation while several tabs run. Verify their processes terminate, then launch anew on the next application start. This is command relaunch, not process survival.
+3. Close the window while several tabs run, reopen it and verify the same PIDs and screens. Cancel Quit and verify all sessions remain, then confirm Quit and verify termination. Relaunch the application: eligible commands start as new processes.
 4. With the app closed, remove/rename a workspace directory. Verify restoration keeps the workspace, launch reports an error, and no directory is recreated. Correct the path and start explicitly.
-5. Verify a second application cannot write the same database or duplicate startup launches. It currently reports an error; window forwarding is pending.
+5. Verify a second application cannot write the same database or duplicate startup launches. It must focus/reopen the existing window; concurrent startup must not duplicate sessions.
 6. Inspect the standard app-data database and its permissions. Verify no inherited environment or terminal output was saved, and that new tabs persist their own copy of the YAML launch configuration.
 
 ## YAML tab types acceptance
@@ -110,3 +111,23 @@ mise exec -- npm run build
 The complete Wayland run observed 150,000 + 100,000 + 100,000 output lines, scrollback at most 2,000 lines, an explicit 4 MiB replay-overflow warning, and tab-switch interactions of about 22–75 ms during output. Debug-build WebKit WebProcess RSS was approximately 371 MiB before floods, then 383, 370 and 364 MiB after each closed flood tab. Native app RSS was approximately 197 MiB before and 201 MiB afterward. These are finite-run measurements including runtime caches, not a proof of a global memory bound or release-build performance. X11 independently completed the same output/reuse checks with pointer automation explicitly skipped.
 
 The original stale-cell check failed on the first newly allocated terminal after freeing a filled terminal (`ALT CLOSED` appeared in a blank row). Resetting before fitting was insufficient in native stress checks: fitting can reuse additional cells. Production now resets at the initial fitted size before connecting output, then redraws immediately. The thirty-cycle shared-engine regression and the native single-line post-stress probe independently check that only the new terminal's output appears. This fixes the observed reuse failure without replacing Ghostty or adding an emulator.
+
+## Process ownership and lifecycle checks
+
+Run the Rust PTY integration suite with access to the user cgroup delegation (outside a read-only cgroup sandbox):
+
+```bash
+mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline
+```
+
+Observed on the Ubuntu host above: inherited setsid/double-fork descendants terminate after leader exit; SIGKILL of an isolated application-owner fixture triggers watchdog cleanup; PTY handles/input workers release independently of status polling; confirmed closure completes while stdout has an unacknowledged envelope and stdin is saturated. Missing executables fail at the exec handshake. These tests do not establish support for every Linux distribution, deliberate cgroup migration, or externally delegated services. No directories belonging to workspaces are modified.
+
+After building the native-validation bundle as above, run the native lifecycle scenario:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --driver /path/to/WebKitWebDriver
+```
+
+This scenario requires X11 or XWayland and libX11. It identifies the isolated app through its socket peer PID and sends WM_DELETE_WINDOW only to its own full-sized top-level window. It checks socket mode 0600, oversized request rejection, backend refusal of unconfirmed Quit, cancellation and acceptance of the real Quit confirmation, hidden-window output consumption, activation without duplicate PTYs, explicit Quit, socket removal, unavailable --show behavior, and metadata restoration with a new process. Confirmation uses an accessible in-app dialog: Tauri's dialog plugin replaces window.confirm with an async function, so synchronous window.confirm checks are unsafe. The harness drives both Cancel and Confirm through the real UI. The completed native lifecycle run passed all seven checks, including both choices in the Quit UI; its report is `/tmp/terminal-lifecycle-validation-1_lxnhsb/report.json`. Reports live under /tmp/terminal-lifecycle-validation-*.
+
+The final Wayland report is `/tmp/terminal-native-validation-c4q6gbix/report.json` (nine automated checks, no cleanup survivors). The final Wayland terminal regression includes interactive Codex prompt/menu/resize/reload without submitting a task. Mouse reporting was explicitly skipped at the user's request and remains deferred; exit 2 records that incomplete gate rather than a new lifecycle failure. Native Wayland window-manager hide/reopen and a separately installed desktop launcher remain manual/packaging checks.

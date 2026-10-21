@@ -26,6 +26,7 @@ export class TerminalFrontend {
   private unregisterValidation?: () => void;
 
   constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {
+    document.addEventListener('visibilitychange', this.visibilityChanged);
     if (import.meta.env.MODE === 'native-validation') {
       void import('./native-validation').then(({ registerTerminal }) => {
         if (this.disposed) return;
@@ -39,9 +40,11 @@ export class TerminalFrontend {
     }
   }
 
+  private visibilityChanged = () => this.setVisible(this.visible);
+
   setVisible(visible: boolean) {
     this.visible = visible;
-    if (!visible) { this.term?.blur(); return; }
+    if (!visible || document.hidden) { this.term?.blur(); return; }
     if (!this.replaying) this.fitVisible?.();
     const term = this.term;
     if (term?.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
@@ -66,9 +69,9 @@ export class TerminalFrontend {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
-    if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible);
+    if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible && !document.hidden);
     const fitVisible = () => {
-      if (!this.replaying && this.visible && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
+      if (!this.replaying && this.visible && !document.hidden && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
     };
     this.fitVisible = fitVisible;
     fitVisible();
@@ -211,6 +214,7 @@ export class TerminalFrontend {
 
   dispose() {
     this.disposed = true;
+    document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.unregisterValidation?.();
     this.id = undefined;
     clearTimeout(this.timer);

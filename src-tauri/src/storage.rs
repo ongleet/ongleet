@@ -14,10 +14,20 @@ pub struct Metadata {
     pub tab_sequence: u64,
 }
 
+// Explicit unlock releases ownership even if another thread briefly forked a
+// CLOEXEC duplicate during PTY launch. Closing our descriptor alone can leave
+// that duplicate holding flock until its exec completes.
+struct MetadataLock(File);
+impl Drop for MetadataLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 pub struct MetadataStore {
     connection: Connection,
     // A second writer must not overwrite metadata or relaunch commands twice.
-    _lock: File,
+    _lock: MetadataLock,
 }
 
 impl MetadataStore {
@@ -39,6 +49,7 @@ impl MetadataStore {
                 "Cannot lock workspace metadata; another application instance may be running: {e}"
             )
         })?;
+        let lock = MetadataLock(lock);
         let path = directory.join("workspaces.sqlite3");
         let mut connection =
             Connection::open(&path).map_err(|e| format!("Cannot open workspace database: {e}"))?;
@@ -213,4 +224,26 @@ fn optional_id(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option
                 Box::new(e),
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_store_releases_lock_while_a_fork_duplicate_is_still_open() {
+        let directory =
+            std::env::temp_dir().join(format!("metadata-lock-release-{}", std::process::id()));
+        let store = MetadataStore::open(&directory).unwrap();
+        // A concurrent PTY fork temporarily inherits this same open description
+        // before CLOEXEC takes effect. It must not extend the store's ownership.
+        let inherited = store._lock.0.try_clone().unwrap();
+        assert!(MetadataStore::open(&directory).is_err());
+        drop(store);
+        let replacement = MetadataStore::open(&directory).unwrap();
+        drop(inherited);
+        assert!(MetadataStore::open(&directory).is_err());
+        drop(replacement);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }

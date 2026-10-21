@@ -2,17 +2,27 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("This prototype currently supports Linux only");
 
+mod containment;
+mod instance;
 mod session;
 mod storage;
 mod tab_types;
 mod workspace;
 use session::{Output, Status, TerminalSession};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tauri::{ipc::Channel, Manager, State};
 use workspace::{Snapshot, TabConfig, WorkspaceRegistry};
 
 #[derive(Default)]
-struct Sessions(Mutex<WorkspaceRegistry>);
+struct Sessions(Arc<Mutex<WorkspaceRegistry>>);
+
+#[derive(Default)]
+struct Lifecycle {
+    quitting: AtomicBool,
+}
 
 fn with_session<T>(
     state: &Sessions,
@@ -29,31 +39,43 @@ fn with_session<T>(
 }
 
 #[tauri::command]
-fn connect(
-    state: State<Sessions>,
+async fn connect(
+    state: State<'_, Sessions>,
     tab_id: u64,
     cols: u16,
     rows: u16,
     output: Channel<Output>,
     start_if_stopped: bool,
 ) -> Result<Option<session::Attachment>, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .connect(tab_id, cols, rows, output, start_if_stopped)
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry.lock().map_err(|e| e.to_string())?.connect(
+            tab_id,
+            cols,
+            rows,
+            output,
+            start_if_stopped,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn start(
-    state: State<Sessions>,
+async fn start(
+    state: State<'_, Sessions>,
     tab_id: u64,
     cols: u16,
     rows: u16,
     output: Channel<Output>,
 ) -> Result<u64, String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    guard.start(tab_id, cols, rows, output)
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut guard = registry.lock().map_err(|e| e.to_string())?;
+        guard.start(tab_id, cols, rows, output)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -112,12 +134,20 @@ fn reorder_tab(state: State<Sessions>, id: u64, position: usize) -> Result<Snaps
 }
 
 #[tauri::command]
-fn close_tab(state: State<Sessions>, id: u64, confirmed: bool) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .close_tab(id, confirmed)
+async fn close_tab(
+    state: State<'_, Sessions>,
+    id: u64,
+    confirmed: bool,
+) -> Result<Snapshot, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .close_tab(id, confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -151,9 +181,14 @@ fn open_tab(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
 }
 
 #[tauri::command]
-fn close_session(state: State<Sessions>, id: u64, confirmed: bool) -> Result<(), String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    guard.close_session(id, confirmed)
+async fn close_session(state: State<'_, Sessions>, id: u64, confirmed: bool) -> Result<(), String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut guard = registry.lock().map_err(|e| e.to_string())?;
+        guard.close_session(id, confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -203,21 +238,81 @@ fn reorder_workspace(state: State<Sessions>, id: u64, position: usize) -> Result
 }
 
 #[tauri::command]
-fn close_workspace(state: State<Sessions>, id: u64, confirmed: bool) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .close(id, confirmed)
+async fn close_workspace(
+    state: State<'_, Sessions>,
+    id: u64,
+    confirmed: bool,
+) -> Result<Snapshot, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .close(id, confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn shutdown(state: State<Sessions>, confirmed: bool) -> Result<(), String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .shutdown(confirmed)
+async fn shutdown(state: State<'_, Sessions>, confirmed: bool) -> Result<(), String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .shutdown(confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApplicationStatus {
+    running_sessions: usize,
+    visible: bool,
+}
+
+#[tauri::command]
+fn application_status(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+) -> Result<ApplicationStatus, String> {
+    let mut registry = state.0.lock().map_err(|e| e.to_string())?;
+    let mut running_sessions = 0;
+    for session in registry.sessions.values_mut() {
+        if matches!(session.status()?, Status::Running) {
+            running_sessions += 1;
+        }
+    }
+    Ok(ApplicationStatus {
+        running_sessions,
+        visible: app
+            .get_webview_window("main")
+            .is_some_and(|window| window.is_visible().unwrap_or(false)),
+    })
+}
+
+#[tauri::command]
+async fn quit(
+    app: tauri::AppHandle,
+    state: State<'_, Sessions>,
+    lifecycle: State<'_, Lifecycle>,
+    confirmed: bool,
+) -> Result<(), String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .shutdown(confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    lifecycle.quitting.store(true, Ordering::Release);
+    app.exit(0);
+    Ok(())
 }
 
 #[tauri::command]
@@ -229,16 +324,67 @@ fn defaults() -> Result<(String, String), String> {
 }
 
 fn main() {
+    if containment::run_helper_if_requested() {
+        return;
+    }
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), String> {
+    let context = tauri::generate_context!();
+    let directory = instance::data_directory(&context.config().identifier)?;
+    let socket = instance::socket_path(&directory)?;
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args == ["--help"] {
+        println!("Terminal Workspace\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable");
+        return Ok(());
+    }
+    if !args.is_empty() && args != ["--show"] {
+        return Err("Unknown arguments; use --help".into());
+    }
+    if instance::show(&socket).is_ok() {
+        return Ok(());
+    }
+    if args == ["--show"] {
+        return Err("Application unavailable; --show never starts it".into());
+    }
+    let registry = match WorkspaceRegistry::open(&directory) {
+        Ok(registry) => registry,
+        Err(error) => {
+            // A simultaneous launch may own the lock before its socket is ready.
+            for _ in 0..40 {
+                if instance::show(&socket).is_ok() {
+                    return Ok(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            return Err(error);
+        }
+    };
     tauri::Builder::default()
+        .manage(Sessions(Arc::new(Mutex::new(registry))))
+        .manage(Lifecycle::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| {
-            let directory = app.path().app_data_dir()?;
-            let registry = WorkspaceRegistry::open(&directory).map_err(std::io::Error::other)?;
-            app.manage(Sessions(Mutex::new(registry)));
+        .setup(move |app| {
+            app.manage(
+                instance::Instance::start(socket, app.handle().clone())
+                    .map_err(std::io::Error::other)?,
+            );
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            application_status,
+            quit,
             start,
             connect,
             input,
@@ -263,13 +409,20 @@ fn main() {
             open_tab,
             shutdown
         ])
-        .build(tauri::generate_context!())
-        .expect("Unable to build terminal prototype")
+        .build(context)
+        .map_err(|e| e.to_string())?
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if !app.state::<Lifecycle>().quitting.load(Ordering::Acquire) {
+                    api.prevent_exit();
+                }
+            }
             if let tauri::RunEvent::Exit = event {
+                app.state::<instance::Instance>().stop();
                 if let Ok(mut session) = app.state::<Sessions>().0.lock() {
                     let _ = session.shutdown(true);
                 }
             }
         });
+    Ok(())
 }

@@ -1,9 +1,14 @@
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use crate::containment::{Containment, Handshake};
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
     io::{Read, Write},
-    sync::{mpsc, Arc, Condvar, Mutex},
+    os::fd::{AsRawFd, FromRawFd},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Condvar, Mutex,
+    },
     time::Duration,
 };
 use tauri::ipc::Channel;
@@ -66,6 +71,7 @@ struct Flow {
     incomplete: bool,
     pending: VecDeque<Record>,
     ended: bool,
+    draining: bool,
 }
 
 impl Flow {
@@ -124,17 +130,49 @@ struct Input {
 
 // This boundary owns native resources; React only owns an emulator and attachment.
 // Replay data is bounded and in-memory only; no terminal daemon is involved.
-pub struct TerminalSession {
-    pub id: u64,
-    pid: i32,
-    initial_cols: u16,
-    initial_rows: u16,
+struct Resources {
     master: Option<Box<dyn MasterPty + Send>>,
     input: Option<mpsc::SyncSender<Input>>,
-    child: Box<dyn Child + Send + Sync>,
     status: Status,
+    completed: bool,
+    cleanup_error: Option<String>,
+}
+
+pub struct TerminalSession {
+    pub id: u64,
+    initial_cols: u16,
+    initial_rows: u16,
+    resources: Arc<(Mutex<Resources>, Condvar)>,
+    containment: Arc<Containment>,
+    cancel_input: Arc<AtomicBool>,
     flow: Arc<(Mutex<Flow>, Condvar)>,
     closed: bool,
+}
+
+fn poll_handle(master: &dyn MasterPty) -> Result<std::fs::File, String> {
+    let fd = master
+        .as_raw_fd()
+        .ok_or("PTY file descriptor unavailable")?;
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(unsafe { std::fs::File::from_raw_fd(duplicate) })
+}
+
+fn wait_io(file: &std::fs::File, event: i16) {
+    let mut fd = libc::pollfd {
+        fd: file.as_raw_fd(),
+        events: event,
+        revents: 0,
+    };
+    unsafe {
+        libc::poll(&mut fd, 1, 50);
+    }
 }
 
 impl TerminalSession {
@@ -157,7 +195,15 @@ impl TerminalSession {
         // Prepare all fallible PTY handles before creating the child.
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
         let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-        let mut cmd = CommandBuilder::new(executable);
+        let read_poll = poll_handle(pair.master.as_ref())?;
+        let write_poll = poll_handle(pair.master.as_ref())?;
+        let containment = Arc::new(Containment::create()?);
+        let handshake = Handshake::new()?;
+        let mut cmd = CommandBuilder::new(crate::containment::executable()?);
+        cmd.arg(crate::containment::HELPER_FLAG);
+        cmd.arg(containment.directory());
+        cmd.arg(handshake.socket());
+        cmd.arg(executable);
         cmd.args(launch.args);
         cmd.cwd(launch.cwd);
         cmd.env("TERM", "xterm-256color");
@@ -165,9 +211,15 @@ impl TerminalSession {
         for (key, value) in launch.env {
             cmd.env(key, value);
         }
-        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-        let pid = child.process_id().expect("Unix child has a PID") as i32;
+        let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
+        if let Err(error) = handshake.wait() {
+            let _ = containment.stop();
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        drop(handshake);
         let flow = Arc::new((
             Mutex::new(Flow {
                 output: Some(output),
@@ -175,25 +227,44 @@ impl TerminalSession {
             }),
             Condvar::new(),
         ));
+        let cancel_input = Arc::new(AtomicBool::new(false));
+        let writer_cancel = cancel_input.clone();
         let (input, pending_input) = mpsc::sync_channel::<Input>(1);
-        std::thread::spawn(move || {
+        let writer_thread = std::thread::spawn(move || {
             while let Ok(request) = pending_input.recv() {
-                let result = writer.write_all(&request.bytes).map_err(|e| e.to_string());
-                let failed = result.is_err();
+                let result = (|| {
+                    let mut bytes = request.bytes.as_slice();
+                    while !bytes.is_empty() {
+                        if writer_cancel.load(Ordering::Acquire) {
+                            return Err("Terminal has exited".into());
+                        }
+                        match writer.write(bytes) {
+                            Ok(0) => return Err("PTY input closed".into()),
+                            Ok(n) => bytes = &bytes[n..],
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                wait_io(&write_poll, libc::POLLOUT)
+                            }
+                            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                            Err(error) => return Err(error.to_string()),
+                        }
+                    }
+                    Ok(())
+                })();
                 let _ = request.done.send(result);
-                if failed {
-                    break;
-                }
             }
         });
         let reader_flow = flow.clone();
-        std::thread::spawn(move || {
+        let reader_thread = std::thread::spawn(move || {
+            let mut drained = 0usize;
             let (lock, changed) = &*reader_flow;
             let mut bytes = [0u8; CHUNK];
             loop {
                 // Reading waits for frontend consumption, including replay.
                 let mut state = lock.lock().unwrap();
-                while !state.closed && (state.acked != state.sent || !state.pending.is_empty()) {
+                while !state.closed
+                    && !state.draining
+                    && (state.acked != state.sent || !state.pending.is_empty())
+                {
                     state = changed
                         .wait_timeout(state, Duration::from_secs(1))
                         .unwrap()
@@ -215,11 +286,26 @@ impl TerminalSession {
                         if state.closed {
                             break;
                         }
+                        if state.draining {
+                            drained += n;
+                            if drained > 1024 * 1024 {
+                                if let Some(output) = &state.output {
+                                    let _ = output.send(Output::Error { message: "Post-exit output exceeded the 1 MiB drain limit; remaining output was discarded".into() });
+                                }
+                                state.ended = true;
+                                state.dispatch();
+                                break;
+                            }
+                        }
                         let record = Record::Data(bytes[..n].to_vec());
                         state.record(record.clone());
                         state.pending.push_back(record);
                         state.dispatch();
                     }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        wait_io(&read_poll, libc::POLLIN)
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(e) => {
                         let mut state = lock.lock().unwrap();
                         state.ended = true;
@@ -234,15 +320,68 @@ impl TerminalSession {
                 }
             }
         });
+        let resources = Arc::new((
+            Mutex::new(Resources {
+                master: Some(pair.master),
+                input: Some(input),
+                status: Status::Running,
+                completed: false,
+                cleanup_error: None,
+            }),
+            Condvar::new(),
+        ));
+        let reaper_resources = resources.clone();
+        let reaper_containment = containment.clone();
+        let reaper_flow = flow.clone();
+        let reaper_cancel = cancel_input.clone();
+        std::thread::spawn(move || {
+            let exit = loop {
+                match child.try_wait() {
+                    Ok(Some(exit)) => break Ok(exit),
+                    Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+                    Err(error) => {
+                        let _ = reaper_containment.stop();
+                        break child.wait().map_err(|_| error.to_string());
+                    }
+                }
+            };
+            let cleanup = reaper_containment.stop();
+            reaper_cancel.store(true, Ordering::Release);
+            {
+                let mut resources = reaper_resources.0.lock().unwrap();
+                resources.status = Status::Exited {
+                    code: exit.as_ref().map(|e| e.exit_code()).unwrap_or(1),
+                };
+                resources.input.take();
+                resources.master.take();
+            }
+            {
+                let mut flow = reaper_flow.0.lock().unwrap();
+                flow.draining = true;
+                if let Err(error) = &cleanup {
+                    if let Some(output) = &flow.output {
+                        let _ = output.send(Output::Error {
+                            message: format!("Terminal process cleanup failed: {error}"),
+                        });
+                    }
+                    flow.closed = true;
+                }
+                reaper_flow.1.notify_all();
+            }
+            let _ = writer_thread.join();
+            let _ = reader_thread.join();
+            let mut resources = reaper_resources.0.lock().unwrap();
+            resources.cleanup_error = cleanup.err().or_else(|| exit.err());
+            resources.completed = true;
+            reaper_resources.1.notify_all();
+        });
         Ok(Self {
             id,
-            pid,
             initial_cols: launch.cols,
             initial_rows: launch.rows,
-            master: Some(pair.master),
-            input: Some(input),
-            child,
-            status: Status::Running,
+            resources,
+            containment,
+            cancel_input,
             flow,
             closed: false,
         })
@@ -294,7 +433,11 @@ impl TerminalSession {
             return Err("Input chunk exceeds 8 KiB".into());
         }
         let (done, result) = mpsc::channel();
-        self.input
+        self.resources
+            .0
+            .lock()
+            .map_err(|e| e.to_string())?
+            .input
             .as_ref()
             .ok_or("Terminal is stopped")?
             .try_send(Input { bytes, done })
@@ -306,11 +449,9 @@ impl TerminalSession {
         if cols < 2 || rows == 0 || cols > 1000 || rows > 1000 {
             return Err("Terminal dimensions must be 2..1000 columns and 1..1000 rows".into());
         }
-        self.master
-            .as_ref()
-            .ok_or("Terminal is stopped")?
-            .resize(size(cols, rows))
-            .map_err(|e| e.to_string())?;
+        if let Some(master) = &self.resources.0.lock().map_err(|e| e.to_string())?.master {
+            master.resize(size(cols, rows)).map_err(|e| e.to_string())?;
+        }
         self.flow
             .0
             .lock()
@@ -320,31 +461,40 @@ impl TerminalSession {
     }
 
     pub fn status(&mut self) -> Result<Status, String> {
-        if matches!(self.status, Status::Running) {
-            if let Some(exit) = self.child.try_wait().map_err(|e| e.to_string())? {
-                self.status = Status::Exited {
-                    code: exit.exit_code(),
-                };
-            }
-        }
-        Ok(self.status.clone())
+        Ok(self
+            .resources
+            .0
+            .lock()
+            .map_err(|e| e.to_string())?
+            .status
+            .clone())
     }
 
     pub fn close(&mut self) -> Result<(), String> {
         if self.closed {
             return Ok(());
         }
-        let (lock, changed) = &*self.flow;
-        lock.lock().unwrap().closed = true;
-        changed.notify_all();
-        // portable-pty starts a new session. Include foreground and background
-        // job-control groups, not only the shell's initial process group.
-        // Escaped setsid() descendants remain a documented stage-one blocker.
-        terminate_session(self.pid)?;
-        let _ = self.child.kill();
-        self.input.take();
-        self.master.take();
-        self.child.wait().map_err(|e| e.to_string())?;
+        self.containment.stop()?;
+        self.cancel_input.store(true, Ordering::Release);
+        self.flow.0.lock().unwrap().closed = true;
+        self.flow.1.notify_all();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut resources = self.resources.0.lock().map_err(|e| e.to_string())?;
+        while !resources.completed {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err("Timed out releasing terminal workers".into());
+            }
+            resources = self
+                .resources
+                .1
+                .wait_timeout(resources, remaining)
+                .map_err(|e| e.to_string())?
+                .0;
+        }
+        if let Some(error) = &resources.cleanup_error {
+            return Err(error.clone());
+        }
         self.closed = true;
         Ok(())
     }
@@ -363,44 +513,6 @@ fn size(cols: u16, rows: u16) -> PtySize {
         pixel_width: 0,
         pixel_height: 0,
     }
-}
-
-fn terminate_session(session: i32) -> Result<(), String> {
-    for entry in std::fs::read_dir("/proc")
-        .map_err(|e| e.to_string())?
-        .flatten()
-    {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<i32>().ok())
-        else {
-            continue;
-        };
-        let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
-            continue;
-        };
-        // /proc stat's comm may contain spaces and parentheses; fields after the
-        // last ')' are state, ppid, pgrp, session. This is not ANSI parsing.
-        let Some((_, fields)) = stat.rsplit_once(')') else {
-            continue;
-        };
-        if fields
-            .split_whitespace()
-            .nth(3)
-            .and_then(|s| s.parse::<i32>().ok())
-            == Some(session)
-        {
-            let result = unsafe { libc::kill(pid, libc::SIGKILL) };
-            if result != 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    return Err(error.to_string());
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -670,6 +782,153 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    fn assert_dead(pid: i32) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
+            if stat.as_ref().map_or(true, |s| {
+                s.rsplit_once(')').unwrap().1.trim_start().starts_with('Z')
+            }) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Detached descendant {pid} survived"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn detached_descendants_die_and_resources_release_without_status_polling() {
+        let (output, receive) = channel();
+        let mut session = TerminalSession::spawn(30, launch(
+            "import os,time\nif os.fork()==0:\n os.setsid()\n if os.fork()==0:\n  print(os.getpid(),flush=True); time.sleep(60)\n os._exit(0)\ntime.sleep(.2); os._exit(9)"
+        ), output).unwrap();
+        let group = session.containment.directory().to_owned();
+        let bytes = drain(&session, &receive);
+        let pid = String::from_utf8(bytes).unwrap().trim().parse().unwrap();
+        let (lock, notify) = &*session.resources;
+        let resources = lock.lock().unwrap();
+        let (resources, _) = notify
+            .wait_timeout_while(resources, Duration::from_secs(5), |r| !r.completed)
+            .unwrap();
+        assert!(resources.completed);
+        assert!(resources.master.is_none() && resources.input.is_none());
+        assert!(matches!(resources.status, Status::Exited { code: 9 }));
+        drop(resources);
+        assert_dead(pid);
+        assert!(!group.exists());
+        session.close().unwrap();
+    }
+
+    #[test]
+    fn close_interrupts_unacknowledged_output_and_blocked_input() {
+        let (output, receive) = channel();
+        let mut session = TerminalSession::spawn(
+            31,
+            launch("import os,tty; tty.setraw(0)\nwhile True: os.write(1,b'x'*8192)"),
+            output,
+        )
+        .unwrap();
+        assert!(matches!(
+            receive.recv_timeout(Duration::from_secs(5)).unwrap(),
+            Output::Data { .. }
+        ));
+        let mut pending = Vec::new();
+        for _ in 0..100 {
+            if let Ok(result) = session.queue_input(vec![b'x'; 8192]) {
+                pending.push(result);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(!pending.is_empty());
+        let before = Instant::now();
+        session.close().unwrap();
+        assert!(before.elapsed() < Duration::from_secs(5));
+        for result in pending {
+            assert!(result.recv_timeout(Duration::from_secs(1)).is_ok());
+        }
+        assert!(session.resources.0.lock().unwrap().completed);
+    }
+
+    #[test]
+    fn crash_owner_fixture() {
+        let Ok(path) = std::env::var("TERMINAL_TEST_CRASH_STATE") else {
+            return;
+        };
+        let (output, receive) = channel();
+        let session = TerminalSession::spawn(32, launch(
+            "import os,subprocess,time; child=subprocess.Popen(['/usr/bin/python3','-c','import time; time.sleep(60)'],start_new_session=True); print(child.pid,flush=True); time.sleep(60)"
+        ), output).unwrap();
+        let Output::Data { bytes, .. } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
+        else {
+            panic!("Missing PID")
+        };
+        std::fs::write(
+            path,
+            serde_json::to_vec(&(
+                session.containment.directory(),
+                String::from_utf8(bytes)
+                    .unwrap()
+                    .trim()
+                    .parse::<i32>()
+                    .unwrap(),
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[test]
+    fn application_death_watchdog_kills_detached_children() {
+        struct Owner(std::process::Child);
+        impl Drop for Owner {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let path = std::env::temp_dir().join(format!("terminal-crash-test-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut owner = Owner(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "session::tests::crash_owner_fixture",
+                    "--nocapture",
+                ])
+                .env("TERMINAL_TEST_CRASH_STATE", &path)
+                .spawn()
+                .unwrap(),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (group, pid): (std::path::PathBuf, i32) = loop {
+            if let Ok(bytes) = std::fs::read(&path) {
+                if let Ok(value) = serde_json::from_slice(&bytes) {
+                    break value;
+                }
+            }
+            assert!(Instant::now() < deadline, "Fixture never launched");
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        owner.0.kill().unwrap();
+        owner.0.wait().unwrap();
+        assert_dead(pid);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while group.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "Watchdog did not remove empty cgroup"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

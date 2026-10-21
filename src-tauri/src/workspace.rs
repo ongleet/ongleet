@@ -277,7 +277,12 @@ impl WorkspaceRegistry {
             .find(|(_, s)| s.id == id)
             .map(|(key, _)| *key)
             .ok_or("Session is unavailable")?;
-        if !confirmed {
+        if !confirmed
+            && matches!(
+                self.sessions.get_mut(&key).unwrap().status()?,
+                Status::Running
+            )
+        {
             return Err("Explicit confirmation is required to terminate session processes".into());
         }
         self.sessions.get_mut(&key).unwrap().close()?;
@@ -331,7 +336,14 @@ impl WorkspaceRegistry {
             .iter()
             .filter_map(|tab| self.sessions.get(&tab.id).map(|s| s.id))
             .collect();
-        if !session_ids.is_empty() && !confirmed {
+        if !confirmed
+            && session_ids.iter().any(|id| {
+                self.sessions
+                    .values_mut()
+                    .find(|s| s.id == *id)
+                    .is_some_and(|s| matches!(s.status(), Ok(Status::Running)))
+            })
+        {
             return Err(
                 "Explicit confirmation is required to terminate this workspace's terminal sessions"
                     .into(),
@@ -352,8 +364,14 @@ impl WorkspaceRegistry {
     }
 
     pub fn shutdown(&mut self, confirmed: bool) -> Result<(), String> {
-        if !self.sessions.is_empty() && !confirmed {
-            return Err("Explicit confirmation is required to terminate session processes".into());
+        if !confirmed {
+            for session in self.sessions.values_mut() {
+                if matches!(session.status()?, Status::Running) {
+                    return Err(
+                        "Explicit confirmation is required to terminate session processes".into(),
+                    );
+                }
+            }
         }
         // Persist the last running set before killing processes for app exit.
         // Explicit Stop and tab close clear the flag through their own paths.

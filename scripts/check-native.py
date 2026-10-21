@@ -200,11 +200,9 @@ def run(args):
 
             def close_tab(tab):
                 client.click(f"#tab-{tab} + .tab-close")
-                try:
-                    client.request("POST", "/alert/accept", {})
-                except RuntimeError as error:
-                    if "no such alert" not in str(error):
-                        raise
+                wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]') || !document.getElementById('tab-'+arguments[0])", tab), "close confirmation or exited tab closure")
+                if client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"):
+                    client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
                 wait_for(lambda: client.js("return !document.getElementById('tab-'+arguments[0])", tab), "tab closed")
 
             def mark(description):
@@ -385,7 +383,8 @@ def run(args):
                 report["clipboardRestoreError"] = str(error)
             if client.session:
                 try:
-                    client.invoke("shutdown", {"confirmed": True})
+                    client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
+                    wait_for(lambda: not any(process["name"].startswith("terminal-work") for process in owned_processes(run_dir)), "native application exit", timeout=5)
                     client.request("DELETE", "")
                 except Exception as error:
                     report["cleanupError"] = str(error)

@@ -55,7 +55,7 @@ h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
 label { display: grid; gap: 6px; flex: 1; min-width: 130px; color: #b6c3d4; }
 .terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 8px 14px; }
 .error { padding: 10px 14px; background: #562b32; overflow-wrap: anywhere; }
-footer { color: #95a3b6; font-size: 11px; padding: 8px 20px; border-top: 1px solid #252e3b; }
+footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #95a3b6; font-size: 11px; padding: 8px 20px; border-top: 1px solid #252e3b; }
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; text-align: center; }
 .empty-state p, .muted { color: #9cabbf; line-height: 1.6; }
 dialog { width: min(480px, calc(100vw - 40px)); padding: 24px; background: #1b222d; border: 1px solid #45546a; border-radius: 10px; color: inherit; }

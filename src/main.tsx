@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { TerminalFrontend, type ProcessStatus } from './terminal';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
@@ -12,6 +11,15 @@ type TerminalTab = { id: number; kind: string; isOpen: boolean; resumeOnStart: b
 export type Workspace = { id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
 type WorkspaceSnapshot = { workspaces: Workspace[]; selectedId: number | null };
 type Report = (error: unknown) => void;
+
+function ConfirmationDialog({ message, choose }: { message: string; choose: (confirmed: boolean) => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  return <dialog ref={dialog} aria-label="Confirm action" onCancel={event => { event.preventDefault(); choose(false); }}>
+    <h2>Confirm action</h2><p>{message}</p>
+    <div className="dialog-actions"><button autoFocus onClick={() => choose(false)}>Cancel</button><button onClick={() => choose(true)}>Confirm</button></div>
+  </dialog>;
+}
 
 function WorkspaceEditor({ workspace, initialDirectory, save, dismiss, externalError }: {
   workspace?: Workspace; initialDirectory: string;
@@ -176,6 +184,11 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
 }
 
 function App() {
+  const [confirmation, setConfirmation] = useState<{ message: string; resolve: (value: boolean) => void } | null>(null);
+  function confirm(message: string): Promise<boolean> {
+    return new Promise(resolve => setConfirmation({ message, resolve }));
+  }
+
   const [state, setState] = useState<WorkspaceSnapshot>({ workspaces: [], selectedId: null });
   const [defaults, setDefaults] = useState<[string, string]>(['', '']);
   const [statuses, setStatuses] = useState<Record<number, ProcessStatus | null>>({});
@@ -204,18 +217,19 @@ function App() {
     if (!isTauri()) { report('Native backend unavailable. Start with mise exec -- npm run tauri -- dev.'); return; }
     void Promise.all([invoke<WorkspaceSnapshot>('workspaces'), invoke<[string, string]>('defaults')])
       .then(([state, defaults]) => { setState(state); setDefaults(defaults); setReady(true); }).catch(report);
-    let disposed = false;
-    const unlisten = getCurrentWindow().onCloseRequested(async event => {
-      event.preventDefault();
-      if (busyRef.current || restoringRef.current > 0) { report('Please wait for the current operation to finish before quitting.'); return; }
-      if (!window.confirm('Quit and terminate terminal sessions in all workspaces?')) return;
-      markBusy(true);
-      try { await invoke('shutdown', { confirmed: true }); await getCurrentWindow().destroy(); }
-      catch (error) { report(error); markBusy(false); }
-    });
-    void unlisten.then(off => { if (disposed) off(); });
-    return () => { disposed = true; void unlisten.then(off => off()); };
   }, [markBusy]);
+
+  async function quit() {
+    if (busyRef.current || restoringRef.current > 0) { report('Please wait for the current operation to finish before quitting.'); return; }
+    markBusy(true); setError('');
+    try {
+      const status = await invoke<{ runningSessions: number }>('application_status');
+      const confirmed = status.runningSessions > 0;
+      if (confirmed && !await confirm(`Quit and force-stop ${status.runningSessions} running terminal session(s) and their child processes?`)) return;
+      await invoke('quit', { confirmed });
+    } catch (error) { report(error); }
+    finally { markBusy(false); }
+  }
 
   async function mutate(command: string, args: Record<string, unknown>): Promise<boolean> {
     markBusy(true); setError('');
@@ -229,9 +243,9 @@ function App() {
     <WorkspaceSidebar workspaces={state.workspaces} selectedId={state.selectedId} disabled={disabled} ready={ready}
       create={() => { setError(''); setEditor('new'); }} edit={workspace => { setError(''); setEditor(workspace); }}
       select={id => void mutate('select_workspace', { id })} reorder={(id, position) => mutate('reorder_workspace', { id, position })}
-      remove={workspace => {
-        const hasSessions = workspace.tabs.some(tab => !!statuses[tab.id]);
-        if (!window.confirm(`Delete workspace “${workspace.name}” and its saved tab definitions?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`)) return;
+      remove={async workspace => {
+        const hasSessions = workspace.tabs.some(tab => statuses[tab.id]?.state === 'running');
+        if (!await confirm(`Delete workspace “${workspace.name}” and its saved tab definitions?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`)) return;
         void mutate('close_workspace', { id: workspace.id, confirmed: true }).then(closed => {
           if (closed) setStatuses(previous => { const next = { ...previous }; for (const tab of workspace.tabs) delete next[tab.id]; return next; });
         });
@@ -240,15 +254,16 @@ function App() {
       {error && <div role="alert" className="error">{error}</div>}
       {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
       {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} disabled={disabled} reportStatus={reportStatus} mutate={mutate} markRestoring={markRestoring}
-        closeTab={tab => {
-          const confirmed = !!statuses[tab.id];
-          if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs?`)) return;
+        closeTab={async tab => {
+          const confirmed = statuses[tab.id]?.state === 'running';
+          if (confirmed && !await confirm(`Close “${tab.name}” and terminate its session and jobs?`)) return;
           void mutate('close_tab', { id: tab.id, confirmed }).then(closed => {
             if (closed) setStatuses(previous => { const next = { ...previous }; delete next[tab.id]; return next; });
           });
         }} />)}
-      <footer>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</footer>
+      <footer><span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span><button disabled={!ready || disabled} onClick={() => void quit()}>Quit</button></footer>
     </div>
+    {confirmation && <ConfirmationDialog message={confirmation.message} choose={value => { confirmation.resolve(value); setConfirmation(null); }} />}
     {editor && <WorkspaceEditor key={editor === 'new' ? 'new' : editor.id} workspace={editor === 'new' ? undefined : editor} initialDirectory={defaults[0]} dismiss={() => setEditor(null)} externalError={error}
       save={(name, directory) => mutate(editor === 'new' ? 'create_workspace' : 'update_workspace', { ...(editor === 'new' ? {} : { id: editor.id }), name, directory })} />}
   </main>;

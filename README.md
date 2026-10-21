@@ -1,6 +1,6 @@
 # Terminal workspace preview
 
-A native Linux terminal workspace preview with a compact workspace sidebar and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window hide/reopen, forwarding to an existing instance, the Unix-socket CLI, and Ubuntu packages are still pending.
+A native Linux terminal workspace preview with a compact workspace sidebar and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. The full Unix-socket CLI and Ubuntu packages remain pending.
 
 Workspace/tab metadata, ordering and selection are saved transactionally. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
@@ -26,6 +26,8 @@ sudo apt update
 sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev \
   libgtk-3-dev libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 ```
+
+Terminal launch currently also requires Linux cgroup v2, a writable systemd user delegation at `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service`, `cgroup.kill`, and pidfds. Unsupported systems report a clear launch error; there is currently no weaker fallback. This has been tested on the Ubuntu host recorded in `docs/VALIDATION.md`, not all Linux distributions. macOS support and an optional basic cleanup mode are future work.
 
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
@@ -55,7 +57,7 @@ tab_types:
 
 IDs must be unique; names are shown in the picker. Only `kind: terminal` is supported. `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the workspace base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No workspace setup scripts or shell/Codex configuration changes are performed.
 
-Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a session requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
+Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a running process requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
 
 ## WebView reload
 
@@ -69,9 +71,13 @@ At the user's request, only tabs that were running when the app last closed auto
 
 The database is `workspaces.sqlite3` in Tauri's application data directory, normally `$XDG_DATA_HOME/io.local.terminal-stack-prototype/` or `~/.local/share/io.local.terminal-stack-prototype/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. New tabs persist a copy of their YAML launch configuration.
 
-Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch currently errors instead of focusing the first window. Metadata is saved as changes occur, so this version does not require a manual Save action for workspace/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
+Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch focuses the first window through a private activation socket. Metadata is saved as changes occur, so this version does not require a manual Save action for workspace/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
 
-Ordinary React renders do not recreate the terminal. Closing a session asks for confirmation. **At this stage closing the window quits the prototype after confirmation; it does not yet hide it.** Do not rely on production process-lifecycle guarantees yet.
+Ordinary React renders do not recreate the terminal. Closing the window hides it; terminals keep consuming output. Launch the same binary again to reopen it, or use `src-tauri/target/debug/terminal-workspace-prototype --show`. `--show` fails if the application is unavailable and never starts it. The footer **Quit** action warns before terminating running processes. Reopening a hidden window preserves live processes and screens; restarting after Quit launches eligible commands as fresh processes under the restart policy above.
+
+Each terminal joins a private cgroup before the requested executable runs. Confirmed close and Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. There is no graceful shutdown interval: save application work before confirming. A per-session watchdog also cleans up after application death or command-leader exit. It ends with its session; there is no persistent daemon. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
+
+The activation socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID, and accepts bounded show requests only. Full workspace/terminal CLI commands and JSON CLI output are not implemented yet. Ubuntu packaging will provide the desktop launcher; launching the same executable already performs activation.
 
 ## Checks
 
