@@ -10,7 +10,7 @@
 
 ## Scope and implementation order
 
-This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and SQLite. The current preview persists workspaces, tab definitions/openings, launch settings, ordering, and selection. Window hide/reopen, single-instance activation and explicit Quit are implemented; full CLI and packaging remain pending.
+This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and SQLite. The current preview persists workspaces, tab definitions/openings, launch settings, ordering, and selection. Window hide/reopen, single-instance activation and explicit Quit are implemented; workspace/workgroup/application CLI commands are implemented; terminal-specific CLI and packaging remain pending.
 
 1. Validate the terminal stack inside Tauri's WebKitGTK WebView with interactive Codex, including Wayland where available.
 2. Complete reliable single-terminal lifecycle, process containment, and bounded IPC.
@@ -63,7 +63,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application/window lifecycle.
 - `src-tauri/src/containment.rs`: Linux cgroup containment, exec handshake and session-scoped death watchdog.
-- `src-tauri/src/instance.rs`: private single-instance activation socket; full CLI remains separate work.
+- `src-tauri/src/instance.rs`: private single-instance and bounded control socket; delegates to shared registry operations.
+- `src-tauri/src/control/`: versioned protocol, current-user socket client/paths and GUI dispatcher. `src-tauri/src/cli/` and `bin/terminal-workspace.rs`: headless CLI parsing and JSON/exit-code handling.
 - `scripts/check-lifecycle.py`: isolated X11/XWayland native hide/reopen, activation, Quit and restart checks.
 - `src-tauri/src/workspace.rs`: registry, transactional metadata and workspace operations shared by Tauri commands.
 - `src-tauri/src/workspace/{workgroups,tabs,sessions}.rs`: group metadata, tab operations and terminal lifecycle integration.

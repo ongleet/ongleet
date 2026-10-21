@@ -1,14 +1,16 @@
-//! Single-instance window activation. Full workspace/terminal CLI control is later work.
-use serde::{Deserialize, Serialize};
+//! User-private single-instance and control socket. Registry operations run off GTK.
+pub use crate::control::paths::{data_directory, socket_path};
+use crate::control::{
+    client,
+    protocol::{encode_response, Request, Response, RpcError, REQUEST_LIMIT, VERSION},
+};
+use crate::control_dispatch::{self, Effect};
 use std::{
     fs,
-    io::{Read, Write},
-    os::{
-        fd::AsRawFd,
-        unix::{
-            fs::{FileTypeExt, MetadataExt, PermissionsExt},
-            net::{UnixListener, UnixStream},
-        },
+    io::Write,
+    os::unix::{
+        fs::{FileTypeExt, MetadataExt, PermissionsExt},
+        net::UnixListener,
     },
     path::{Path, PathBuf},
     sync::{
@@ -20,74 +22,16 @@ use std::{
 };
 use tauri::Manager;
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    version: u32,
-    command: String,
-}
-
-pub fn data_directory(identifier: &str) -> Result<PathBuf, String> {
-    let base = match std::env::var_os("XDG_DATA_HOME").filter(|value| !value.is_empty()) {
-        Some(directory) => PathBuf::from(directory),
-        None => PathBuf::from(std::env::var_os("HOME").ok_or("HOME is unavailable")?)
-            .join(".local/share"),
-    };
-    if !base.is_absolute() {
-        return Err("Application data directory must be absolute".into());
-    }
-    Ok(base.join(identifier))
-}
-
-pub fn socket_path(data: &Path) -> Result<PathBuf, String> {
-    let uid = unsafe { libc::geteuid() };
-    let runtime = PathBuf::from(format!("/run/user/{uid}"));
-    let metadata = fs::metadata(&runtime)
-        .map_err(|e| format!("Private user runtime directory unavailable: {e}"))?;
-    if metadata.uid() != uid || metadata.permissions().mode() & 0o077 != 0 {
-        return Err(
-            "User runtime directory must be owned by the current user and mode 0700".into(),
-        );
-    }
-    // Stable across launches and short enough for sockaddr_un even with a long
-    // XDG_DATA_HOME. Separate data directories get separate application instances.
-    let hash = data
-        .as_os_str()
-        .as_encoded_bytes()
-        .iter()
-        .fold(0xcbf29ce484222325u64, |hash, byte| {
-            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
-        });
-    Ok(runtime.join(format!("terminal-workspace-{hash:016x}.sock")))
-}
-
 pub fn show(path: &Path) -> Result<(), String> {
-    let mut stream =
-        UnixStream::connect(path).map_err(|e| format!("Application unavailable: {e}"))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(1)))
-        .map_err(|e| e.to_string())?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(1)))
-        .map_err(|e| e.to_string())?;
-    let request = serde_json::to_vec(&Request {
-        version: 1,
-        command: "show".into(),
-    })
-    .map_err(|e| e.to_string())?;
-    stream.write_all(&request).map_err(|e| e.to_string())?;
-    stream
-        .shutdown(std::net::Shutdown::Write)
-        .map_err(|e| e.to_string())?;
-    let mut response = String::new();
-    stream
-        .take(1024)
-        .read_to_string(&mut response)
-        .map_err(|e| e.to_string())?;
-    if response == "{\"ok\":true}\n" {
+    let response =
+        client::call(path, crate::control::protocol::Command::Show).map_err(|e| e.message)?;
+    if response.ok {
         Ok(())
     } else {
-        Err(format!("Application activation failed: {response}"))
+        Err(response
+            .error
+            .map(|e| e.message)
+            .unwrap_or_else(|| "Activation failed".into()))
     }
 }
 
@@ -120,53 +64,69 @@ impl Instance {
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
-                        let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
-                        let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
-                        let mut size = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-                        if unsafe {
-                            libc::getsockopt(
-                                stream.as_raw_fd(),
-                                libc::SOL_SOCKET,
-                                libc::SO_PEERCRED,
-                                (&mut credentials as *mut libc::ucred).cast(),
-                                &mut size,
-                            )
-                        } != 0
-                            || credentials.uid != unsafe { libc::geteuid() }
-                        {
+                        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+                        if client::verify_peer(&stream).is_err() {
                             continue;
                         }
-                        let mut bytes = Vec::new();
-                        if Read::by_ref(&mut stream)
-                            .take(1025)
-                            .read_to_end(&mut bytes)
-                            .is_err()
-                        {
-                            continue;
-                        }
-                        let request = serde_json::from_slice::<Request>(&bytes);
-                        let accepted = bytes.len() <= 1024
-                            && request.is_ok_and(|request| {
-                                request.version == 1 && request.command == "show"
-                            });
-                        if accepted && !thread_stop.load(Ordering::Acquire) {
-                            let handle = app.clone();
-                            if app
-                                .run_on_main_thread(move || {
+                        let mut effect = Effect::None;
+                        let result = (|| {
+                            let bytes = client::read_message(
+                                &mut stream,
+                                REQUEST_LIMIT,
+                                Duration::from_secs(2),
+                            )?;
+                            let request: Request =
+                                serde_json::from_slice(&bytes).map_err(|_| {
+                                    RpcError::new(
+                                        "invalid_request",
+                                        "Malformed or unsupported request",
+                                    )
+                                })?;
+                            if request.version != VERSION {
+                                return Err(RpcError::new(
+                                    "protocol_error",
+                                    "Unsupported socket protocol version",
+                                ));
+                            }
+                            if thread_stop.load(Ordering::Acquire) {
+                                return Err(RpcError::new(
+                                    "unavailable",
+                                    "Application is shutting down",
+                                ));
+                            }
+                            control_dispatch::handle(&app, request.command)
+                        })();
+                        let response = match result {
+                            Ok((data, next)) => {
+                                effect = next;
+                                Response::success(data)
+                            }
+                            Err(error) => Response::failure(error),
+                        };
+                        let bytes = encode_response(&response);
+                        let _ = stream.write_all(&bytes);
+                        let _ = stream.shutdown(std::net::Shutdown::Write);
+                        match effect {
+                            Effect::None => {}
+                            Effect::Show => {
+                                let handle = app.clone();
+                                let _ = app.run_on_main_thread(move || {
                                     if let Some(window) = handle.get_webview_window("main") {
-                                        let _ = window.show();
+                                        if window.show().is_ok() {
+                                            handle
+                                                .state::<crate::Lifecycle>()
+                                                .visible
+                                                .store(true, Ordering::Release);
+                                        }
                                         let _ = window.unminimize();
                                         let _ = window.set_focus();
                                     }
-                                })
-                                .is_ok()
-                            {
-                                let _ = stream.write_all(b"{\"ok\":true}\n");
+                                });
                             }
-                        } else {
-                            let _ =
-                                stream.write_all(b"{\"ok\":false,\"error\":\"invalid_request\"}\n");
+                            Effect::Quit => {
+                                let handle = app.clone();
+                                let _ = app.run_on_main_thread(move || handle.exit(0));
+                            }
                         }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {

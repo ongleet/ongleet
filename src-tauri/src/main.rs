@@ -4,6 +4,9 @@ compile_error!("This prototype currently supports Linux only");
 
 mod actions;
 mod containment;
+mod control;
+#[path = "control/dispatch.rs"]
+mod control_dispatch;
 mod instance;
 mod session;
 mod storage;
@@ -19,9 +22,17 @@ use workspace::{Snapshot, TabConfig, WorkspaceRegistry};
 #[derive(Default)]
 struct Sessions(Arc<Mutex<WorkspaceRegistry>>);
 
-#[derive(Default)]
 struct Lifecycle {
     quitting: AtomicBool,
+    visible: AtomicBool,
+}
+impl Default for Lifecycle {
+    fn default() -> Self {
+        Self {
+            quitting: AtomicBool::new(false),
+            visible: AtomicBool::new(true),
+        }
+    }
 }
 
 fn with_session<T>(
@@ -496,7 +507,12 @@ fn run() -> Result<(), String> {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window.hide();
+                if window.hide().is_ok() {
+                    window
+                        .state::<Lifecycle>()
+                        .visible
+                        .store(false, Ordering::Release);
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![

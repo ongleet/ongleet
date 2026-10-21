@@ -1,6 +1,6 @@
 # Terminal workspace preview
 
-A native Linux terminal workspace preview with a compact sidebar of **workgroups containing workspaces**, and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. The full Unix-socket CLI and Ubuntu packages remain pending.
+A native Linux terminal workspace preview with a compact sidebar of **workgroups containing workspaces**, and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls workspaces, workgroups and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
 
 Workspace/tab metadata, ordering and selection are saved transactionally. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
@@ -91,7 +91,34 @@ Ordinary React renders do not recreate the terminal. Closing the window hides it
 
 Each terminal joins a private cgroup before the requested executable runs. Confirmed close and Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. There is no graceful shutdown interval: save application work before confirming. A per-session watchdog also cleans up after application death or command-leader exit. It ends with its session; there is no persistent daemon. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
 
-The activation socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID, and accepts bounded show requests only. Full workspace/terminal CLI commands and JSON CLI output are not implemented yet. Ubuntu packaging will provide the desktop launcher; launching the same executable already performs activation.
+The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID on both ends, and accepts versioned bounded JSON requests. Ubuntu packaging will provide the desktop launcher; launching the same executable already performs activation.
+
+## CLI
+
+Build the frontend with `mise exec -- npm run build`, then both standalone executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. The CLI is `src-tauri/target/debug/terminal-workspace`; use `--help` for every command. Until packaging installs it on PATH, substitute that path for `terminal-workspace` in these examples:
+
+```bash
+terminal-workspace workgroup list
+terminal-workspace workspace list
+terminal-workspace workspace create --workgroup 1 --name Example --directory /existing/project
+terminal-workspace workspace rename 2 --name Backend
+terminal-workspace workspace directory 2 --directory /existing/other-project
+terminal-workspace workspace reorder 2 --position 0
+terminal-workspace workspace select 2
+terminal-workspace workspace close 2 --confirm
+terminal-workspace app show
+terminal-workspace app status
+terminal-workspace app quit --confirm
+```
+
+IDs are stable positive integers returned by list/create, not names or list indexes. Reorder positions are zero-based within the workspace's workgroup. Omitting `--directory` on creation uses the group's root; relative paths resolve from the CLI's current directory. Creating a workspace selects it and opens its first configured action through the connected frontend, including when the window is hidden. The response may report `starting` before that frontend launches the process; a disconnected/reloading frontend delays launch. Poll `workspace list` for observed process status. Directory changes affect future launches and never change an existing process's cwd or create/move/delete directories.
+
+Workgroup commands support `create --name NAME --root PATH`, `list`, `rename ID --name NAME`, `directory ID --directory PATH`, `fold ID`, `unfold ID`, and `close ID` (empty groups only). `workspace move ID --workgroup ID` changes membership while preserving running processes. UI and CLI call the same Rust registry methods; successful CLI changes refresh the sidebar automatically.
+
+Successes are JSON on stdout (`{"ok":true,"data":...}`); failures are JSON on stderr (`{"ok":false,"error":{"code":"...","message":"..."}}`). JSON is always enabled; `--json` is accepted explicitly. Help is plain text. Exit codes: 0 success, 2 invalid arguments/request, 3 application unavailable, 4 missing ID, 5 confirmation required, 6 operation failed, 7 permission denied, 8 protocol/size/timeout. Running-workspace closure and Quit require `--confirm`; without it no process is terminated. A timeout can occur after a mutation was committed: check state before retrying a creation.
+
+Ordinary commands never start the application. Only `terminal-workspace app start` starts the sibling GUI executable, or use `app start --executable /path/to/terminal-workspace-prototype`. Existing instances are reused. It needs the same desktop session, user and XDG data directory as the GUI. The CLI itself runs without a display and never opens SQLite. Workspace list includes open tab IDs/names/statuses; direct terminal manipulation, text input and output snapshots remain pending.
+
 
 ## Checks
 

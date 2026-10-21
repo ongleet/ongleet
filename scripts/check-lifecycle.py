@@ -253,12 +253,82 @@ def run(args):
         client.request("POST", "/refresh", {})
         wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "ready after group checks")
 
+    def cli(*arguments, code=0):
+        result = subprocess.run([args.cli, *map(str, arguments)], env=env, capture_output=True, text=True, timeout=40)
+        assert result.returncode == code, (arguments, result.returncode, result.stdout, result.stderr)
+        response = json.loads(result.stdout if code == 0 else result.stderr)
+        assert response['ok'] == (code == 0), response
+        return response.get('data') if code == 0 else response['error']
+
+    def cli_check():
+        path_for_cli = path
+        from concurrent.futures import ThreadPoolExecutor
+        root, other = directory / 'cli-root', directory / 'cli-other'
+        root.mkdir(); other.mkdir()
+        for entry in [root, other]: (entry / 'keep').write_text('unchanged')
+        group = cli('workgroup', 'create', '--name', 'CLI group', '--root', root)
+        gid = group['id']
+        assert any(g['id'] == gid for g in cli('workgroup', 'list')['workgroups'])
+        cli('workgroup', 'rename', gid, '--name', 'CLI renamed')
+        wait_for(lambda: client.js("return document.querySelector('[data-workgroup-id=\"'+arguments[0]+'\"]')?.innerText.includes('CLI renamed')", gid), 'CLI group in sidebar')
+        cli('workgroup', 'directory', gid, '--directory', other)
+        cli('workgroup', 'directory', gid, '--directory', root)
+        # Use a known long-running first action, never the user's configuration.
+        config_path = config / f'workgroups/{gid}'
+        config_path.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(config / 'workgroups/1/actions.yaml', config_path / 'actions.yaml')
+        first = cli('workspace', 'create', '--workgroup', gid, '--name', 'CLI first')
+        wid, tab = first['id'], first['selectedTabId']
+        wait_for(lambda: 'TICK=' in client.screen(tab), 'CLI-created action running without reload')
+        terminal_pid = next(int(line.split('=',1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith('PID='))
+        session = client.state(tab)['sessionId']
+        assert Path(f'/proc/{terminal_pid}/cwd').resolve() == root
+        cli('workspace', 'rename', wid, '--name', 'CLI renamed workspace')
+        wait_for(lambda: client.js("return document.querySelector('.sidebar')?.innerText.includes('CLI renamed workspace')"), 'CLI rename displayed')
+        cli('workspace', 'directory', wid, '--directory', other)
+        assert Path(f'/proc/{terminal_pid}/cwd').resolve() == root
+        cli('workgroup', 'fold', gid)
+        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0])?.hidden", gid), 'CLI fold displayed')
+        cli('workgroup', 'unfold', gid)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            created = list(pool.map(lambda name: cli('workspace','create','--workgroup',gid,'--name',name), ['CLI second','CLI third']))
+        for item in created: wait_for(lambda: 'TICK=' in client.screen(item['selectedTabId']), 'concurrent workspace action running')
+        cli('workspace', 'reorder', created[1]['id'], '--position', 0)
+        ordered = [w for w in cli('workspace', 'list')['workspaces'] if w['workgroupId'] == gid]
+        assert ordered[0]['id'] == created[1]['id']
+        cli('workspace', 'select', wid)
+        wait_for(lambda: client.js("return document.querySelector('.workspace-pane:not([hidden])')?.getAttribute('aria-label')") == 'CLI renamed workspace', 'CLI selection displayed')
+        assert client.state(tab)['sessionId'] == session and pid_alive(terminal_pid)
+        cli('workspace', 'move', wid, '--workgroup', 1)
+        assert client.state(tab)['sessionId'] == session
+        assert cli('workspace','close',wid,code=5)['code'] == 'confirmation_required'
+        assert pid_alive(terminal_pid)
+        assert cli('workspace','select',999999,code=4)['code'] == 'not_found'
+        cli('workspace','reorder',wid,'--position',99999,code=2)
+        cli('workspace','create','--workgroup',gid,'--name','Missing','--directory',root/'missing',code=6)
+        assert not (root/'missing').exists()
+        cli('workspace','close',wid,'--confirm')
+        wait_for(lambda: not pid_alive(terminal_pid), 'CLI close kills owned process')
+        for item in created: cli('workspace','close',item['id'],'--confirm')
+        cli('workgroup','close',gid)
+        wait_for(lambda: not client.js("return !!document.querySelector('[data-workgroup-id=\"'+arguments[0]+'\"]')",gid), 'CLI deletion displayed')
+        assert all(list(path.iterdir()) == [path/'keep'] and (path/'keep').read_text() == 'unchanged' for path in [root,other])
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            assert all(pool.map(lambda _: cli('app','status')['pid'] > 0, range(8)))
+        for payload, error in [(b'x' * 17000,'message_too_large'),(b'{"version":99,"command":"status"}','protocol_error'),(b'{"version":1,"command":"workspace_list","extra":true}','invalid_request')]:
+            with socket.socket(socket.AF_UNIX) as peer:
+                peer.connect(path_for_cli)
+                peer.sendall(payload); peer.shutdown(socket.SHUT_WR)
+                assert json.loads(peer.recv(4096))['error']['code'] == error
+        mark('CLI workspace/workgroup CRUD, concurrent creation, live UI, stable PTYs, structured errors and confirmed cleanup preserve directories')
+
     with (directory / "driver.log").open("w") as log:
         driver = subprocess.Popen([args.driver, "--host=127.0.0.1", f"--port={port}"], env=env, stdout=log, stderr=log)
         try:
             wait_for(lambda: client.request("GET", "/status", session=False), "driver ready")
             pid = connect()
             if args.workgroups: workgroups_check()
+            if args.cli: cli_check()
             if args.replace_executable:
                 application = Path(args.application)
                 retired = directory / "retired-application"
@@ -279,7 +349,7 @@ def run(args):
             with socket.socket(socket.AF_UNIX) as peer:
                 peer.connect(path); peer.sendall(b"x" * 1025); peer.shutdown(socket.SHUT_WR)
                 assert b"invalid_request" in peer.recv(1024)
-            mark("Private mode-0600 socket rejects oversized requests")
+            mark("Private mode-0600 socket rejects malformed requests")
             try: client.invoke("quit", {"confirmed": False})
             except RuntimeError as error: assert "confirmation" in str(error)
             else: raise AssertionError("Unconfirmed Quit accepted")
@@ -294,6 +364,12 @@ def run(args):
             close_window(pid)
             wait_for(lambda: not client.invoke("application_status")["visible"], "window hidden")
             time.sleep(2)
+            if args.cli:
+                assert cli('app','status')['visible'] is False
+                cli('workspace','rename',workspace['id'],'--name','Hidden CLI workspace')
+                wait_for(lambda: client.js("return document.querySelector('.sidebar').innerText.includes('Hidden CLI workspace')"), 'hidden frontend consumes CLI changes')
+                assert cli('app','status')['runningSessions'] == 1
+                cli('app','show')
             assert pid_alive(stream_pid)
             subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
             wait_for(lambda: client.invoke("application_status")["visible"], "window reopened")
@@ -309,14 +385,31 @@ def run(args):
             unavailable = subprocess.run([args.application, "--show"], env=env, capture_output=True, timeout=5)
             assert unavailable.returncode != 0 and b"unavailable" in unavailable.stderr
             mark("Explicit Quit terminates PTY, removes socket; --show fails without starting an app")
+            if args.cli:
+                assert cli('app','status',code=3)['code'] == 'unavailable'
+                assert not Path(path).exists()
             new_pid = connect()
             wait_for(lambda: "TICK=" in client.screen(tab), "formerly running command restarted")
             new_stream = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
             assert new_stream != stream_pid
             assert client.invoke("workspaces")["workspaces"][0]["id"] == workspace["id"]
-            quit_app(new_pid)
+            if args.cli:
+                cli('app','quit',code=5)
+                cli('app','quit','--confirm')
+                wait_for(lambda: not pid_alive(new_pid), 'CLI Quit')
+                client.session = None
+            else:
+                quit_app(new_pid)
             wait_for(lambda: not pid_alive(new_stream), "restored PTY stopped")
             mark("Restart restores metadata and launches a fresh process under the selected resume policy")
+            if args.cli:
+                status = cli('app','start','--executable',args.application)
+                started_pid = status['pid']
+                assert cli('app','start','--executable',args.application)['pid'] == started_pid
+                cli('app','show')
+                cli('app','quit','--confirm')
+                wait_for(lambda: not pid_alive(started_pid), 'explicit CLI-started app Quit')
+                mark('CLI unavailable never auto-starts; explicit start, single instance, show, status and confirmed Quit work')
             report["result"] = "passed"
         except BaseException as error:
             report["result"], report["error"] = "failed", str(error)
@@ -339,6 +432,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cli", help="Path to CLI executable for native shared-state integration checks")
     parser.add_argument("--actions-editor", action="store_true", help="Exercise the workgroup Actions form and YAML editor (with --workgroups)")
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")
     parser.add_argument("--workgroups", action="store_true", help="Also check grouped workspace UI, per-group YAML and fold persistence")

@@ -24,7 +24,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland desktop with XWayla
 | Clipboard user test | Native plugin fix confirmed working by the user |
 | Workspace sidebar, terminal tabs and persistence | Implemented: durable definitions/openings and selective command restart; native acceptance pending |
 | Hidden-window lifecycle | Native X11/XWayland close/hide, continued output with same PID, --show, second-launch activation, explicit Quit, socket cleanup and fresh-process restart passed. Wayland terminal regressions pass separately; native Wayland window-manager close remains manual |
-| Full Unix-socket CLI | Pending; only bounded private single-instance show activation is implemented |
+| Unix-socket CLI | Workspace/workgroup/application commands passed isolated native integration: concurrent creation, stable PTYs, live sidebar updates, confirmations, JSON errors, bounds, permissions, unavailable/explicit start. Terminal commands/input/snapshots remain pending |
 
 The earlier desktop-access failures were sandbox limitations. Current native observations are from 2026-10-21. The terminal validation gate remains open because mouse reporting is blocked and the remaining interactive checks are incomplete.
 
@@ -128,7 +128,7 @@ After building the native-validation bundle as above, run the native lifecycle s
 mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --driver /path/to/WebKitWebDriver
 ```
 
-This scenario requires X11 or XWayland and libX11. It identifies the isolated app through its socket peer PID and sends WM_DELETE_WINDOW only to its own full-sized top-level window. It checks socket mode 0600, oversized request rejection, backend refusal of unconfirmed Quit, cancellation and acceptance of the real Quit confirmation, hidden-window output consumption, activation without duplicate PTYs, explicit Quit, socket removal, unavailable --show behavior, and metadata restoration with a new process. Confirmation uses an accessible in-app dialog: Tauri's dialog plugin replaces window.confirm with an async function, so synchronous window.confirm checks are unsafe. The harness drives both Cancel and Confirm through the real UI. The completed native lifecycle run passed all seven checks, including both choices in the Quit UI; its report is `/tmp/terminal-lifecycle-validation-1_lxnhsb/report.json`. Reports live under /tmp/terminal-lifecycle-validation-*.
+This scenario requires X11 or XWayland and libX11. It identifies the isolated app through its socket peer PID and sends WM_DELETE_WINDOW only to its own full-sized top-level window. It checks socket mode 0600, malformed request rejection, backend refusal of unconfirmed Quit, cancellation and acceptance of the real Quit confirmation, hidden-window output consumption, activation without duplicate PTYs, explicit Quit, socket removal, unavailable --show behavior, and metadata restoration with a new process. Confirmation uses an accessible in-app dialog: Tauri's dialog plugin replaces window.confirm with an async function, so synchronous window.confirm checks are unsafe. The harness drives both Cancel and Confirm through the real UI. The completed native lifecycle run passed all seven checks, including both choices in the Quit UI; its report is `/tmp/terminal-lifecycle-validation-1_lxnhsb/report.json`. Reports live under /tmp/terminal-lifecycle-validation-*.
 
 The final Wayland report is `/tmp/terminal-native-validation-c4q6gbix/report.json` (nine automated checks, no cleanup survivors). The final Wayland terminal regression includes interactive Codex prompt/menu/resize/reload without submitting a task. Mouse reporting was explicitly skipped at the user's request and remains deferred; exit 2 records that incomplete gate rather than a new lifecycle failure. Native Wayland window-manager hide/reopen and a separately installed desktop launcher remain manual/packaging checks.
 
@@ -168,3 +168,20 @@ Observed editor run: `/tmp/terminal-lifecycle-validation-z65jy7vr/report.json` p
 Common environment acceptance: use Actions → Common environment variables to add/remove name/value pairs; switch through YAML and verify root env is preserved. Save, reopen the modal and launch two actions with a shared variable and a conflicting per-action override. The action override must win, normal inherited variables must remain, and values must stay literal. Modify a common value and start a new process: only the new process gets the new value. Reloading/reattaching an existing PTY must not reapply variables. Rust PTY tests exercise precedence, literal/empty values, reload-on-launch, unchanged running environment and metadata persistence without merging common/inherited values into tab definitions.
 
 Observed common-environment run: `/tmp/terminal-lifecycle-validation-c2xafswq/report.json` passed all eleven selected checks, including common-variable form/YAML persistence, per-action override precedence, real command output, and unchanged existing process environment. The parallel Rust suite also exposed an already-offline cgroup read race; cleanup now waits for verified empty/removal on ENODEV rather than reporting a false termination failure, and the full suite passed afterward.
+
+
+## Workspace CLI integration
+
+Build/copy the native-validation GUI as above and build `terminal-workspace` from the same revision. Add `--cli /absolute/path/to/terminal-workspace` to `scripts/check-lifecycle.py`. For example:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --cli /tmp/terminal-cli-validation-client --application /tmp/terminal-cli-validation-app --driver /tmp/terminal-native-tools/extracted/usr/bin/WebKitWebDriver
+```
+
+The harness uses isolated XDG paths and test-owned project directories. It exercises workspace/workgroup creation, listing, renaming, directory updates, selection, moving, local ordering, folding, concurrent creations/requests, live sidebar refresh, preserved PTY identity/cwd, rejected and confirmed process termination, non-existent IDs/directories, directory non-mutation, socket permissions, request size/version/schema errors, hidden-window changes, unavailable errors without auto-start, and explicit start/show/status/Quit. CLI success/error streams are decoded as JSON and exit codes checked. This does not validate terminal CLI operations or output snapshots, which are not implemented.
+
+The initial CLI scenario passed nine checks with no surviving test processes in `/tmp/terminal-lifecycle-validation-sszzp_jw/report.json`. Earlier attempts timed out waiting for the first terminal snapshot; a fresh native-validation rebuild/copy passed. Native test binaries must be isolated copies because subsequent Cargo builds can replace the normal target executable with a different frontend mode.
+
+The combined workgroup/editor/CLI lifecycle run passed all 13 checks with no survivors in `/tmp/terminal-lifecycle-validation-nh0boq2g/report.json`, including workspace changes while the window was hidden and retained live PTYs. The CLI binary links libc/libgcc only, with no GTK/WebKit dependencies at runtime.
+
+Final CLI-only lifecycle recheck passed nine checks with no survivors in `/tmp/terminal-lifecycle-validation-06r2v_oq/report.json` after response serialization was capped at the wire budget. Rust checks passed 33 application tests, four CLI/protocol/socket tests and one helper integration test; normal frontend production build and Cargo check passed.

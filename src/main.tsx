@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '@tauri-apps/api/event';
 import { TerminalFrontend, type ProcessStatus } from './terminal';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
 import { WorkgroupEditor } from './WorkgroupEditor';
@@ -225,11 +226,35 @@ function App() {
     });
   }, []);
 
+  const refreshSequence = useRef(0);
+  const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
+    const snapshot = await invoke<WorkspaceSnapshot>('workspaces');
+    if (sequence === refreshSequence.current) {
+      setState(snapshot);
+      const openIds = new Set(snapshot.workspaces.flatMap(workspace => workspace.tabs.filter(tab => tab.isOpen).map(tab => tab.id)));
+      setStatuses(previous => {
+        if (Object.keys(previous).every(id => openIds.has(Number(id)))) return previous;
+        return Object.fromEntries(Object.entries(previous).filter(([id]) => openIds.has(Number(id))));
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (!isTauri()) { report('Native backend unavailable. Start with mise exec -- npm run tauri -- dev.'); return; }
-    void Promise.all([invoke<WorkspaceSnapshot>('workspaces'), invoke<[string, string]>('defaults')])
-      .then(([state, defaults]) => { setState(state); setDefaults(defaults); setReady(true); }).catch(report);
-  }, [markBusy]);
+    let disposed = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const unlisten = listen('workspace-changed', () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => { if (!disposed) void refresh().catch(report); }, 25);
+    });
+    void unlisten.then(async () => {
+      if (disposed) return;
+      const [, defaults] = await Promise.all([refresh(), invoke<[string, string]>('defaults')]);
+      if (!disposed) { setDefaults(defaults); setReady(true); }
+    }).catch(report);
+    return () => { disposed = true; clearTimeout(pending); ++refreshSequence.current; void unlisten.then(off => off()).catch(report); };
+  }, [refresh]);
 
   async function quit() {
     if (busyRef.current || restoringRef.current > 0) { report('Please wait for the current operation to finish before quitting.'); return; }
@@ -245,7 +270,7 @@ function App() {
 
   async function mutate(command: string, args: Record<string, unknown>): Promise<boolean> {
     markBusy(true); setError('');
-    try { setState(await invoke<WorkspaceSnapshot>(command, args)); return true; }
+    try { await invoke<WorkspaceSnapshot>(command, args); await refresh(); return true; }
     catch (error) { report(error); return false; }
     finally { markBusy(false); }
   }
