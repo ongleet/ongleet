@@ -1,0 +1,18 @@
+:root { font: 13px system-ui, sans-serif; color: #dce3ec; background: #12161d; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { height: 100dvh; display: flex; flex-direction: column; }
+header, form, nav, footer { display: flex; gap: 10px; padding: 10px 14px; align-items: center; background: #1b222d; }
+header span, footer { color: #a9b7c9; }
+header output { margin-left: auto; }
+form { flex-wrap: wrap; border-top: 1px solid #354051; }
+label { display: grid; gap: 4px; flex: 1; min-width: 140px; }
+input, button { font: inherit; padding: 7px 9px; background: #242e3d; color: inherit; border: 1px solid #53647a; border-radius: 4px; }
+button { cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid #a3e6cc; outline-offset: 2px; }
+.terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 8px 12px; }
+.error { padding: 10px 14px; background: #562b32; overflow-wrap: anywhere; }
+section { max-height: 30vh; overflow: auto; padding: 12px; background: #242e3d; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+footer { font-size: 11px; }
