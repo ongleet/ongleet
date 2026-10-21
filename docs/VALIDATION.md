@@ -40,7 +40,7 @@ The earlier desktop-access failures describe the initial sandboxed environment. 
 
 1. Create two workspaces using existing directories, including a path with spaces. Use the native picker and manually entered paths. Reject blank names and missing directories without creating anything on disk.
 2. Start a shell or command in both. Print distinct markers, run a continuously emitting command in one, and switch repeatedly. Verify the original process and screen remain, hidden output appears on return, and dimensions remain valid.
-3. Edit names, reorder using the Up/Down buttons, and navigate using the keyboard. Verify selection stays associated with the same workspace ID.
+3. Edit names from each workspace's vertical menu, drag the grips to reorder, and test Alt+Up/Down on a focused grip. Verify selection stays associated with the same workspace ID and the bottom sidebar text is absent.
 4. Update a base directory while its shell is running. Confirm its existing working directory is unchanged; close/restart its terminal and verify the new launch uses the updated base directory unless explicitly overridden.
 5. Cancel closure of a workspace containing a session, then confirm it. Verify other workspaces keep running and the closed workspace's directory and contents remain intact. The documented escaped-descendant limitation still applies.
 6. Verify stopped workspaces close without a process confirmation, closing the selected workspace selects a neighbor, and closing the last workspace shows the creation screen.
@@ -51,7 +51,7 @@ Remaining native checks and process-containment blockers must be resolved before
 ## Terminal-tab acceptance
 
 1. Create several tabs in one workspace, then another workspace with different tabs. Start a shell, Codex, and a continuously emitting command independently. Switch tabs/workspaces and verify each process, screen, scrollback, and selected tab are preserved without zero-size resizes.
-2. Rename and reorder running tabs; verify their original processes and screens remain. Use arrows/Home/End in the tab bar, and test names long enough to require horizontal scrolling.
+2. Rename tabs with their pencil icons and close them with their crosses. Drag running tabs before/after one another; verify original processes/screens remain. Test both directions, cancellation, same-position drops, and ordering with closed definitions still saved. Use arrows/Home/End for selection and Alt+Left/Right for reordering; test names long enough to require horizontal scrolling.
 3. Launch an executable with literal arguments containing shell operators. Confirm no shell evaluation occurs. Then explicitly choose Shell command and verify shell syntax works. Test independent environment overrides in two tabs without saving the inherited environment.
 4. Launch tabs with and without directory overrides. Change the workspace directory and verify existing processes remain unchanged, future launches without overrides follow the new base, and explicit overrides stay fixed. Try a missing launch directory and invalid executable.
 5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. The escaped-descendant limitation remains.

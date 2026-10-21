@@ -39,11 +39,19 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .tab-bar > button { flex-shrink: 0; margin-bottom: 5px; }
 .tab-bar > select { width: auto; max-width: 210px; min-width: 100px; margin-bottom: 5px; }
 .tab-list { display: flex; min-width: 0; flex: 1; gap: 4px; overflow-x: auto; }
-.tab-list [role="tab"] { display: flex; align-items: center; gap: 8px; flex-shrink: 0; max-width: 220px; border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; background: transparent; }
-.tab-list [aria-selected="true"] { color: #c7f5e4; background: #253436; border-bottom-color: #a3e6cc; }
+.tab-item { position: relative; display: flex; align-items: center; flex-shrink: 0; max-width: 260px; border: 1px solid #45546a; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
+.tab-item.selected { color: #c7f5e4; background: #253436; border-bottom-color: #a3e6cc; }
+.tab-item.dragging { opacity: .45; }
+.tab-item.drop-before::before, .tab-item.drop-after::after { content: ''; position: absolute; width: 2px; top: 3px; bottom: 3px; background: #a3e6cc; pointer-events: none; }
+.tab-item.drop-before::before { left: -3px; }
+.tab-item.drop-after::after { right: -3px; }
+.tab-list [role="tab"] { display: flex; min-width: 0; align-items: center; gap: 8px; border: 0; background: transparent; cursor: grab; }
+.tab-list [role="tab"]:active { cursor: grabbing; }
+.tab-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 26px; padding: 3px; border: 0; background: transparent; color: #9cabbf; }
+.tab-icon:last-child { margin-right: 4px; }
+.tab-close { font-size: 20px; line-height: 1; }
+.tab-close:hover:not(:disabled) { background: #563039; color: #ffc5c5; }
 .tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tab-actions { display: flex; gap: 6px; padding: 7px 14px; background: #171e28; }
-.tab-actions button { padding: 4px 8px; font-size: 12px; }
 .launch-settings { background: #1b222d; }
 .launch-settings summary { cursor: pointer; padding: 8px 20px; color: #9cabbf; }
 select { min-width: 0; width: 100%; font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }

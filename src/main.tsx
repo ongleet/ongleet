@@ -162,9 +162,19 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
   const openTabs = workspace.tabs.filter(tab => tab.isOpen);
   const availableTabs = workspace.tabs.filter(tab => !tab.isOpen);
   const active = openTabs.find(tab => tab.id === workspace.selectedTabId);
-  const activePosition = openTabs.findIndex(tab => tab.id === active?.id);
+  const [dragTabId, setDragTabId] = useState<number | null>(null);
+  const [tabDrop, setTabDrop] = useState<{ id: number; after: boolean } | null>(null);
   function navigate(event: React.KeyboardEvent, index: number) {
     const length = openTabs.length;
+    if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      event.preventDefault();
+      const position = index + (event.key === 'ArrowLeft' ? -1 : 1);
+      const id = openTabs[index].id;
+      if (position >= 0 && position < length) void mutate('reorder_tab', { id, position }).then(moved => {
+        if (moved) document.getElementById(`tab-${id}`)?.focus();
+      });
+      return;
+    }
     const target = event.key === 'ArrowRight' ? (index + 1) % length : event.key === 'ArrowLeft' ? (index + length - 1) % length : event.key === 'Home' ? 0 : event.key === 'End' ? length - 1 : null;
     if (target === null) return;
     event.preventDefault();
@@ -174,24 +184,49 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
   return <section className="workspace-pane" hidden={!visible} aria-label={workspace.name}>
     <header className="workspace-heading"><div><h1>{workspace.name}</h1><p title={workspace.baseDirectory}>{workspace.baseDirectory}</p></div></header>
     <div className="tab-bar">
-      <div role="tablist" aria-label={`${workspace.name} terminals`} className="tab-list">
-        {openTabs.map((tab, index) => <button key={tab.id} id={`tab-${tab.id}`} role="tab" aria-selected={tab.id === active?.id} aria-controls={`tab-panel-${tab.id}`} tabIndex={tab.id === active?.id ? 0 : -1}
-          disabled={disabled} onKeyDown={event => navigate(event, index)} onClick={() => void mutate('select_tab', { id: tab.id })} title={`${tab.name} — ${statuses[tab.id]?.state ?? 'stopped'}`}>
-          <span className={`status-dot ${statuses[tab.id]?.state ?? 'stopped'}`} /><span className="tab-name">{tab.name}</span>
-          {statuses[tab.id]?.state === 'exited' && <span>({(statuses[tab.id] as { code: number }).code})</span>}
-        </button>)}
+      <div role="tablist" aria-label={`${workspace.name} terminals`} className="tab-list" onDragLeave={event => {
+        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setTabDrop(null);
+      }}>
+        {openTabs.map((tab, index) => <div key={tab.id} role="presentation"
+          className={`tab-item${tab.id === active?.id ? ' selected' : ''}${dragTabId === tab.id ? ' dragging' : ''}${tabDrop?.id === tab.id ? tabDrop.after ? ' drop-after' : ' drop-before' : ''}`}
+          onDragOver={event => {
+            if (disabled || dragTabId === null) return;
+            event.preventDefault(); event.dataTransfer.dropEffect = 'move';
+            const rect = event.currentTarget.getBoundingClientRect();
+            const after = event.clientX >= rect.left + rect.width / 2;
+            setTabDrop(previous => previous?.id === tab.id && previous.after === after ? previous : { id: tab.id, after });
+          }} onDrop={event => {
+            if (disabled || dragTabId === null) return;
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            const gap = index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
+            const from = openTabs.findIndex(item => item.id === dragTabId);
+            const position = gap - (from < gap ? 1 : 0);
+            if (from >= 0 && from !== position) void mutate('reorder_tab', { id: dragTabId, position });
+            setDragTabId(null); setTabDrop(null);
+          }}>
+          <button id={`tab-${tab.id}`} role="tab" aria-selected={tab.id === active?.id} aria-controls={`tab-panel-${tab.id}`} tabIndex={tab.id === active?.id ? 0 : -1}
+            disabled={disabled} draggable={!disabled} onKeyDown={event => navigate(event, index)} onClick={() => void mutate('select_tab', { id: tab.id })}
+            title={`${tab.name} — ${statuses[tab.id]?.state ?? 'stopped'} · Drag to reorder · Alt+← / Alt+→`}
+            onDragStart={event => {
+              setDragTabId(tab.id); event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', String(tab.id));
+              event.dataTransfer.setDragImage(event.currentTarget.parentElement!, 25, 16);
+            }} onDragEnd={() => { setDragTabId(null); setTabDrop(null); }}>
+            <span className={`status-dot ${statuses[tab.id]?.state ?? 'stopped'}`} /><span className="tab-name">{tab.name}</span>
+            {statuses[tab.id]?.state === 'exited' && <span>({(statuses[tab.id] as { code: number }).code})</span>}
+          </button>
+          <button className="tab-icon" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Rename ${tab.name}`} title="Rename tab" onClick={() => rename(tab)}>
+            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg>
+          </button>
+          <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
+        </div>)}
       </div>
       {availableTabs.length > 0 && <select aria-label="Open a configured tab" value="" disabled={disabled} onChange={event => {
         const id = Number(event.target.value); if (id) void mutate('open_tab', { id });
       }}><option value="" disabled>Open configured tab…</option>{availableTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>}
       <button disabled={disabled} aria-label="Create terminal tab" onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>+ New tab</button>
     </div>
-    {active && <nav className="tab-actions" aria-label="Selected tab actions">
-      <button disabled={disabled} onClick={() => rename(active)}>Rename tab</button>
-      <button disabled={disabled || activePosition === 0} aria-label="Move tab left" onClick={() => void mutate('reorder_tab', { id: active.id, position: activePosition - 1 })}>←</button>
-      <button disabled={disabled || activePosition === openTabs.length - 1} aria-label="Move tab right" onClick={() => void mutate('reorder_tab', { id: active.id, position: activePosition + 1 })}>→</button>
-      <button disabled={disabled} onClick={() => closeTab(active)}>Close tab</button>
-    </nav>}
     {!active && <div className="empty-state"><p>No open tabs. Choose a configured tab above, or create a new definition.</p><button disabled={disabled} onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>Create terminal tab</button></div>}
     {openTabs.map(tab => <TabTerminal key={tab.id} workspace={workspace} tab={tab} visible={visible && tab.id === active?.id} shell={shell} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} onState={onState} markRestoring={markRestoring} />)}
   </section>;
