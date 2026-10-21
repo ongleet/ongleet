@@ -118,11 +118,83 @@ def run(args):
         try: client.request("DELETE", "")
         except Exception: pass
         client.session = None
+    def workgroups_check():
+        first_root, second_root = directory / "projects-one", directory / "projects-two"
+        first_root.mkdir(); second_root.mkdir()
+        (first_root / "keep").write_text("first")
+        (second_root / "keep").write_text("second")
+        groups = []
+        for name, root in [("Group One", first_root), ("Group Two", second_root)]:
+            client.click('[aria-label="Create workgroup"]')
+            client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(1) input', name)
+            client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(2) input', str(root))
+            client.click("//dialog[@open]//button[normalize-space()='Save workgroup']", "xpath")
+            group = wait_for(lambda: next((g for g in client.invoke("workspaces")["workgroups"] if g["name"] == name), None), "new workgroup")
+            path = Path(client.invoke("workgroup_config", {"id": group["id"]}))
+            path.write_text(json.dumps({"tab_types": [{"id": "action", "name": name + " action", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
+            groups.append(group)
+        first, second = groups
+        client.click(f'[data-workgroup-id="{first["id"]}"] [aria-label="Create workspace"]')
+        wait_for(lambda: client.js("return document.querySelector('#workspace-directory')?.value") == str(first_root), "workgroup default directory")
+        client.fill("#workspace-name", "First project")
+        client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
+        workspace = wait_for(lambda: next((w for w in client.invoke("workspaces")["workspaces"] if w["name"] == "First project"), None), "new grouped workspace")
+        wait_for(lambda: (state := client.state(client.invoke("workspaces")["workspaces"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
+        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
+        wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group One action')"), "scoped actions")
+        assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group Two action')")
+        client.click("//dialog[@open]//button[normalize-space()='Group One action']", "xpath")
+        tab = wait_for(lambda: client.invoke("workspaces")["workspaces"][0]["selectedTabId"], "selected action")
+        wait_for(lambda: "TICK=" in client.screen(tab), "group action running")
+        terminal_pid = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
+        assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
+        session_id = client.state(tab)["sessionId"]
+        mark("Workgroup creation defaults workspace path and New tab shows only that group's YAML actions")
+        before = client.screen(tab)
+        client.click(f'[data-workgroup-id="{first["id"]}"] .workgroup-toggle')
+        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0]).hidden", first["id"]), "folded workspace list")
+        time.sleep(.4)
+        assert client.state(tab)["sessionId"] == session_id and client.screen(tab) != before
+        client.request("POST", "/refresh", {})
+        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0])?.hidden", first["id"]), "persisted fold")
+        wait_for(lambda: (state := client.state(tab)) and state.get("sessionId") == session_id and not state["replaying"], "same grouped PTY after reload")
+        mark("Folding hides workspace entries, preserves active output and persists through reload without relaunch")
+        client.click(f'#workgroup-menu-{first["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", "xpath")
+        client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(1) input', "Group One renamed")
+        client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(2) input', str(second_root))
+        assert client.js("return Array.from(document.querySelectorAll('dialog[aria-label=\"Workgroup editor\"] input')).some(input=>input.readOnly && input.value.endsWith('/actions.yaml'))")
+        client.click("//dialog[@open]//button[normalize-space()='Save workgroup']", "xpath")
+        wait_for(lambda: client.invoke("workspaces")["workgroups"][1]["name"] == "Group One renamed", "group edited")
+        assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
+        assert client.state(tab)["sessionId"] == session_id
+        client.click(f'[data-workgroup-id="{second["id"]}"] [aria-label="Create workspace"]')
+        wait_for(lambda: client.js("return document.querySelector('#workspace-directory')?.value") == str(second_root), "second group default")
+        client.fill("#workspace-name", "Overridden project")
+        client.fill("#workspace-directory", str(first_root))
+        client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
+        overridden = wait_for(lambda: next((w for w in client.invoke("workspaces")["workspaces"] if w["name"] == "Overridden project"), None), "override workspace")
+        assert overridden["baseDirectory"] == str(first_root) and overridden["workgroupId"] == second["id"]
+        wait_for(lambda: (state := client.state(client.invoke("workspaces")["workspaces"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
+        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
+        wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group Two action')"), "second group actions")
+        assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group One action')")
+        client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
+        mark("Workgroup editing exposes its config path, preserves running cwd, and workspace directory overrides work")
+        client.invoke("close_workspace", {"id": workspace["id"], "confirmed": True})
+        client.invoke("close_workspace", {"id": overridden["id"], "confirmed": False})
+        for group in groups: client.invoke("close_workgroup", {"id": group["id"]})
+        assert list(first_root.iterdir()) == [first_root / "keep"]
+        assert list(second_root.iterdir()) == [second_root / "keep"]
+        client.request("POST", "/refresh", {})
+        wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "ready after group checks")
+
     with (directory / "driver.log").open("w") as log:
         driver = subprocess.Popen([args.driver, "--host=127.0.0.1", f"--port={port}"], env=env, stdout=log, stderr=log)
         try:
             wait_for(lambda: client.request("GET", "/status", session=False), "driver ready")
             pid = connect()
+            if args.workgroups: workgroups_check()
             workspace = client.invoke("create_workspace", {"name": "Lifecycle", "directory": str(directory)})["workspaces"][0]
             snapshot = client.invoke("create_tab", {"workspaceId": workspace["id"], "typeId": "stream"})
             tab = snapshot["workspaces"][0]["selectedTabId"]
@@ -175,6 +247,9 @@ def run(args):
             report["result"] = "passed"
         except BaseException as error:
             report["result"], report["error"] = "failed", str(error)
+            if client.session:
+                try: (directory / "failure-screen.txt").write_text(client.js("return document.body.innerText"))
+                except Exception: pass
             raise
         finally:
             driver.terminate()
@@ -191,6 +266,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workgroups", action="store_true", help="Also check grouped workspace UI, per-group YAML and fold persistence")
     parser.add_argument("--driver", required=True)
     parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/terminal-workspace-prototype"))
     run(parser.parse_args())

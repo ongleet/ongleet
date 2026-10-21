@@ -1,4 +1,4 @@
-use crate::workspace::{Snapshot, TabConfig, TerminalTab, Workspace};
+use crate::workspace::{Snapshot, TabConfig, TerminalTab, Workgroup, Workspace};
 use rusqlite::{params, Connection, TransactionBehavior};
 use std::{
     fs::{self, File, OpenOptions},
@@ -9,6 +9,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct Metadata {
+    pub workgroup_sequence: u64,
     pub snapshot: Snapshot,
     pub workspace_sequence: u64,
     pub tab_sequence: u64,
@@ -63,14 +64,50 @@ impl MetadataStore {
         let version: u32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        match version {
-            0 => {
-                let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
-                transaction.execute_batch(include_str!("../migrations/001_metadata.sql")).map_err(|e| format!("Metadata migration failed: {e}"))?;
-                transaction.commit().map_err(|e| e.to_string())?;
+        if version > 2 {
+            return Err(format!("Unsupported workspace database schema version {version}; the database was not reset"));
+        }
+        if version < 2 {
+            // Rebuild the referenced workspace table without cascading deletion
+            // of its tabs. Verify all relationships before committing migration.
+            connection
+                .execute_batch("PRAGMA foreign_keys=OFF;")
+                .map_err(|e| e.to_string())?;
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            if version == 0 {
+                transaction
+                    .execute_batch(include_str!("../migrations/001_metadata.sql"))
+                    .map_err(|e| e.to_string())?;
             }
-            1 => {}
-            _ => return Err(format!("Unsupported workspace database schema version {version}; the database was not reset")),
+            transaction
+                .execute_batch(include_str!("../migrations/002_workgroups.sql"))
+                .map_err(|e| format!("Workgroup migration failed: {e}"))?;
+            if transaction
+                .query_row("SELECT COUNT(*) FROM workspaces", [], |r| {
+                    r.get::<_, i64>(0)
+                })
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+                transaction
+                    .execute("UPDATE workgroups SET root_directory=?1 WHERE id=1", [home])
+                    .map_err(|e| e.to_string())?;
+            }
+            let violations: i64 = transaction
+                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| e.to_string())?;
+            if violations != 0 {
+                return Err("Workgroup migration found invalid metadata relationships; database was not changed".into());
+            }
+            transaction.commit().map_err(|e| e.to_string())?;
+            connection
+                .execute_batch("PRAGMA foreign_keys=ON;")
+                .map_err(|e| e.to_string())?;
         }
         Ok(Self {
             connection,
@@ -80,13 +117,26 @@ impl MetadataStore {
 
     pub fn load(&self) -> Result<Metadata, String> {
         let result = (|| -> rusqlite::Result<Metadata> {
-            let (selected_id, workspace_sequence, tab_sequence) = self.connection.query_row(
-                "SELECT selected_workspace_id, workspace_sequence, tab_sequence FROM app_state WHERE singleton=1",
-                [], |row| Ok((optional_id(row, 0)?, read_id(row, 1)?, read_id(row, 2)?)))?;
-            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id FROM workspaces ORDER BY display_order")?;
+            let (selected_id, workspace_sequence, tab_sequence, workgroup_sequence) = self.connection.query_row(
+                "SELECT selected_workspace_id, workspace_sequence, tab_sequence, workgroup_sequence FROM app_state WHERE singleton=1",
+                [], |row| Ok((optional_id(row, 0)?, read_id(row, 1)?, read_id(row, 2)?, read_id(row, 3)?)))?;
+            let mut groups = self.connection.prepare("SELECT id,name,root_directory,display_order,collapsed FROM workgroups ORDER BY display_order")?;
+            let workgroups = groups
+                .query_map([], |row| {
+                    Ok(Workgroup {
+                        id: read_id(row, 0)?,
+                        name: row.get(1)?,
+                        root_directory: row.get(2)?,
+                        display_order: read_order(row, 3)?,
+                        collapsed: row.get(4)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,workgroup_id FROM workspaces ORDER BY display_order")?;
             let mut workspaces = statement
                 .query_map([], |row| {
                     Ok(Workspace {
+                        workgroup_id: read_id(row, 5)?,
                         id: read_id(row, 0)?,
                         name: row.get(1)?,
                         base_directory: row.get(2)?,
@@ -121,7 +171,9 @@ impl MetadataStore {
                     .collect::<rusqlite::Result<Vec<_>>>()?;
             }
             Ok(Metadata {
+                workgroup_sequence,
                 snapshot: Snapshot {
+                    workgroups,
                     workspaces,
                     selected_id,
                 },
@@ -140,17 +192,30 @@ impl MetadataStore {
             // One small metadata snapshot is committed atomically. No PTY data,
             // inherited environment, or historical terminal output is stored.
             transaction.execute_batch(
-                "DELETE FROM open_tabs; DELETE FROM tab_definitions; DELETE FROM workspaces;",
+                "DELETE FROM open_tabs; DELETE FROM tab_definitions; DELETE FROM workspaces; DELETE FROM workgroups;",
             )?;
+            for group in &metadata.snapshot.workgroups {
+                transaction.execute(
+                    "INSERT INTO workgroups VALUES (?1,?2,?3,?4,?5)",
+                    params![
+                        sql_id(group.id)?,
+                        group.name,
+                        group.root_directory,
+                        sql_order(group.display_order)?,
+                        group.collapsed
+                    ],
+                )?;
+            }
             for workspace in &metadata.snapshot.workspaces {
                 transaction.execute(
-                    "INSERT INTO workspaces VALUES (?1,?2,?3,?4,?5)",
+                    "INSERT INTO workspaces VALUES (?1,?2,?3,?4,?5,?6)",
                     params![
                         sql_id(workspace.id)?,
                         workspace.name,
                         workspace.base_directory,
                         sql_order(workspace.display_order)?,
-                        workspace.selected_tab_id.map(sql_id).transpose()?
+                        workspace.selected_tab_id.map(sql_id).transpose()?,
+                        sql_id(workspace.workgroup_id)?
                     ],
                 )?;
                 for tab in &workspace.tabs {
@@ -175,7 +240,7 @@ impl MetadataStore {
                     }
                 }
             }
-            transaction.execute("UPDATE app_state SET selected_workspace_id=?1,workspace_sequence=?2,tab_sequence=?3 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.workspace_sequence)?,sql_id(metadata.tab_sequence)?])?;
+            transaction.execute("UPDATE app_state SET selected_workspace_id=?1,workspace_sequence=?2,tab_sequence=?3,workgroup_sequence=?4 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.workspace_sequence)?,sql_id(metadata.tab_sequence)?,sql_id(metadata.workgroup_sequence)?])?;
             transaction.commit()
         })();
         result.map_err(|e| format!("Cannot save workspace metadata: {e}"))
@@ -227,23 +292,4 @@ fn optional_id(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dropping_store_releases_lock_while_a_fork_duplicate_is_still_open() {
-        let directory =
-            std::env::temp_dir().join(format!("metadata-lock-release-{}", std::process::id()));
-        let store = MetadataStore::open(&directory).unwrap();
-        // A concurrent PTY fork temporarily inherits this same open description
-        // before CLOEXEC takes effect. It must not extend the store's ownership.
-        let inherited = store._lock.0.try_clone().unwrap();
-        assert!(MetadataStore::open(&directory).is_err());
-        drop(store);
-        let replacement = MetadataStore::open(&directory).unwrap();
-        drop(inherited);
-        assert!(MetadataStore::open(&directory).is_err());
-        drop(replacement);
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-}
+mod tests;

@@ -38,7 +38,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 
 ## Workspace and persistence contract
 
-- Two navigation levels only: workspaces in the sidebar, terminal tabs within each workspace.
+- Navigation is workgroups → workspaces → terminal tabs. Workgroups have a name and existing root, supply the default path for new workspaces, and fold their sidebar list without changing processes or the active terminal. Persist membership/fold state. Existing workspace paths never follow root changes automatically.
 - User-configurable workspace properties are name and an existing base directory. Store stable IDs and display order internally.
 - Tab metadata includes stable ID, editable name, working-directory override, executable and arguments, explicit environment overrides, and ordering. Process status comes from the runtime.
 - New tabs default to the user's shell in the workspace directory. Switching tabs or workspaces preserves processes and emulator state.
@@ -62,8 +62,10 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src-tauri/src/containment.rs`: Linux cgroup containment, exec handshake and session-scoped death watchdog.
 - `src-tauri/src/instance.rs`: private single-instance activation socket; full CLI remains separate work.
 - `scripts/check-lifecycle.py`: isolated X11/XWayland native hide/reopen, activation, Quit and restart checks.
-- `src-tauri/src/workspace.rs`: durable metadata, definition/opening state, resume policy, independent sessions, and operations shared by Tauri commands.
-- `config/tab-types.yaml` and `src-tauri/src/tab_types.rs`: default YAML launch types and validated user configuration, reloaded for New tab. Existing openings keep independent SQLite configuration.
+- `src-tauri/src/workspace.rs`: registry, transactional metadata and workspace operations shared by Tauri commands.
+- `src-tauri/src/workspace/{workgroups,tabs,sessions}.rs`: group metadata, tab operations and terminal lifecycle integration.
+- `src-tauri/src/{workspace,session,storage,tab_types}/tests.rs` and `workspace/tests/workgroups.rs`: separate Rust behavioral tests.
+- `config/tab-types.yaml` and `src-tauri/src/tab_types.rs`: default launch types and per-workgroup `workgroups/<id>/actions.yaml`, reloaded for New tab and creation. Legacy global YAML seeds new files only. Keep config outside project directories; existing openings keep independent SQLite configuration.
 - `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/check-native.py` and `src/native-validation.ts`: isolated WebKitGTK automation and mode-gated bounded diagnostics; never target the user's live app.

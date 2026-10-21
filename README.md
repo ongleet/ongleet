@@ -1,6 +1,6 @@
 # Terminal workspace preview
 
-A native Linux terminal workspace preview with a compact workspace sidebar and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. The full Unix-socket CLI and Ubuntu packages remain pending.
+A native Linux terminal workspace preview with a compact sidebar of **workgroups containing workspaces**, and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. The full Unix-socket CLI and Ubuntu packages remain pending.
 
 Workspace/tab metadata, ordering and selection are saved transactionally. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
@@ -33,9 +33,15 @@ See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A workin
 
 Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening keeps its own launch configuration and runtime state. Launch settings are configured in YAML; there is no in-tab launch form. To replace an exited or legacy stopped tab, close it and open a new tab.
 
-## Tab types (YAML)
+## Workgroups and actions (YAML)
 
-The app creates `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/tab-types.yaml` (normally `~/.config/io.local.terminal-stack-prototype/tab-types.yaml`) on first use, using [the default configuration](config/tab-types.yaml). Edit it with your editor, for example `vim ~/.config/io.local.terminal-stack-prototype/tab-types.yaml`. It is reloaded each time you open New tab and when creating the tab. Invalid configuration reports an error and is never silently replaced.
+A workgroup has a name and an existing root directory. Use the sidebar's top **+** to create one, its **⋮** menu to edit it, and its own **+** to create a workspace inside it. New workspace paths default to that group's root; you can override the directory. The workspace editor also lets you move an existing workspace to another workgroup. Group root changes affect the default for future workspaces, while existing workspace paths and running processes stay unchanged.
+
+Click the group's chevron/name to fold or unfold its workspace list. Folding is persisted and only hides sidebar entries: it does not close workspaces, change the active terminal, or interrupt output. Reorder workspaces inside their group with their existing drag grips/keyboard shortcuts. A group can be deleted only after its workspaces have been moved or closed. Workspace/root directories and group configuration files are never deleted by these operations.
+
+Each workgroup has one YAML file at `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/workgroups/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit workgroup** to see its exact path. The file is initialized on first Edit/New tab access, using the previous global `tab-types.yaml` if present, otherwise Bash/Codex defaults. Thereafter each file is independent, and the old global file remains untouched. For the migrated Default group, for example: `vim ~/.config/io.local.terminal-stack-prototype/workgroups/1/actions.yaml`.
+
+Actions are the tab choices under **New tab**, which uses only the active workspace's workgroup configuration. The YAML format remains `tab_types`:
 
 ```yaml
 tab_types:
@@ -68,6 +74,8 @@ The journal has a 4 MiB accounting budget per session; replay temporarily holds 
 ## Persistence and command restart
 
 At the user's request, only tabs that were running when the app last closed automatically launch again. These are **new processes**, not recovered live sessions; previous screens and output history are not restored. Tabs explicitly stopped/closed and processes observed to have exited do not auto-start. Stopped open tabs restore as stopped. A crash uses the last committed running set. Startup waits for connected terminal frontends; failed launches report errors without an automatic retry loop.
+
+Schema version 2 migrates existing workspaces into a **Default** workgroup without changing workspace/tab IDs, paths, settings, selection or resume flags. Its initial root is the first saved workspace directory (your home directory on a fresh installation). Workgroup IDs, names, roots, ordering, fold state and workspace membership are saved with the rest of the metadata. A failed migration rolls back rather than resetting data.
 
 The database is `workspaces.sqlite3` in Tauri's application data directory, normally `$XDG_DATA_HOME/io.local.terminal-stack-prototype/` or `~/.local/share/io.local.terminal-stack-prototype/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. New tabs persist a copy of their YAML launch configuration.
 

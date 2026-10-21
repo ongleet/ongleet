@@ -8,8 +8,9 @@ import './style.css';
 
 type TabConfig = { cwdOverride: string | null; executable: string | null; args: string[]; env: Record<string, string>; shellCommand: string | null };
 type TerminalTab = { id: number; kind: string; isOpen: boolean; resumeOnStart: boolean; name: string; displayOrder: number; config: TabConfig };
-export type Workspace = { id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
-type WorkspaceSnapshot = { workspaces: Workspace[]; selectedId: number | null };
+export type Workgroup = { id: number; name: string; rootDirectory: string; displayOrder: number; collapsed: boolean };
+export type Workspace = { workgroupId: number; id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
+type WorkspaceSnapshot = { workgroups: Workgroup[]; workspaces: Workspace[]; selectedId: number | null };
 type Report = (error: unknown) => void;
 
 function ConfirmationDialog({ message, choose }: { message: string; choose: (confirmed: boolean) => void }) {
@@ -21,12 +22,14 @@ function ConfirmationDialog({ message, choose }: { message: string; choose: (con
   </dialog>;
 }
 
-function WorkspaceEditor({ workspace, initialDirectory, save, dismiss, externalError }: {
+function WorkspaceEditor({ workspace, workgroups, initialWorkgroupId, initialDirectory, save, dismiss, externalError }: {
+  workgroups: Workgroup[]; initialWorkgroupId: number;
   workspace?: Workspace; initialDirectory: string;
-  save: (name: string, directory: string) => Promise<boolean>; dismiss: () => void; externalError: string;
+  save: (name: string, directory: string, workgroupId: number) => Promise<boolean>; dismiss: () => void; externalError: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(workspace?.name ?? '');
+  const [workgroupId, setWorkgroupId] = useState(workspace?.workgroupId ?? initialWorkgroupId);
   const [directory, setDirectory] = useState(workspace?.baseDirectory ?? initialDirectory);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -45,15 +48,47 @@ function WorkspaceEditor({ workspace, initialDirectory, save, dismiss, externalE
   }}>
     <form onSubmit={event => {
       event.preventDefault(); setBusy(true);
-      void save(name, directory).then(saved => { if (saved) dismiss(); }).finally(() => setBusy(false));
+      void save(name, directory, workgroupId).then(saved => { if (saved) dismiss(); }).finally(() => setBusy(false));
     }}>
       <h2 id="workspace-editor-title">{workspace ? 'Edit workspace' : 'New workspace'}</h2>
-      <label>Name<input autoFocus required value={name} onChange={event => setName(event.target.value)} disabled={busy} /></label>
-      <label>Base directory<input required value={directory} onChange={event => setDirectory(event.target.value)} disabled={busy} /></label>
+      <label>Workgroup<select value={workgroupId} disabled={busy} onChange={event => {
+        const id = Number(event.target.value); setWorkgroupId(id);
+        if (!workspace) setDirectory(workgroups.find(group => group.id === id)!.rootDirectory);
+      }}>{workgroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
+      <label>Name<input id="workspace-name" autoFocus required value={name} onChange={event => setName(event.target.value)} disabled={busy} /></label>
+      <label>Base directory<input id="workspace-directory" required value={directory} onChange={event => setDirectory(event.target.value)} disabled={busy} /></label>
       <button type="button" onClick={() => void browse()} disabled={busy}>Choose directory…</button>
       {workspace && <p className="muted">Directory changes apply to future launches. Running processes keep their working directory.</p>}
       {(error || externalError) && <p role="alert" className="error">{error || externalError}</p>}
       <div className="dialog-actions"><button type="button" onClick={dismiss} disabled={busy}>Cancel</button><button disabled={busy || !name.trim() || !directory}>{busy ? 'Please wait…' : 'Save workspace'}</button></div>
+    </form>
+  </dialog>;
+}
+
+function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, externalError }: {
+  workgroup?: Workgroup; initialDirectory: string; save: (name: string, rootDirectory: string) => Promise<boolean>;
+  dismiss: () => void; externalError: string;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [name, setName] = useState(workgroup?.name ?? '');
+  const [directory, setDirectory] = useState(workgroup?.rootDirectory ?? initialDirectory);
+  const [config, setConfig] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    dialog.current?.showModal();
+    if (workgroup) void invoke<string>('workgroup_config', { id: workgroup.id }).then(setConfig).catch(error => setError(String(error)));
+  }, [workgroup?.id]);
+  return <dialog ref={dialog} aria-label="Workgroup editor" onCancel={event => { event.preventDefault(); if (!busy) dismiss(); }}>
+    <form onSubmit={event => { event.preventDefault(); setBusy(true); void save(name, directory).then(saved => { if (saved) dismiss(); }).finally(() => setBusy(false)); }}>
+      <h2>{workgroup ? 'Edit workgroup' : 'New workgroup'}</h2>
+      <label>Name<input required autoFocus value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>
+      <label>Root directory<input required value={directory} disabled={busy} onChange={event => setDirectory(event.target.value)} /></label>
+      <button type="button" disabled={busy} onClick={() => { setBusy(true); void open({ directory: true, multiple: false, title: 'Choose workgroup root' }).then(path => { if (typeof path === 'string') setDirectory(path); }).catch(error => setError(String(error))).finally(() => setBusy(false)); }}>Choose directory…</button>
+      <p className="muted">The root is the default directory for new workspaces. Existing workspace paths and running processes stay as they are.</p>
+      {config && <label>Actions configuration<input readOnly value={config} onFocus={event => event.currentTarget.select()} /></label>}
+      {(error || externalError) && <p role="alert" className="error">{error || externalError}</p>}
+      <div className="dialog-actions"><button type="button" disabled={busy} onClick={dismiss}>Cancel</button><button disabled={busy || !name.trim() || !directory}>Save workgroup</button></div>
     </form>
   </dialog>;
 }
@@ -87,14 +122,14 @@ function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
   </section>;
 }
 
-function NewTabPicker({ disabled, create }: { disabled: boolean; create: (typeId: string) => Promise<boolean> }) {
+function NewTabPicker({ workspaceId, disabled, create }: { workspaceId: number; disabled: boolean; create: (typeId: string) => Promise<boolean> }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   async function open() {
     setError(''); setTypes([]); setLoading(true); dialog.current!.showModal();
-    try { setTypes(await invoke<{ id: string; name: string }[]>('tab_types')); }
+    try { setTypes(await invoke<{ id: string; name: string }[]>('tab_types', { workspaceId })); }
     catch (error) { setError(String(error)); }
     finally { setLoading(false); }
   }
@@ -176,7 +211,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
           <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
         </div>)}
       </div>
-      <NewTabPicker disabled={disabled} create={typeId => mutate('create_tab', { workspaceId: workspace.id, typeId })} />
+      <NewTabPicker workspaceId={workspace.id} disabled={disabled} create={typeId => mutate('create_tab', { workspaceId: workspace.id, typeId })} />
     </div>
     {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
     {openTabs.map(tab => <TabTerminal key={tab.id} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
@@ -189,10 +224,12 @@ function App() {
     return new Promise(resolve => setConfirmation({ message, resolve }));
   }
 
-  const [state, setState] = useState<WorkspaceSnapshot>({ workspaces: [], selectedId: null });
+  const [state, setState] = useState<WorkspaceSnapshot>({ workgroups: [], workspaces: [], selectedId: null });
   const [defaults, setDefaults] = useState<[string, string]>(['', '']);
   const [statuses, setStatuses] = useState<Record<number, ProcessStatus | null>>({});
   const [editor, setEditor] = useState<Workspace | 'new' | null>(null);
+  const [newWorkgroupId, setNewWorkgroupId] = useState<number | null>(null);
+  const [groupEditor, setGroupEditor] = useState<Workgroup | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
@@ -240,8 +277,11 @@ function App() {
 
   const disabled = busy || restoring > 0;
   return <main className="app">
-    <WorkspaceSidebar workspaces={state.workspaces} selectedId={state.selectedId} disabled={disabled} ready={ready}
-      create={() => { setError(''); setEditor('new'); }} edit={workspace => { setError(''); setEditor(workspace); }}
+    <WorkspaceSidebar workgroups={state.workgroups} workspaces={state.workspaces} selectedId={state.selectedId} disabled={disabled} ready={ready}
+      create={groupId => { setError(''); setNewWorkgroupId(groupId); setEditor('new'); }}
+      createWorkgroup={() => { setError(''); setGroupEditor('new'); }} editWorkgroup={group => { setError(''); setGroupEditor(group); }}
+      foldWorkgroup={(id, collapsed) => void mutate('fold_workgroup', { id, collapsed })}
+      removeWorkgroup={async group => { if (await confirm(`Delete empty workgroup “${group.name}”? Its directory and configuration file will remain untouched.`)) void mutate('close_workgroup', { id: group.id }); }} edit={workspace => { setError(''); setEditor(workspace); }}
       select={id => void mutate('select_workspace', { id })} reorder={(id, position) => mutate('reorder_workspace', { id, position })}
       remove={async workspace => {
         const hasSessions = workspace.tabs.some(tab => statuses[tab.id]?.state === 'running');
@@ -252,7 +292,7 @@ function App() {
       }} />
     <div className="main-pane">
       {error && <div role="alert" className="error">{error}</div>}
-      {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
+      {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => { if (state.workgroups.length) { setNewWorkgroupId(state.workgroups[0].id); setEditor('new'); } else setGroupEditor('new'); }}>{state.workgroups.length ? 'Create workspace' : 'Create workgroup'}</button></div>}
       {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} disabled={disabled} reportStatus={reportStatus} mutate={mutate} markRestoring={markRestoring}
         closeTab={async tab => {
           const confirmed = statuses[tab.id]?.state === 'running';
@@ -264,8 +304,10 @@ function App() {
       <footer><span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span><button disabled={!ready || disabled} onClick={() => void quit()}>Quit</button></footer>
     </div>
     {confirmation && <ConfirmationDialog message={confirmation.message} choose={value => { confirmation.resolve(value); setConfirmation(null); }} />}
-    {editor && <WorkspaceEditor key={editor === 'new' ? 'new' : editor.id} workspace={editor === 'new' ? undefined : editor} initialDirectory={defaults[0]} dismiss={() => setEditor(null)} externalError={error}
-      save={(name, directory) => mutate(editor === 'new' ? 'create_workspace' : 'update_workspace', { ...(editor === 'new' ? {} : { id: editor.id }), name, directory })} />}
+    {groupEditor && <WorkgroupEditor key={groupEditor === 'new' ? 'new-group' : groupEditor.id} workgroup={groupEditor === 'new' ? undefined : groupEditor} initialDirectory={defaults[0]} externalError={error} dismiss={() => setGroupEditor(null)}
+      save={(name, rootDirectory) => mutate(groupEditor === 'new' ? 'create_workgroup' : 'update_workgroup', { ...(groupEditor === 'new' ? {} : { id: groupEditor.id }), name, rootDirectory })} />}
+    {editor && <WorkspaceEditor workgroups={state.workgroups} initialWorkgroupId={newWorkgroupId ?? state.workgroups[0]?.id} key={editor === 'new' ? 'new' : editor.id} workspace={editor === 'new' ? undefined : editor} initialDirectory={state.workgroups.find(group => group.id === newWorkgroupId)?.rootDirectory ?? defaults[0]} dismiss={() => setEditor(null)} externalError={error}
+      save={(name, directory, workgroupId) => mutate(editor === 'new' ? 'create_workspace' : 'update_workspace', { ...(editor === 'new' ? {} : { id: editor.id }), name, directory, workgroupId })} />}
   </main>;
 }
 

@@ -12,7 +12,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland desktop with XWayla
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY, workspace, tab and SQLite tests | Passed: twenty-six Rust tests plus one helper integration check, including cgroup detached/double-fork cleanup, app-death cleanup, eager PTY release without status polling, blocked input/output closure, and PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
+| Native PTY, workspace, tab and SQLite tests | Passed: thirty Rust tests plus one helper integration check, including workgroup v1→v2 migration, root defaults/overrides, membership/fold persistence, scoped YAML isolation, directory non-mutation, live PTY preservation, cgroup detached/double-fork cleanup, app-death cleanup, eager PTY release without status polling, blocked input/output closure, and PTY reconnect/replay, stale ACK rejection, replay backpressure/budget/EOF, YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Native Tauri/WebKitGTK automation | Observed outside the sandbox on Wayland and X11/XWayland, using isolated temporary metadata/configuration |
 | Interactive Codex in the Tauri WebKitGTK window | Wayland: startup, prompt/cursor editing, slash menu, resize/reload and unsent draft preservation passed; no task submitted. Multiline paste, approval prompts, scrolling and interrupt behavior remain manual |
@@ -131,3 +131,22 @@ mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --driver /path/to/WebKi
 This scenario requires X11 or XWayland and libX11. It identifies the isolated app through its socket peer PID and sends WM_DELETE_WINDOW only to its own full-sized top-level window. It checks socket mode 0600, oversized request rejection, backend refusal of unconfirmed Quit, cancellation and acceptance of the real Quit confirmation, hidden-window output consumption, activation without duplicate PTYs, explicit Quit, socket removal, unavailable --show behavior, and metadata restoration with a new process. Confirmation uses an accessible in-app dialog: Tauri's dialog plugin replaces window.confirm with an async function, so synchronous window.confirm checks are unsafe. The harness drives both Cancel and Confirm through the real UI. The completed native lifecycle run passed all seven checks, including both choices in the Quit UI; its report is `/tmp/terminal-lifecycle-validation-1_lxnhsb/report.json`. Reports live under /tmp/terminal-lifecycle-validation-*.
 
 The final Wayland report is `/tmp/terminal-native-validation-c4q6gbix/report.json` (nine automated checks, no cleanup survivors). The final Wayland terminal regression includes interactive Codex prompt/menu/resize/reload without submitting a task. Mouse reporting was explicitly skipped at the user's request and remains deferred; exit 2 records that incomplete gate rather than a new lifecycle failure. Native Wayland window-manager hide/reopen and a separately installed desktop launcher remain manual/packaging checks.
+
+## Workgroup acceptance
+
+1. Create two workgroups with existing root directories. Create a workspace inside each using its + button. Verify the initial directory matches that group's root, and override it with another existing directory.
+2. Edit each group's actions.yaml using the path shown under Edit workgroup. Verify New tab lists only that group's actions, reloads file edits, and reports malformed/oversized configuration without overwriting it. Existing tabs retain their copied settings. Legacy global YAML seeds newly created files and is never overwritten.
+3. Run a streaming terminal. Fold/unfold its group, switch groups, and reload the WebView. Verify folded state persists, the same session/PID and selected terminal remain, and output keeps updating.
+4. Rename a group and change its root. Existing workspace paths and running process cwd must remain unchanged; the next workspace form uses the new root. Move a workspace through its editor without remounting its terminal.
+5. Restart and verify group membership/folding and workspace selection restore. Upgrade a schema-v1 fixture with open tabs: IDs, paths, literal arguments, explicit overrides, selection and resume flags must survive the migration.
+6. Delete an empty group after confirmation. A nonempty group must refuse deletion. Root/workspace directory contents and group YAML must remain untouched. Never reuse a deleted group's ID for another group's actions.
+
+The native lifecycle harness includes workgroup scenarios with `--workgroups`:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --workgroups --driver /path/to/WebKitWebDriver --application /tmp/terminal-workgroups-native-app
+```
+
+After a native-validation frontend/Cargo build, copy the bundled executable to the supplied /tmp path before running: concurrent test/dev builds can otherwise replace the target/debug executable. The harness uses isolated metadata/configuration and never controls the user's running app.
+
+Observed workgroup run: `/tmp/terminal-lifecycle-validation-ynwdaok8/report.json` passed all ten selected checks, including the three workgroup scenarios and seven lifecycle regressions, with no cleanup survivors. The corresponding Wayland/Codex regression report is `/tmp/terminal-native-validation-btewz50h/report.json`; all nine selected checks passed, with mouse explicitly deferred (exit 2). Rust tests additionally verify successful legacy migration, rollback on invalid legacy relationships, and group-edit rollback after failed SQLite writes.

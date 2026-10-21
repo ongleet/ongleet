@@ -62,6 +62,7 @@ fn parse(text: &str) -> Result<Vec<TabType>, String> {
 }
 
 // Reload for each menu opening and launch. Never overwrite an invalid user file.
+#[cfg(test)]
 pub fn load(directory: &Path) -> Result<Vec<TabType>, String> {
     std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
     let path = directory.join("tab-types.yaml");
@@ -91,29 +92,53 @@ pub fn load(directory: &Path) -> Result<Vec<TabType>, String> {
     result.map_err(|e| format!("{}: {e}", path.display()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn templates_preserve_literal_arguments_and_reject_invalid_modes() {
-        let types = parse(DEFAULTS).unwrap();
-        assert_eq!(types[0].config.executable.as_deref(), Some("bash"));
-        assert_eq!(types[1].config.executable.as_deref(), Some("codex"));
-        let input = "tab_types:\n  - id: test\n    name: Test\n    kind: terminal\n    config:\n      executable: printf\n      args: ['a; echo literal', '日本語']\n      env: {PORT: '3000'}\n";
-        let types = parse(input).unwrap();
-        assert_eq!(types[0].config.args, ["a; echo literal", "日本語"]);
-        assert!(parse(&input.replace(
-            "executable: printf",
-            "executable: printf\n      shellCommand: echo bad"
-        ))
-        .is_err());
-        assert!(parse(&input.replace("kind: terminal", "kind: browser")).is_err());
-        assert!(parse(&format!(
-            "{input}{}",
-            input.trim_start_matches("tab_types:\n")
-        ))
-        .is_err());
-        assert!(parse(&input.replace("executable:", "executabl:")).is_err());
-    }
+pub fn workgroup_path(directory: &Path, id: u64) -> std::path::PathBuf {
+    directory
+        .join("workgroups")
+        .join(id.to_string())
+        .join("actions.yaml")
 }
+
+pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<TabType>, String> {
+    let path = workgroup_path(directory, id);
+    let result = (|| {
+        if !path.exists() {
+            // Preserve the existing global choices when introducing workgroups.
+            let legacy = directory.join("tab-types.yaml");
+            let seed = if legacy.exists() {
+                read_config(&legacy)?
+            } else {
+                DEFAULTS.into()
+            };
+            parse(&seed)?;
+            std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => file.write_all(seed.as_bytes()).map_err(|e| e.to_string())?,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+        parse(&read_config(&path)?)
+    })();
+    result.map_err(|error| format!("{}: {error}", path.display()))
+}
+
+fn read_config(path: &Path) -> Result<String, String> {
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .map_err(|e| e.to_string())?
+        .take(MAX_BYTES + 1)
+        .read_to_string(&mut text)
+        .map_err(|e| e.to_string())?;
+    if text.len() as u64 > MAX_BYTES {
+        return Err("Configuration exceeds 64 KiB".into());
+    }
+    Ok(text)
+}
+
+#[cfg(test)]
+mod tests;

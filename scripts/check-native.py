@@ -56,6 +56,7 @@ class WebDriver:
 
     def click(self, selector, using="css selector"):
         element = wait_for(lambda: self.find(selector, using), f"element {selector}")
+        wait_for(lambda: self.request("GET", f"/element/{element}/enabled"), f"enabled element {selector}")
         self.js("arguments[0].scrollIntoView({block: 'nearest', inline: 'nearest'})", {ELEMENT: element})
         self.request("POST", f"/element/{element}/click", {})
 
@@ -155,8 +156,8 @@ def run(args):
             report["capabilities"] = session["capabilities"]
             wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "native app ready")
             client.click('[aria-label="Create workspace"]')
-            client.fill("dialog[open] label:nth-of-type(1) input", "Native validation")
-            client.fill("dialog[open] label:nth-of-type(2) input", str(run_dir))
+            client.fill("#workspace-name", "Native validation")
+            client.fill("#workspace-directory", str(run_dir))
             client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
             wait_for(lambda: client.js("return !!window.__terminalValidation"), "validation bridge (requires native-validation build)")
 

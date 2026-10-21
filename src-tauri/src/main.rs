@@ -79,8 +79,79 @@ async fn start(
 }
 
 #[tauri::command]
-fn tab_types(app: tauri::AppHandle) -> Result<Vec<tab_types::TabType>, String> {
-    tab_types::load(&app.path().app_config_dir().map_err(|e| e.to_string())?)
+fn tab_types(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+    workspace_id: u64,
+) -> Result<Vec<tab_types::TabType>, String> {
+    let group = state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .workspace_workgroup(workspace_id)?;
+    tab_types::load_workgroup(
+        &app.path().app_config_dir().map_err(|e| e.to_string())?,
+        group,
+    )
+}
+
+#[tauri::command]
+fn workgroup_config(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+    id: u64,
+) -> Result<String, String> {
+    state.0.lock().map_err(|e| e.to_string())?.workgroup(id)?;
+    let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    tab_types::load_workgroup(&directory, id)?;
+    Ok(tab_types::workgroup_path(&directory, id)
+        .to_string_lossy()
+        .into())
+}
+
+#[tauri::command]
+fn create_workgroup(
+    state: State<Sessions>,
+    name: String,
+    root_directory: String,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create_workgroup(name, root_directory)
+}
+
+#[tauri::command]
+fn update_workgroup(
+    state: State<Sessions>,
+    id: u64,
+    name: String,
+    root_directory: String,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .update_workgroup(id, name, root_directory)
+}
+
+#[tauri::command]
+fn fold_workgroup(state: State<Sessions>, id: u64, collapsed: bool) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .fold_workgroup(id, collapsed)
+}
+
+#[tauri::command]
+fn close_workgroup(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .close_workgroup(id)
 }
 
 #[tauri::command]
@@ -90,7 +161,7 @@ fn create_tab(
     workspace_id: u64,
     type_id: String,
 ) -> Result<Snapshot, String> {
-    let template = tab_types(app)?
+    let template = tab_types(app, state.clone(), workspace_id)?
         .into_iter()
         .find(|t| t.id == type_id)
         .ok_or("Tab type is unavailable")?;
@@ -201,12 +272,14 @@ fn create_workspace(
     state: State<Sessions>,
     name: String,
     directory: String,
+    workgroup_id: Option<u64>,
 ) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .create(name, directory)
+    let mut registry = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(group) = workgroup_id {
+        registry.create_in_workgroup(group, name, directory)
+    } else {
+        registry.create(name, directory)
+    }
 }
 
 #[tauri::command]
@@ -215,12 +288,14 @@ fn update_workspace(
     id: u64,
     name: String,
     directory: String,
+    workgroup_id: Option<u64>,
 ) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .update(id, name, directory)
+    let mut registry = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(group) = workgroup_id {
+        registry.update_in_workgroup(id, group, name, directory)
+    } else {
+        registry.update(id, name, directory)
+    }
 }
 
 #[tauri::command]
@@ -383,6 +458,11 @@ fn run() -> Result<(), String> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            create_workgroup,
+            update_workgroup,
+            fold_workgroup,
+            close_workgroup,
+            workgroup_config,
             application_status,
             quit,
             start,
