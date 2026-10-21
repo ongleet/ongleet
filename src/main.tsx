@@ -139,25 +139,11 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
   </section>;
 }
 
-function RenameTabDialog({ tab, save, dismiss, error }: { tab: TerminalTab; save: (name: string) => Promise<boolean>; dismiss: () => void; error: string }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [name, setName] = useState(tab.name);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  return <dialog ref={dialog} aria-labelledby="rename-tab-title" onCancel={event => { event.preventDefault(); if (!busy) dismiss(); }}>
-    <form onSubmit={event => { event.preventDefault(); setBusy(true); void save(name).then(saved => { if (saved) dismiss(); }).finally(() => setBusy(false)); }}>
-      <h2 id="rename-tab-title">Rename tab</h2><label>Name<input autoFocus required disabled={busy} value={name} onChange={event => setName(event.target.value)} /></label>
-      {error && <p role="alert" className="error">{error}</p>}
-      <div className="dialog-actions"><button type="button" disabled={busy} onClick={dismiss}>Cancel</button><button disabled={busy || !name.trim()}>Rename</button></div>
-    </form>
-  </dialog>;
-}
-
-function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, rename, closeTab, markRestoring }: {
+function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, closeTab, markRestoring }: {
   workspace: Workspace; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean; shell: string;
   markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
   mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>; onState: (state: WorkspaceSnapshot) => void;
-  rename: (tab: TerminalTab) => void; closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
+  closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
 }) {
   const openTabs = workspace.tabs.filter(tab => tab.isOpen);
   const availableTabs = workspace.tabs.filter(tab => !tab.isOpen);
@@ -216,9 +202,6 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
             <span className={`status-dot ${statuses[tab.id]?.state ?? 'stopped'}`} /><span className="tab-name">{tab.name}</span>
             {statuses[tab.id]?.state === 'exited' && <span>({(statuses[tab.id] as { code: number }).code})</span>}
           </button>
-          <button className="tab-icon" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Rename ${tab.name}`} title="Rename tab" onClick={() => rename(tab)}>
-            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" /></svg>
-          </button>
           <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
         </div>)}
       </div>
@@ -237,7 +220,6 @@ function App() {
   const [defaults, setDefaults] = useState<[string, string]>(['', '']);
   const [statuses, setStatuses] = useState<Record<number, ProcessStatus | null>>({});
   const [editor, setEditor] = useState<Workspace | 'new' | null>(null);
-  const [renaming, setRenaming] = useState<TerminalTab | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
@@ -298,7 +280,7 @@ function App() {
       {error && <div role="alert" className="error">{error}</div>}
       {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
       {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} shell={defaults[1]} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} mutate={mutate} onState={setState} markRestoring={markRestoring}
-        rename={tab => { setError(''); setRenaming(tab); }} closeTab={tab => {
+        closeTab={tab => {
           const confirmed = !!statuses[tab.id];
           if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs? Its configuration will stay available.`)) return;
           void mutate('close_tab', { id: tab.id, confirmed }).then(closed => {
@@ -307,7 +289,6 @@ function App() {
         }} />)}
       <footer>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</footer>
     </div>
-    {renaming && <RenameTabDialog tab={renaming} error={error} dismiss={() => setRenaming(null)} save={name => mutate('rename_tab', { id: renaming.id, name })} />}
     {editor && <WorkspaceEditor key={editor === 'new' ? 'new' : editor.id} workspace={editor === 'new' ? undefined : editor} initialDirectory={defaults[0]} dismiss={() => setEditor(null)} externalError={error}
       save={(name, directory) => mutate(editor === 'new' ? 'create_workspace' : 'update_workspace', { ...(editor === 'new' ? {} : { id: editor.id }), name, directory })} />}
   </main>;
