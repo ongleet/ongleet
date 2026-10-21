@@ -73,7 +73,11 @@ impl Containment {
             if !self.directory.exists() {
                 return Ok(());
             }
-            return Err(format!("Cannot terminate terminal cgroup: {error}"));
+            // The reaper/watchdog may concurrently remove an already-empty
+            // group. ENODEV means it is offline; verify removal below.
+            if error.raw_os_error() != Some(libc::ENODEV) {
+                return Err(format!("Cannot terminate terminal cgroup: {error}"));
+            }
         }
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
@@ -83,6 +87,7 @@ impl Containment {
                     return Ok(());
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) if error.raw_os_error() == Some(libc::ENODEV) => {}
                 Err(error) => return Err(error.to_string()),
                 _ => {}
             }

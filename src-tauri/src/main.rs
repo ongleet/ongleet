@@ -136,13 +136,13 @@ fn save_workgroup_actions(
 }
 
 #[tauri::command]
-fn parse_actions(yaml: String) -> Result<Vec<actions::Action>, String> {
-    actions::parse(&yaml)
+fn parse_actions(yaml: String) -> Result<actions::Config, String> {
+    actions::parse_config(&yaml)
 }
 
 #[tauri::command]
-fn format_actions(actions: Vec<actions::Action>) -> Result<String, String> {
-    actions::format(actions)
+fn format_actions(config: actions::Config) -> Result<String, String> {
+    actions::format(config)
 }
 
 #[tauri::command]
@@ -482,6 +482,11 @@ fn run() -> Result<(), String> {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            app.state::<Sessions>()
+                .0
+                .lock()
+                .map_err(|e| std::io::Error::other(e.to_string()))?
+                .set_actions_directory(app.path().app_config_dir()?);
             app.manage(
                 instance::Instance::start(socket, app.handle().clone())
                     .map_err(std::io::Error::other)?,

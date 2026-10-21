@@ -64,6 +64,14 @@ impl WorkspaceRegistry {
         } else {
             (config.executable.clone(), config.args.clone())
         };
+        let mut env = if let Some(directory) = &self.actions_directory {
+            let yaml = crate::actions::read_workgroup_yaml(directory, workspace.workgroup_id)?;
+            crate::actions::parse_config(&yaml)?.env
+        } else {
+            std::collections::BTreeMap::new()
+        };
+        // Process environment < common workgroup variables < action overrides.
+        env.extend(config.env.clone());
         let launch = Launch {
             executable,
             args,
@@ -71,7 +79,7 @@ impl WorkspaceRegistry {
                 .cwd_override
                 .clone()
                 .unwrap_or_else(|| workspace.base_directory.clone()),
-            env: config.env.clone(),
+            env,
             cols,
             rows,
         };

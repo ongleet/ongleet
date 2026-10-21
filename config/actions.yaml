@@ -1,5 +1,6 @@
 # Copied to the application's user config directory on first use.
 # Arguments are literal; use config.shellCommand explicitly for shell syntax.
+env: {}
 actions:
   - id: bash
     name: Bash

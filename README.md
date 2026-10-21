@@ -41,11 +41,13 @@ Click the group's chevron/name to fold or unfold its workspace list. Folding is 
 
 Each workgroup has one YAML file at `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/workgroups/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit workgroup** to see its exact path. The file is initialized on first Edit/New tab access with Bash/Codex defaults. Each file is independent; global configuration files are not used. For the migrated Default group, for example: `vim ~/.config/io.local.terminal-stack-prototype/workgroups/1/actions.yaml`.
 
-The Edit workgroup modal has **General**, **Actions**, and **YAML** tabs. General edits the name/root. Actions provides a form for adding, removing, and reordering actions, with executable/arguments or explicit shell-command mode, optional directory and explicit environment overrides. Arguments use a JSON array of strings; environment overrides use a JSON object of strings. YAML edits the same list directly. Switching views transfers unsaved action edits between them; **Save actions** validates and atomically replaces that group's file. General settings use **Save workgroup** separately. Existing openings keep their copied launch settings. An invalid YAML file opens in the YAML editor so it can be repaired.
+The Edit workgroup modal has **General**, **Actions**, and **YAML** tabs. General edits the name/root. Actions provides a form for adding, removing, and reordering actions, with executable/arguments or explicit shell-command mode, optional directory and explicit environment overrides. The **Common environment variables** section provides shared name/value pairs for all actions in the workgroup. Arguments use a JSON array of strings; environment overrides use a JSON object of strings. YAML edits the same list directly. Switching views transfers unsaved action edits between them; **Save actions** validates and atomically replaces that group's file. General settings use **Save workgroup** separately. Existing openings keep their copied launch settings. An invalid YAML file opens in the YAML editor so it can be repaired.
 
-Actions are the tab choices under **New tab**, which uses only the active workspace's workgroup configuration. The YAML root is `actions` (older root names are rejected):
+Actions are the tab choices under **New tab**, which uses only the active workspace's workgroup configuration. The action list uses `actions`, alongside optional common `env` values (older action-list names are rejected):
 
 ```yaml
+env:
+  PROJECT_MODE: development
 actions:
   - id: bash
     name: Bash
@@ -62,6 +64,8 @@ actions:
       args: []
       env: {}
 ```
+
+Environment precedence is the inherited process environment, then the workgroup’s common `env`, then each action’s `config.env`. Values are literal strings. Common variables are reloaded for each new process; editing them never changes an already running process. They live in the same workgroup YAML file and are not merged into saved tab metadata.
 
 IDs must be unique; names are shown in the picker. Only `kind: terminal` is supported. `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the workspace base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No workspace setup scripts or shell/Codex configuration changes are performed.
 

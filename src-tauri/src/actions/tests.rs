@@ -57,7 +57,7 @@ fn action_editor_roundtrips_and_rejects_invalid_saves_without_overwriting() {
     save_workgroup_yaml(&directory, 8, &edited).unwrap();
     assert_eq!(read_workgroup_yaml(&directory, 8).unwrap(), edited);
     assert_eq!(
-        parse(&format(parse(&edited).unwrap()).unwrap()).unwrap()[0].name,
+        parse(&format(parse_config(&edited).unwrap()).unwrap()).unwrap()[0].name,
         "Project shell"
     );
     for invalid in [

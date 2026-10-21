@@ -9,6 +9,9 @@ type Action = { id: string; name: string; kind: string; config: {
 } };
 type Draft = { id: string; name: string; mode: 'executable' | 'shell'; executable: string;
   args: string; env: string; cwd: string; shell: string };
+type Settings = { env: Record<string, string>; actions: Action[] };
+type EnvRow = { id: string; name: string; value: string };
+const envRows = (env: Record<string, string>): EnvRow[] => Object.entries(env).map(([name, value], index) => ({ id: `env-${index}`, name, value }));
 type View = 'general' | 'actions' | 'yaml';
 const drafts = (actions: Action[]): Draft[] => actions.map(action => ({ id: action.id, name: action.name,
   mode: action.config.shellCommand === null ? 'executable' : 'shell', executable: action.config.executable ?? '',
@@ -39,6 +42,7 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
   const [view, setView] = useState<View>('general');
   const [draft, setDraft] = useState<Draft[]>([]);
   const [yaml, setYaml] = useState('');
+  const [commonEnv, setCommonEnv] = useState<EnvRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -53,20 +57,32 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
         if (disposed) return;
         setYaml(text); setLoaded(true);
         try {
-          const actions = await invoke<Action[]>('parse_actions', { yaml: text });
-          if (!disposed) setDraft(drafts(actions));
+          const settings = await invoke<Settings>('parse_actions', { yaml: text });
+          if (!disposed) { setDraft(drafts(settings.actions)); setCommonEnv(envRows(settings.env)); }
         } catch (error) { if (!disposed) { setView('yaml'); setError(String(error)); } }
       }).catch(error => { if (!disposed) setError(String(error)); });
     }
     return () => { disposed = true; };
   }, [workgroup?.id]);
 
+  function settingsFromForm(): Settings {
+    const names = new Set<string>();
+    for (const row of commonEnv) {
+      if (!row.name || names.has(row.name)) throw new Error('Common environment variables require unique, nonempty names.');
+      names.add(row.name);
+    }
+    return { env: Object.fromEntries(commonEnv.map(row => [row.name, row.value])), actions: actionsFrom(draft) };
+  }
+  function editEnv(id: string, changes: Partial<EnvRow>) {
+    setCommonEnv(current => current.map(row => row.id === id ? { ...row, ...changes } : row));
+    setDirty(true); setNotice('');
+  }
   async function switchView(next: View) {
     if (next === view || busy) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      if (view === 'actions') setYaml(await invoke<string>('format_actions', { actions: actionsFrom(draft) }));
-      if (next === 'actions') setDraft(drafts(await invoke<Action[]>('parse_actions', { yaml })));
+      if (view === 'actions') setYaml(await invoke<string>('format_actions', { config: settingsFromForm() }));
+      if (next === 'actions') { const settings = await invoke<Settings>('parse_actions', { yaml }); setDraft(drafts(settings.actions)); setCommonEnv(envRows(settings.env)); }
       setView(next);
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
@@ -75,7 +91,7 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
     if (!workgroup) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const text = view === 'actions' ? await invoke<string>('format_actions', { actions: actionsFrom(draft) }) : yaml;
+      const text = view === 'actions' ? await invoke<string>('format_actions', { config: settingsFromForm() }) : yaml;
       await invoke('save_workgroup_actions', { id: workgroup.id, yaml: text });
       setYaml(text); setDirty(false); setNotice('Actions saved. New openings will use these settings.');
     } catch (error) { setError(String(error)); }
@@ -115,6 +131,16 @@ export function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, ex
     </section>
     <section id="settings-panel-actions" role="tabpanel" aria-labelledby="settings-actions" hidden={view !== 'actions'} className="action-form">
       <p className="muted">The first action starts automatically in new workspaces. Changes apply to new openings.</p>
+      <section className="common-env" aria-label="Common environment variables">
+        <h3>Common environment variables</h3>
+        <p className="muted">Shared by all actions in this workgroup. Action-specific overrides take precedence. Changes apply to future launches.</p>
+        {commonEnv.map(row => <div className="env-row" key={row.id}>
+          <label>Name<input aria-label="Common variable name" disabled={busy} value={row.name} onChange={event => editEnv(row.id, { name: event.target.value })} /></label>
+          <label>Value<input aria-label="Common variable value" disabled={busy} value={row.value} onChange={event => editEnv(row.id, { value: event.target.value })} /></label>
+          <button type="button" disabled={busy} onClick={() => { setCommonEnv(current => current.filter(item => item.id !== row.id)); setDirty(true); setNotice(''); }}>Remove variable</button>
+        </div>)}
+        <button type="button" disabled={busy} onClick={() => { setCommonEnv(current => [...current, { id: `env-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`, name: '', value: '' }]); setDirty(true); setNotice(''); }}>Add variable</button>
+      </section>
       {draft.map((action, index) => <fieldset key={action.id} disabled={busy}>
         <legend>{index + 1}. {action.name || 'New action'}</legend>
         <label>Name<input aria-label="Action name" value={action.name} onChange={event => patch(action.id, { name: event.target.value })} /></label>

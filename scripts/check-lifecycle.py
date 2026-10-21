@@ -132,10 +132,16 @@ def run(args):
         client.click(f'#workgroup-menu-{group["id"]}')
         client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", "xpath")
         settings('actions')
+        for name, value in [('EDITOR_COMMON', 'shared'), ('EDITOR_TEST', 'group default')]:
+            client.click("//button[normalize-space()='Add variable']", 'xpath')
+            count = client.js("return document.querySelectorAll('.env-row').length")
+            client.fill(f'.env-row:nth-of-type({count}) [aria-label="Common variable name"]', name)
+            client.fill(f'.env-row:nth-of-type({count}) [aria-label="Common variable value"]', value)
         field = '#settings-panel-actions fieldset:first-of-type '
+
         client.fill(field + '[aria-label="Action name"]', 'Edited action')
         client.fill(field + '[aria-label="Executable"]', '/usr/bin/python3')
-        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-u', '-c', "import os,time; print('EDITOR_READY='+os.environ['EDITOR_TEST'],flush=True); time.sleep(60)"]))
+        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-u', '-c', "import os,time; print('EDITOR_READY='+os.environ['EDITOR_TEST']+';COMMON='+os.environ['EDITOR_COMMON'],flush=True); time.sleep(60)"]))
         client.fill(field + '[aria-label="Environment overrides"]', '{"EDITOR_TEST":"saved value"}')
         client.click("//button[normalize-space()='Add action']", "xpath")
         client.fill('#settings-panel-actions fieldset:nth-of-type(2) [aria-label="Action name"]', 'Temporary')
@@ -145,7 +151,7 @@ def run(args):
         client.click("//fieldset[2]//button[normalize-space()='Remove action']", "xpath")
         settings('yaml')
         yaml = client.js("return document.querySelector('#workgroup-actions-yaml').value")
-        assert yaml.startswith('actions:') and 'Edited action' in yaml and 'tab_types' not in yaml
+        assert 'actions:' in yaml and 'EDITOR_COMMON: shared' in yaml and 'Edited action' in yaml and 'tab_types' not in yaml
         config = Path(client.invoke('workgroup_config', {'id': group['id']}))
         original = config.read_text()
         client.fill('#workgroup-actions-yaml', 'actions: []')
@@ -160,17 +166,19 @@ def run(args):
         assert 'Edited from YAML' in config.read_text()
         client.click("//dialog[@open]//button[normalize-space()='Close']", "xpath")
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
+        assert b'EDITOR_COMMON=' not in Path(f'/proc/{terminal_pid}/environ').read_bytes()
         client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
         client.click("//dialog[@open]//button[normalize-space()='Edited from YAML']", 'xpath')
         tab = wait_for(lambda: next((w['selectedTabId'] for w in client.invoke('workspaces')['workspaces'] if w['workgroupId'] == group['id'] and w['selectedTabId'] != old_tab), None), 'edited action selected')
-        wait_for(lambda: 'EDITOR_READY=saved value' in client.screen(tab), 'edited action executes')
+        wait_for(lambda: 'EDITOR_READY=saved value;COMMON=shared' in client.screen(tab), 'edited action executes')
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
         client.click(f'#workgroup-menu-{group["id"]}')
         client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", 'xpath')
         settings('actions')
         assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
+        assert client.js("return Array.from(document.querySelectorAll('.env-row input')).some(input=>input.value==='EDITOR_COMMON')")
         client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
-        mark('Action form/YAML roundtrip, add/remove/reorder, invalid-save protection and edited command launch preserve the live sibling')
+        mark('Common environment form/YAML roundtrip, override precedence and edited command launch preserve the live sibling')
 
     def workgroups_check():
         first_root, second_root = directory / "projects-one", directory / "projects-two"

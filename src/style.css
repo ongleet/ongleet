@@ -96,3 +96,9 @@ dialog[aria-label="Workgroup editor"] { width: min(720px, calc(100vw - 40px)); m
 .action-yaml textarea { width: 100%; min-height: 300px; resize: vertical; padding: 10px; border: 1px solid #45546a; border-radius: 5px; background: #121923; color: inherit; font: 12px/1.5 ui-monospace, monospace; tab-size: 2; }
 .settings-footer { margin-top: 16px; }
 dialog[aria-label="Workgroup editor"] > .error, dialog[aria-label="Workgroup editor"] > [role="status"] { margin-top: 12px; }
+
+.common-env { display: grid; gap: 12px; border: 1px solid #45546a; padding: 14px; border-radius: 6px; }
+.common-env h3 { margin: 0; font-size: 14px; }
+.env-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; align-items: end; }
+.env-row label { min-width: 0; }
+@media (max-width: 600px) { .env-row { grid-template-columns: minmax(0, 1fr); } }

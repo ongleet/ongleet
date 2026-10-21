@@ -220,3 +220,80 @@ fn new_workspace_uses_first_configured_action_and_rejects_invalid_yaml_atomicall
         "literal value"
     );
 }
+
+#[test]
+fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
+    let data = Directory::new();
+    let config = Directory::new();
+    let root = Directory::new();
+    let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+    registry.set_actions_directory(config.0.clone());
+    let group = registry.workgroups[0].id;
+    crate::actions::load_workgroup(&config.0, group).unwrap();
+    let mut document = serde_json::json!({"env": {"COMMON": "first $HOME; a", "SHARED": "group", "EMPTY": "", "HOME": "/common-home"}, "actions": [{"id":"probe", "name":"Probe", "kind":"terminal", "config": {
+        "executable":"/usr/bin/python3", "args":["-u","-c","import os,sys,json,time,tty; tty.setraw(0); report=lambda: print(json.dumps([os.getenv('COMMON'),os.getenv('SHARED'),os.getenv('EMPTY'),os.getenv('HOME'),'PATH' in os.environ]),flush=True); report(); sys.stdin.readline(); report(); time.sleep(60)"], "env":{"SHARED":"action"}
+    }}]});
+    crate::actions::save_workgroup_yaml(&config.0, group, &document.to_string()).unwrap();
+    let workspace = registry
+        .create_from_first_action(
+            Some(group),
+            "Probe workspace".into(),
+            root.path(),
+            &config.0,
+        )
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let tab = registry.workspaces[0].selected_tab_id.unwrap();
+    let (channel, receive) = output();
+    let id = registry.start(tab, 80, 24, channel).unwrap();
+    let expected = serde_json::json!(["first $HOME; a", "action", "", "/common-home", true]);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&read_line(&registry, tab, &receive)).unwrap(),
+        expected
+    );
+    document["env"]["COMMON"] = "second".into();
+    crate::actions::save_workgroup_yaml(&config.0, group, &document.to_string()).unwrap();
+    let saved = registry.workspaces[0].tabs[0].config.clone();
+    assert_eq!(
+        saved.env.len(),
+        1,
+        "Do not persist merged/inherited environments in tab metadata"
+    );
+    registry.sessions[&tab]
+        .queue_input(b"\n".to_vec())
+        .unwrap()
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&read_line(&registry, tab, &receive)).unwrap(),
+        expected
+    );
+    let second = registry
+        .create_typed_tab(workspace, "Another".into(), saved.clone())
+        .unwrap()
+        .workspaces[0]
+        .selected_tab_id
+        .unwrap();
+    let (channel, second_output) = output();
+    registry.start(second, 80, 24, channel).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&read_line(&registry, second, &second_output))
+            .unwrap(),
+        serde_json::json!(["second", "action", "", "/common-home", true])
+    );
+    assert!(matches!(registry.status(id).unwrap(), Status::Running));
+    registry.shutdown(true).unwrap();
+    drop(registry);
+    let restored = WorkspaceRegistry::open(&data.0).unwrap();
+    assert_eq!(restored.workspaces[0].tabs[0].config.env, saved.env);
+    assert_eq!(
+        crate::actions::parse_config(
+            &crate::actions::read_workgroup_yaml(&config.0, group).unwrap()
+        )
+        .unwrap()
+        .env["COMMON"],
+        "second"
+    );
+}

@@ -1,7 +1,7 @@
 use crate::workspace::TabConfig;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     io::{Read, Write},
     path::Path,
 };
@@ -11,8 +11,10 @@ const MAX_BYTES: u64 = 65_536;
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Config {
-    actions: Vec<Action>,
+pub struct Config {
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -25,6 +27,10 @@ pub struct Action {
 }
 
 pub fn parse(text: &str) -> Result<Vec<Action>, String> {
+    Ok(parse_config(text)?.actions)
+}
+
+pub fn parse_config(text: &str) -> Result<Config, String> {
     if text.len() as u64 > MAX_BYTES {
         return Err("Configuration exceeds 64 KiB".into());
     }
@@ -32,6 +38,11 @@ pub fn parse(text: &str) -> Result<Vec<Action>, String> {
     if config.actions.is_empty() || config.actions.len() > 100 {
         return Err("Expected between 1 and 100 actions".into());
     }
+    TabConfig {
+        env: config.env.clone(),
+        ..Default::default()
+    }
+    .validate()?;
     let mut ids = HashSet::new();
     for template in &config.actions {
         if template.id.trim().is_empty()
@@ -62,7 +73,7 @@ pub fn parse(text: &str) -> Result<Vec<Action>, String> {
             return Err("Terminal type requires an executable or explicit shellCommand".into());
         }
     }
-    Ok(config.actions)
+    Ok(config)
 }
 
 // Reload for each menu opening and launch. Never overwrite an invalid user file.
@@ -124,8 +135,8 @@ pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<Action>, String> 
     result.map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub fn format(actions: Vec<Action>) -> Result<String, String> {
-    let yaml = serde_yaml_ng::to_string(&Config { actions }).map_err(|e| e.to_string())?;
+pub fn format(config: Config) -> Result<String, String> {
+    let yaml = serde_yaml_ng::to_string(&config).map_err(|e| e.to_string())?;
     parse(&yaml)?;
     Ok(yaml)
 }

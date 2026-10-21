@@ -102,6 +102,7 @@ pub struct Snapshot {
 // Durable definitions are separate from open tabs and native PTY resources.
 #[derive(Default)]
 pub struct WorkspaceRegistry {
+    actions_directory: Option<std::path::PathBuf>,
     workgroups: Vec<Workgroup>,
     next_workgroup_id: u64,
     workspaces: Vec<Workspace>,
@@ -116,6 +117,10 @@ pub struct WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub fn set_actions_directory(&mut self, directory: std::path::PathBuf) {
+        self.actions_directory = Some(directory);
+    }
+
     pub fn open(directory: &std::path::Path) -> Result<Self, String> {
         let store = MetadataStore::open(directory)?;
         let metadata = store.load()?;
