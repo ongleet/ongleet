@@ -17,8 +17,10 @@ function ConfirmationDialog({ message, choose }: { message: string; choose: (con
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
   return <dialog ref={dialog} aria-label="Confirm action" onCancel={event => { event.preventDefault(); choose(false); }}>
-    <h2>Confirm action</h2><p>{message}</p>
-    <div className="dialog-actions"><button autoFocus onClick={() => choose(false)}>Cancel</button><button onClick={() => choose(true)}>Confirm</button></div>
+    <div className="confirmation-content">
+      <h2>Confirm action</h2><p>{message}</p>
+      <div className="dialog-actions"><button autoFocus onClick={() => choose(false)}>Cancel</button><button onClick={() => choose(true)}>Confirm</button></div>
+    </div>
   </dialog>;
 }
 

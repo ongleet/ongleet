@@ -84,5 +84,4 @@ dialog p { margin: 0; }
 .workgroup-icon { width: 25px; height: 26px; padding: 0; border: 0; background: transparent; font-size: 18px; color: #94a3b7; }
 .workspace-list .workgroup-workspaces { margin-left: 10px; }
 .workgroup-heading .workspace-menu-trigger:hover:not(:disabled), .workgroup-icon:hover:not(:disabled) { background: transparent; color: #dce3ec; }
-dialog[aria-label="Confirm action"] { display: grid; gap: 16px; }
-dialog[aria-label="Confirm action"]:not([open]) { display: none; }
+.confirmation-content { display: grid; gap: 16px; }
