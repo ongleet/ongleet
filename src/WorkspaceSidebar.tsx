@@ -9,6 +9,20 @@ type Props = {
 };
 
 export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, create, edit, remove, select, reorder }: Props) {
+  const [width, setWidth] = useState(210);
+  const [maxWidth, setMaxWidth] = useState(() => Math.max(150, Math.min(560, window.innerWidth - 240)));
+  const [resizing, setResizing] = useState(false);
+  const resizeOrigin = useRef<{ x: number; width: number } | null>(null);
+  const clampWidth = (value: number) => Math.max(150, Math.min(maxWidth, value));
+  useEffect(() => {
+    const fit = () => {
+      const maximum = Math.max(150, Math.min(560, window.innerWidth - 240));
+      setMaxWidth(maximum);
+      setWidth(current => Math.min(current, maximum));
+    };
+    fit(); window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
   const [menuId, setMenuId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [dragId, setDragId] = useState<number | null>(null);
@@ -49,7 +63,7 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, crea
     });
   }
 
-  return <aside className="sidebar" aria-label="Workspaces">
+  return <aside id="workspace-sidebar" className="sidebar" aria-label="Workspaces" style={{ width }}>
     <div className="sidebar-heading"><strong>Workspaces</strong><button disabled={!ready || disabled} onClick={create} aria-label="Create workspace" title="Create workspace">+</button></div>
     <nav className="workspace-list" aria-label="Select workspace"><ol onDragLeave={event => {
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
@@ -99,6 +113,28 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, crea
         </li>;
       })}
     </ol></nav>
+    <div className="sidebar-resizer" role="separator" tabIndex={0} aria-label="Resize sidebar"
+      aria-orientation="vertical" aria-controls="workspace-sidebar" aria-valuemin={150} aria-valuemax={maxWidth} aria-valuenow={width}
+      title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+      onPointerDown={event => {
+        if (event.button !== 0) return;
+        event.preventDefault(); event.currentTarget.focus(); setMenuId(null);
+        resizeOrigin.current = { x: event.clientX, width };
+        event.currentTarget.setPointerCapture(event.pointerId); setResizing(true);
+      }} onPointerMove={event => {
+        const origin = resizeOrigin.current;
+        if (origin) setWidth(clampWidth(origin.width + event.clientX - origin.x));
+      }} onPointerUp={event => {
+        resizeOrigin.current = null; setResizing(false);
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      }} onLostPointerCapture={() => { resizeOrigin.current = null; setResizing(false); }}
+      onPointerCancel={() => { resizeOrigin.current = null; setResizing(false); }}
+      onDoubleClick={() => setWidth(clampWidth(210))}
+      onKeyDown={event => {
+        const next = event.key === 'ArrowLeft' ? width - 10 : event.key === 'ArrowRight' ? width + 10 : event.key === 'Home' ? 150 : event.key === 'End' ? maxWidth : null;
+        if (next !== null) { event.preventDefault(); setWidth(clampWidth(next)); }
+      }} />
+    {resizing && createPortal(<div className="sidebar-resize-overlay" />, document.body)}
     {menuWorkspace && !disabled && createPortal(<div id="workspace-menu" role="menu" aria-label={`${menuWorkspace.name} actions`} ref={menuRef}
       className="workspace-menu" style={{ top: menuPosition.top, left: menuPosition.left }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); trigger()?.focus(); setMenuId(null); return; }
