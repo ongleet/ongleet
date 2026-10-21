@@ -199,7 +199,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
               event.dataTransfer.setData('text/plain', String(tab.id));
               event.dataTransfer.setDragImage(event.currentTarget.parentElement!, 25, 16);
             }} onDragEnd={() => { setDragTabId(null); setTabDrop(null); }}>
-            <span className={`status-dot ${statuses[tab.id]?.state ?? 'stopped'}`} /><span className="tab-name">{tab.name}</span>
+            <span className="tab-name">{tab.name}</span>
             {statuses[tab.id]?.state === 'exited' && <span>({(statuses[tab.id] as { code: number }).code})</span>}
           </button>
           <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
@@ -266,7 +266,7 @@ function App() {
 
   const disabled = busy || restoring > 0;
   return <main className="app">
-    <WorkspaceSidebar workspaces={state.workspaces} selectedId={state.selectedId} statuses={statuses} disabled={disabled} ready={ready}
+    <WorkspaceSidebar workspaces={state.workspaces} selectedId={state.selectedId} disabled={disabled} ready={ready}
       create={() => { setError(''); setEditor('new'); }} edit={workspace => { setError(''); setEditor(workspace); }}
       select={id => void mutate('select_workspace', { id })} reorder={(id, position) => mutate('reorder_workspace', { id, position })}
       remove={workspace => {

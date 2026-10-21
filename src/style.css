@@ -30,9 +30,6 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .workspace-menu [role="separator"] { height: 1px; background: #45546a; margin: 4px 0; }
 .workspace-menu .danger { color: #ffb1b1; }
 .workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-dot { width: 7px; height: 7px; border-radius: 50%; background: #748091; flex-shrink: 0; }
-.status-dot.running { background: #a3e6cc; }
-.status-dot.exited { background: #e1b978; }
 .main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .workspace-pane, .tab-terminal { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tab-bar { display: flex; gap: 8px; padding: 0 14px; border-bottom: 1px solid #354051; }

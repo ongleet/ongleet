@@ -1,16 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Workspace } from './main';
-import type { ProcessStatus } from './terminal';
 
 type Props = {
   workspaces: Workspace[]; selectedId: number | null; disabled: boolean; ready: boolean;
-  statuses: Record<number, ProcessStatus | null>;
   create: () => void; edit: (workspace: Workspace) => void; remove: (workspace: Workspace) => void;
   select: (id: number) => void; reorder: (id: number, position: number) => Promise<boolean>;
 };
 
-export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, statuses, create, edit, remove, select, reorder }: Props) {
+export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, create, edit, remove, select, reorder }: Props) {
   const [menuId, setMenuId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [dragId, setDragId] = useState<number | null>(null);
@@ -57,7 +55,6 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, stat
       if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
     }}>
       {workspaces.map(workspace => {
-        const processState = workspace.tabs.some(tab => statuses[tab.id]?.state === 'running') ? 'running' : workspace.tabs.some(tab => statuses[tab.id]?.state === 'exited') ? 'exited' : 'stopped';
         return <li key={workspace.id} className={`workspace-row${selectedId === workspace.id ? ' selected' : ''}${dragId === workspace.id ? ' dragging' : ''}${drop?.id === workspace.id ? drop.after ? ' drop-after' : ' drop-before' : ''}`}
           onDragOver={event => {
             if (disabled || dragId === null) return;
@@ -92,7 +89,7 @@ export function WorkspaceSidebar({ workspaces, selectedId, disabled, ready, stat
             </svg></button>
           <button className="workspace-choice" aria-current={selectedId === workspace.id ? 'page' : undefined} disabled={disabled}
             title={workspace.baseDirectory} onClick={() => { setMenuId(null); select(workspace.id); }}>
-            <span className={`status-dot ${processState}`} aria-label={processState} /><span className="workspace-name">{workspace.name}</span>
+            <span className="workspace-name">{workspace.name}</span>
           </button>
           <button id={`workspace-menu-${workspace.id}`} className="workspace-menu-trigger" disabled={disabled}
             aria-label={`Actions for ${workspace.name}`} aria-haspopup="menu" aria-expanded={menuId === workspace.id}
