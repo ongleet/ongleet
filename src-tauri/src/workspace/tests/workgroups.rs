@@ -182,12 +182,12 @@ fn new_workspace_uses_first_configured_action_and_rejects_invalid_yaml_atomicall
     let root = Directory::new();
     let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
     let group = registry.workgroups[0].id;
-    crate::tab_types::load_workgroup(&config.0, group).unwrap();
-    let path = crate::tab_types::workgroup_path(&config.0, group);
+    crate::actions::load_workgroup(&config.0, group).unwrap();
+    let path = crate::actions::workgroup_path(&config.0, group);
     let action = serde_json::json!({"id":"custom", "name":"Project shell", "kind":"terminal", "config":{
         "executable":"/usr/bin/python3", "args":["-u","-c","import os,time; print(os.getcwd(),flush=True); time.sleep(60)"], "env":{"ACTION_TEST":"literal value"}
     }});
-    fs::write(&path, serde_json::to_vec(&serde_json::json!({"tab_types":[action, {"id":"second","name":"Second action","kind":"terminal","config":{"executable":"/bin/false"}}]})).unwrap()).unwrap();
+    fs::write(&path, serde_json::to_vec(&serde_json::json!({"actions":[action, {"id":"second","name":"Second action","kind":"terminal","config":{"executable":"/bin/false"}}]})).unwrap()).unwrap();
     let snapshot = registry
         .create_from_first_action(Some(group), "Project".into(), root.path(), &config.0)
         .unwrap();
@@ -204,7 +204,7 @@ fn new_workspace_uses_first_configured_action_and_rejects_invalid_yaml_atomicall
         .unwrap()
         .unwrap();
     assert_eq!(read_cwd(&registry, tab.id, &receive), root.path());
-    fs::write(&path, "tab_types: []").unwrap();
+    fs::write(&path, "actions: []").unwrap();
     let expected = serde_json::to_value(registry.snapshot()).unwrap();
     assert!(registry
         .create_from_first_action(Some(group), "Rejected".into(), root.path(), &config.0)

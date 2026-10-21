@@ -57,6 +57,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src/byte-transport.ts`: shared raw-byte adapter and transport limits.
 - `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden workspaces while VT parsing continues.
 - `src/main.tsx`: prototype React interface.
+- `src/WorkgroupEditor.tsx`: General, Actions form and YAML settings tabs; action views share an editable list and save atomically through Rust.
 - `src/WorkspaceSidebar.tsx`: per-workspace action menus, drag handles and keyboard reordering.
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application/window lifecycle.
@@ -65,8 +66,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `scripts/check-lifecycle.py`: isolated X11/XWayland native hide/reopen, activation, Quit and restart checks.
 - `src-tauri/src/workspace.rs`: registry, transactional metadata and workspace operations shared by Tauri commands.
 - `src-tauri/src/workspace/{workgroups,tabs,sessions}.rs`: group metadata, tab operations and terminal lifecycle integration.
-- `src-tauri/src/{workspace,session,storage,tab_types}/tests.rs` and `workspace/tests/workgroups.rs`: separate Rust behavioral tests.
-- `config/tab-types.yaml` and `src-tauri/src/tab_types.rs`: default launch types and per-workgroup `workgroups/<id>/actions.yaml`, reloaded for New tab and creation. Legacy global YAML seeds new files only. Keep config outside project directories; existing openings keep independent SQLite configuration.
+- `src-tauri/src/{workspace,session,storage,actions}/tests.rs` and `workspace/tests/workgroups.rs`: separate Rust behavioral tests.
+- `config/actions.yaml` and `src-tauri/src/actions.rs`: default launch types and per-workgroup `workgroups/<id>/actions.yaml`, reloaded for New tab and creation. Only the `actions` YAML schema is accepted; no legacy/global-file fallback. Keep config outside project directories; existing openings keep independent SQLite configuration.
 - `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/check-native.py` and `src/native-validation.ts`: isolated WebKitGTK automation and mode-gated bounded diagnostics; never target the user's live app.

@@ -90,7 +90,8 @@ def run(args):
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"), XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}", GDK_BACKEND="x11", TAURI_WEBVIEW_AUTOMATION="true", TERMINAL_VALIDATION_RUN=str(directory))
     config = directory / "config/io.local.terminal-stack-prototype"
     config.mkdir(parents=True)
-    (config / "tab-types.yaml").write_text(json.dumps({"tab_types": [{"id": "stream", "name": "Stream", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
+    (config / "workgroups/1").mkdir(parents=True)
+    (config / "workgroups/1/actions.yaml").write_text(json.dumps({"actions": [{"id": "stream", "name": "Stream", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
     data = directory / "data/io.local.terminal-stack-prototype"
     value = 0xcbf29ce484222325
     for byte in os.fsencode(data): value = ((value ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
@@ -124,6 +125,53 @@ def run(args):
         try: client.request("DELETE", "")
         except Exception: pass
         client.session = None
+    def actions_editor_check(group, terminal_pid, session_id, old_tab):
+        def settings(view):
+            client.click(f'#settings-{view}')
+            wait_for(lambda: client.js("const button=document.getElementById('settings-'+arguments[0]);return button?.getAttribute('aria-selected')==='true' && !button.disabled", view), 'settings view ready')
+        client.click(f'#workgroup-menu-{group["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", "xpath")
+        settings('actions')
+        field = '#settings-panel-actions fieldset:first-of-type '
+        client.fill(field + '[aria-label="Action name"]', 'Edited action')
+        client.fill(field + '[aria-label="Executable"]', '/usr/bin/python3')
+        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-u', '-c', "import os,time; print('EDITOR_READY='+os.environ['EDITOR_TEST'],flush=True); time.sleep(60)"]))
+        client.fill(field + '[aria-label="Environment overrides"]', '{"EDITOR_TEST":"saved value"}')
+        client.click("//button[normalize-space()='Add action']", "xpath")
+        client.fill('#settings-panel-actions fieldset:nth-of-type(2) [aria-label="Action name"]', 'Temporary')
+        client.click("//fieldset[2]//button[normalize-space()='Move earlier']", "xpath")
+        assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Temporary'
+        client.click("//fieldset[1]//button[normalize-space()='Move later']", "xpath")
+        client.click("//fieldset[2]//button[normalize-space()='Remove action']", "xpath")
+        settings('yaml')
+        yaml = client.js("return document.querySelector('#workgroup-actions-yaml').value")
+        assert yaml.startswith('actions:') and 'Edited action' in yaml and 'tab_types' not in yaml
+        config = Path(client.invoke('workgroup_config', {'id': group['id']}))
+        original = config.read_text()
+        client.fill('#workgroup-actions-yaml', 'actions: []')
+        client.click("//button[normalize-space()='Save actions']", "xpath")
+        wait_for(lambda: client.js("return Array.from(document.querySelectorAll('[role=alert]')).some(element=>element.innerText.includes('between 1 and 100 actions'))"), 'invalid actions rejected')
+        assert config.read_text() == original
+        client.fill('#workgroup-actions-yaml', yaml.replace('Edited action', 'Edited from YAML'))
+        settings('actions')
+        assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
+        client.click("//button[normalize-space()='Save actions']", "xpath")
+        wait_for(lambda: client.js("return Array.from(document.querySelectorAll('[role=status]')).some(element=>element.innerText.includes('Actions saved'))"), 'actions saved')
+        assert 'Edited from YAML' in config.read_text()
+        client.click("//dialog[@open]//button[normalize-space()='Close']", "xpath")
+        assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
+        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
+        client.click("//dialog[@open]//button[normalize-space()='Edited from YAML']", 'xpath')
+        tab = wait_for(lambda: next((w['selectedTabId'] for w in client.invoke('workspaces')['workspaces'] if w['workgroupId'] == group['id'] and w['selectedTabId'] != old_tab), None), 'edited action selected')
+        wait_for(lambda: 'EDITOR_READY=saved value' in client.screen(tab), 'edited action executes')
+        assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
+        client.click(f'#workgroup-menu-{group["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", 'xpath')
+        settings('actions')
+        assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
+        client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
+        mark('Action form/YAML roundtrip, add/remove/reorder, invalid-save protection and edited command launch preserve the live sibling')
+
     def workgroups_check():
         first_root, second_root = directory / "projects-one", directory / "projects-two"
         first_root.mkdir(); second_root.mkdir()
@@ -137,7 +185,7 @@ def run(args):
             client.click("//dialog[@open]//button[normalize-space()='Save workgroup']", "xpath")
             group = wait_for(lambda: next((g for g in client.invoke("workspaces")["workgroups"] if g["name"] == name), None), "new workgroup")
             path = Path(client.invoke("workgroup_config", {"id": group["id"]}))
-            path.write_text(json.dumps({"tab_types": [{"id": "action", "name": name + " action", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
+            path.write_text(json.dumps({"actions": [{"id": "action", "name": name + " action", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
             groups.append(group)
         first, second = groups
         client.click(f'[data-workgroup-id="{first["id"]}"] [aria-label="Create workspace"]')
@@ -175,6 +223,7 @@ def run(args):
         wait_for(lambda: client.invoke("workspaces")["workgroups"][1]["name"] == "Group One renamed", "group edited")
         assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
         assert client.state(tab)["sessionId"] == session_id
+        if args.actions_editor: actions_editor_check(first, terminal_pid, session_id, tab)
         client.click(f'[data-workgroup-id="{second["id"]}"] [aria-label="Create workspace"]')
         wait_for(lambda: client.js("return document.querySelector('#workspace-directory')?.value") == str(second_root), "second group default")
         client.fill("#workspace-name", "Overridden project")
@@ -282,6 +331,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--actions-editor", action="store_true", help="Exercise the workgroup Actions form and YAML editor (with --workgroups)")
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")
     parser.add_argument("--workgroups", action="store_true", help="Also check grouped workspace UI, per-group YAML and fold persistence")
     parser.add_argument("--driver", required=True)

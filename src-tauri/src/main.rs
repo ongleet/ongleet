@@ -2,11 +2,11 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("This prototype currently supports Linux only");
 
+mod actions;
 mod containment;
 mod instance;
 mod session;
 mod storage;
-mod tab_types;
 mod workspace;
 use session::{Output, Status, TerminalSession};
 use std::sync::{
@@ -79,17 +79,17 @@ async fn start(
 }
 
 #[tauri::command]
-fn tab_types(
+fn actions(
     app: tauri::AppHandle,
     state: State<Sessions>,
     workspace_id: u64,
-) -> Result<Vec<tab_types::TabType>, String> {
+) -> Result<Vec<actions::Action>, String> {
     let group = state
         .0
         .lock()
         .map_err(|e| e.to_string())?
         .workspace_workgroup(workspace_id)?;
-    tab_types::load_workgroup(
+    actions::load_workgroup(
         &app.path().app_config_dir().map_err(|e| e.to_string())?,
         group,
     )
@@ -103,10 +103,46 @@ fn workgroup_config(
 ) -> Result<String, String> {
     state.0.lock().map_err(|e| e.to_string())?.workgroup(id)?;
     let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    tab_types::load_workgroup(&directory, id)?;
-    Ok(tab_types::workgroup_path(&directory, id)
+    actions::load_workgroup(&directory, id)?;
+    Ok(actions::workgroup_path(&directory, id)
         .to_string_lossy()
         .into())
+}
+
+#[tauri::command]
+fn workgroup_actions(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+    id: u64,
+) -> Result<String, String> {
+    state.0.lock().map_err(|e| e.to_string())?.workgroup(id)?;
+    actions::read_workgroup_yaml(&app.path().app_config_dir().map_err(|e| e.to_string())?, id)
+}
+
+#[tauri::command]
+fn save_workgroup_actions(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+    id: u64,
+    yaml: String,
+) -> Result<(), String> {
+    let registry = state.0.lock().map_err(|e| e.to_string())?;
+    registry.workgroup(id)?;
+    actions::save_workgroup_yaml(
+        &app.path().app_config_dir().map_err(|e| e.to_string())?,
+        id,
+        &yaml,
+    )
+}
+
+#[tauri::command]
+fn parse_actions(yaml: String) -> Result<Vec<actions::Action>, String> {
+    actions::parse(&yaml)
+}
+
+#[tauri::command]
+fn format_actions(actions: Vec<actions::Action>) -> Result<String, String> {
+    actions::format(actions)
 }
 
 #[tauri::command]
@@ -159,12 +195,12 @@ fn create_tab(
     app: tauri::AppHandle,
     state: State<Sessions>,
     workspace_id: u64,
-    type_id: String,
+    action_id: String,
 ) -> Result<Snapshot, String> {
-    let template = tab_types(app, state.clone(), workspace_id)?
+    let template = actions(app, state.clone(), workspace_id)?
         .into_iter()
-        .find(|t| t.id == type_id)
-        .ok_or("Tab type is unavailable")?;
+        .find(|t| t.id == action_id)
+        .ok_or("Action is unavailable")?;
     state.0.lock().map_err(|e| e.to_string())?.create_typed_tab(
         workspace_id,
         template.name,
@@ -464,6 +500,10 @@ fn run() -> Result<(), String> {
             fold_workgroup,
             close_workgroup,
             workgroup_config,
+            workgroup_actions,
+            parse_actions,
+            format_actions,
+            save_workgroup_actions,
             application_status,
             quit,
             start,
@@ -481,7 +521,7 @@ fn run() -> Result<(), String> {
             reorder_workspace,
             close_workspace,
             create_tab,
-            tab_types,
+            actions,
             select_tab,
             rename_tab,
             configure_tab,

@@ -77,39 +77,7 @@ impl WorkspaceRegistry {
     }
 
     pub fn configure_tab(&mut self, id: u64, config: TabConfig) -> Result<Snapshot, String> {
-        if config.shell_command.is_some()
-            && (config.executable.is_some() || !config.args.is_empty())
-        {
-            return Err("Shell-command mode cannot also specify an executable or arguments".into());
-        }
-        if config
-            .cwd_override
-            .as_ref()
-            .is_some_and(|p| !std::path::Path::new(p).is_absolute())
-        {
-            return Err("Working directory override must be absolute".into());
-        }
-        if config
-            .shell_command
-            .as_ref()
-            .is_some_and(|c| c.trim().is_empty())
-        {
-            return Err("Shell command cannot be empty".into());
-        }
-        if config
-            .executable
-            .as_ref()
-            .is_some_and(|e| e.trim().is_empty())
-        {
-            return Err("Executable cannot be empty".into());
-        }
-        if config
-            .env
-            .iter()
-            .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
-        {
-            return Err("Invalid environment override".into());
-        }
+        config.validate()?;
         self.tab_workspace_mut(id)?
             .tabs
             .iter_mut()

@@ -62,8 +62,13 @@ class WebDriver:
 
     def fill(self, selector, text):
         element = self.find(selector)
+        self.js("arguments[0].scrollIntoView({block:'nearest',inline:'nearest'})", {ELEMENT: element})
         self.request("POST", f"/element/{element}/clear", {})
-        self.request("POST", f"/element/{element}/value", {"text": text})
+        if "\n" in text and self.request("GET", f"/element/{element}/name") == "textarea":
+            self.js("arguments[0].focus()", {ELEMENT: element})
+            self.keys(text)
+        else:
+            self.request("POST", f"/element/{element}/value", {"text": text})
 
     def keys(self, text):
         actions = []
@@ -133,7 +138,8 @@ def run(args):
     codex = shutil.which("codex")
     if codex and not args.skip_codex:
         types.append({"id": "codex", "name": "Codex", "kind": "terminal", "config": {"executable": codex, "args": [], "cwdOverride": str(ROOT)}})
-    (app_config / "tab-types.yaml").write_text(json.dumps({"tab_types": types}))
+    (app_config / "workgroups/1").mkdir(parents=True)
+    (app_config / "workgroups/1/actions.yaml").write_text(json.dumps({"actions": types}))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]

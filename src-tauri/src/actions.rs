@@ -6,41 +6,45 @@ use std::{
     path::Path,
 };
 
-const DEFAULTS: &str = include_str!("../../config/tab-types.yaml");
+const DEFAULTS: &str = include_str!("../../config/actions.yaml");
 const MAX_BYTES: u64 = 65_536;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
-    tab_types: Vec<TabType>,
+    actions: Vec<Action>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct TabType {
+pub struct Action {
     pub id: String,
     pub name: String,
     pub kind: String,
     pub config: TabConfig,
 }
 
-fn parse(text: &str) -> Result<Vec<TabType>, String> {
+pub fn parse(text: &str) -> Result<Vec<Action>, String> {
+    if text.len() as u64 > MAX_BYTES {
+        return Err("Configuration exceeds 64 KiB".into());
+    }
     let config: Config = serde_yaml_ng::from_str(text).map_err(|e| e.to_string())?;
-    if config.tab_types.is_empty() || config.tab_types.len() > 100 {
-        return Err("Expected between 1 and 100 tab types".into());
+    if config.actions.is_empty() || config.actions.len() > 100 {
+        return Err("Expected between 1 and 100 actions".into());
     }
     let mut ids = HashSet::new();
-    for template in &config.tab_types {
+    for template in &config.actions {
         if template.id.trim().is_empty()
             || template.name.trim().is_empty()
             || !ids.insert(&template.id)
         {
-            return Err("Tab types require unique nonempty IDs and nonempty names".into());
+            return Err("Actions require unique nonempty IDs and nonempty names".into());
         }
         if template.kind != "terminal" {
-            return Err(format!("Unsupported tab kind: {}", template.kind));
+            return Err(format!("Unsupported action kind: {}", template.kind));
         }
         let launch = &template.config;
+        launch.validate()?;
         if launch.shell_command.is_some() {
             if launch.executable.is_some()
                 || !launch.args.is_empty()
@@ -58,14 +62,14 @@ fn parse(text: &str) -> Result<Vec<TabType>, String> {
             return Err("Terminal type requires an executable or explicit shellCommand".into());
         }
     }
-    Ok(config.tab_types)
+    Ok(config.actions)
 }
 
 // Reload for each menu opening and launch. Never overwrite an invalid user file.
 #[cfg(test)]
-pub fn load(directory: &Path) -> Result<Vec<TabType>, String> {
+pub fn load(directory: &Path) -> Result<Vec<Action>, String> {
     std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-    let path = directory.join("tab-types.yaml");
+    let path = directory.join("actions.yaml");
     match std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -99,18 +103,11 @@ pub fn workgroup_path(directory: &Path, id: u64) -> std::path::PathBuf {
         .join("actions.yaml")
 }
 
-pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<TabType>, String> {
+pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
     let path = workgroup_path(directory, id);
     let result = (|| {
         if !path.exists() {
-            // Preserve the existing global choices when introducing workgroups.
-            let legacy = directory.join("tab-types.yaml");
-            let seed = if legacy.exists() {
-                read_config(&legacy)?
-            } else {
-                DEFAULTS.into()
-            };
-            parse(&seed)?;
+            let seed = DEFAULTS;
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             match std::fs::OpenOptions::new()
                 .write(true)
@@ -125,6 +122,53 @@ pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<TabType>, String>
         parse(&read_config(&path)?)
     })();
     result.map_err(|error| format!("{}: {error}", path.display()))
+}
+
+pub fn format(actions: Vec<Action>) -> Result<String, String> {
+    let yaml = serde_yaml_ng::to_string(&Config { actions }).map_err(|e| e.to_string())?;
+    parse(&yaml)?;
+    Ok(yaml)
+}
+
+pub fn read_workgroup_yaml(directory: &Path, id: u64) -> Result<String, String> {
+    let path = workgroup_path(directory, id);
+    if !path.exists() {
+        load_workgroup(directory, id)?;
+    }
+    // Read existing malformed YAML too, so the editor can repair it.
+    read_config(&path).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+pub fn save_workgroup_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
+    if text.len() as u64 > MAX_BYTES {
+        return Err("Configuration exceeds 64 KiB".into());
+    }
+    parse(text)?;
+    let path = workgroup_path(directory, id);
+    let parent = path.parent().unwrap();
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let temporary = parent.join(format!(".actions-{}-{stamp}.tmp", std::process::id()));
+    let result = (|| {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|e| e.to_string())?;
+        file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        std::fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result.map_err(|error: String| format!("{}: {error}", path.display()))
 }
 
 fn read_config(path: &Path) -> Result<String, String> {

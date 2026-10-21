@@ -513,15 +513,15 @@ fn yaml_types_reload_without_changing_existing_openings() {
         .unwrap()
         .selected_id
         .unwrap();
-    let types = crate::tab_types::load(&config_directory.0).unwrap();
+    let types = crate::actions::load(&config_directory.0).unwrap();
     let state = registry
         .create_typed_tab(workspace, types[0].name.clone(), types[0].config.clone())
         .unwrap();
     let first = state.workspaces[0].selected_tab_id.unwrap();
-    let config_path = config_directory.0.join("tab-types.yaml");
-    let updated = "tab_types:\n  - id: bash\n    name: Custom\n    kind: terminal\n    config:\n      executable: /bin/echo\n      args: ['literal; text']\n";
+    let config_path = config_directory.0.join("actions.yaml");
+    let updated = "actions:\n  - id: bash\n    name: Custom\n    kind: terminal\n    config:\n      executable: /bin/echo\n      args: ['literal; text']\n";
     fs::write(&config_path, updated).unwrap();
-    let types = crate::tab_types::load(&config_directory.0).unwrap();
+    let types = crate::actions::load(&config_directory.0).unwrap();
     let state = registry
         .create_typed_tab(workspace, types[0].name.clone(), types[0].config.clone())
         .unwrap();
@@ -535,7 +535,7 @@ fn yaml_types_reload_without_changing_existing_openings() {
     assert_eq!(original.config.executable.as_deref(), Some("bash"));
     assert!(original.is_open && original.resume_on_start);
     fs::write(&config_path, "invalid: [").unwrap();
-    assert!(crate::tab_types::load(&config_directory.0).is_err());
+    assert!(crate::actions::load(&config_directory.0).is_err());
     assert_eq!(fs::read_to_string(&config_path).unwrap(), "invalid: [");
     drop(registry);
     let restored = WorkspaceRegistry::open(&data.0).unwrap();

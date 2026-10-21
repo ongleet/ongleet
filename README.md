@@ -31,7 +31,7 @@ Terminal launch currently also requires Linux cgroup v2, a writable systemd user
 
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
-Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening keeps its own launch configuration and runtime state. Launch settings are configured in YAML; there is no in-tab launch form. To replace an exited or legacy stopped tab, close it and open a new tab.
+Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening keeps its own launch configuration and runtime state. Launch settings are edited under Edit workgroup → Actions, or in its YAML tab. To replace an exited or legacy stopped tab, close it and open a new tab.
 
 ## Workgroups and actions (YAML)
 
@@ -39,12 +39,14 @@ A workgroup has a name and an existing root directory. Use the sidebar's top **+
 
 Click the group's chevron/name to fold or unfold its workspace list. Folding is persisted and only hides sidebar entries: it does not close workspaces, change the active terminal, or interrupt output. Reorder workspaces inside their group with their existing drag grips/keyboard shortcuts. A group can be deleted only after its workspaces have been moved or closed. Workspace/root directories and group configuration files are never deleted by these operations.
 
-Each workgroup has one YAML file at `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/workgroups/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit workgroup** to see its exact path. The file is initialized on first Edit/New tab access, using the previous global `tab-types.yaml` if present, otherwise Bash/Codex defaults. Thereafter each file is independent, and the old global file remains untouched. For the migrated Default group, for example: `vim ~/.config/io.local.terminal-stack-prototype/workgroups/1/actions.yaml`.
+Each workgroup has one YAML file at `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/workgroups/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit workgroup** to see its exact path. The file is initialized on first Edit/New tab access with Bash/Codex defaults. Each file is independent; global configuration files are not used. For the migrated Default group, for example: `vim ~/.config/io.local.terminal-stack-prototype/workgroups/1/actions.yaml`.
 
-Actions are the tab choices under **New tab**, which uses only the active workspace's workgroup configuration. The YAML format remains `tab_types`:
+The Edit workgroup modal has **General**, **Actions**, and **YAML** tabs. General edits the name/root. Actions provides a form for adding, removing, and reordering actions, with executable/arguments or explicit shell-command mode, optional directory and explicit environment overrides. Arguments use a JSON array of strings; environment overrides use a JSON object of strings. YAML edits the same list directly. Switching views transfers unsaved action edits between them; **Save actions** validates and atomically replaces that group's file. General settings use **Save workgroup** separately. Existing openings keep their copied launch settings. An invalid YAML file opens in the YAML editor so it can be repaired.
+
+Actions are the tab choices under **New tab**, which uses only the active workspace's workgroup configuration. The YAML root is `actions` (older root names are rejected):
 
 ```yaml
-tab_types:
+actions:
   - id: bash
     name: Bash
     kind: terminal

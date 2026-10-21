@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { TerminalFrontend, type ProcessStatus } from './terminal';
 import { WorkspaceSidebar } from './WorkspaceSidebar';
+import { WorkgroupEditor } from './WorkgroupEditor';
 import './style.css';
 
 type TabConfig = { cwdOverride: string | null; executable: string | null; args: string[]; env: Record<string, string>; shellCommand: string | null };
@@ -67,34 +68,6 @@ function WorkspaceEditor({ workspace, workgroups, initialWorkgroupId, initialDir
   </dialog>;
 }
 
-function WorkgroupEditor({ workgroup, initialDirectory, save, dismiss, externalError }: {
-  workgroup?: Workgroup; initialDirectory: string; save: (name: string, rootDirectory: string) => Promise<boolean>;
-  dismiss: () => void; externalError: string;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [name, setName] = useState(workgroup?.name ?? '');
-  const [directory, setDirectory] = useState(workgroup?.rootDirectory ?? initialDirectory);
-  const [config, setConfig] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  useEffect(() => {
-    dialog.current?.showModal();
-    if (workgroup) void invoke<string>('workgroup_config', { id: workgroup.id }).then(setConfig).catch(error => setError(String(error)));
-  }, [workgroup?.id]);
-  return <dialog ref={dialog} aria-label="Workgroup editor" onCancel={event => { event.preventDefault(); if (!busy) dismiss(); }}>
-    <form onSubmit={event => { event.preventDefault(); setBusy(true); void save(name, directory).then(saved => { if (saved) dismiss(); }).finally(() => setBusy(false)); }}>
-      <h2>{workgroup ? 'Edit workgroup' : 'New workgroup'}</h2>
-      <label>Name<input required autoFocus value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>
-      <label>Root directory<input required value={directory} disabled={busy} onChange={event => setDirectory(event.target.value)} /></label>
-      <button type="button" disabled={busy} onClick={() => { setBusy(true); void open({ directory: true, multiple: false, title: 'Choose workgroup root' }).then(path => { if (typeof path === 'string') setDirectory(path); }).catch(error => setError(String(error))).finally(() => setBusy(false)); }}>Choose directory…</button>
-      <p className="muted">The root is the default directory for new workspaces. Existing workspace paths and running processes stay as they are.</p>
-      {config && <label>Actions configuration<input readOnly value={config} onFocus={event => event.currentTarget.select()} /></label>}
-      {(error || externalError) && <p role="alert" className="error">{error || externalError}</p>}
-      <div className="dialog-actions"><button type="button" disabled={busy} onClick={dismiss}>Cancel</button><button disabled={busy || !name.trim() || !directory}>Save workgroup</button></div>
-    </form>
-  </dialog>;
-}
-
 function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
   tab: TerminalTab; visible: boolean;
   reportStatus: (id: number, status: ProcessStatus | null) => void;
@@ -124,14 +97,14 @@ function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
   </section>;
 }
 
-function NewTabPicker({ workspaceId, disabled, create }: { workspaceId: number; disabled: boolean; create: (typeId: string) => Promise<boolean> }) {
+function NewTabPicker({ workspaceId, disabled, create }: { workspaceId: number; disabled: boolean; create: (actionId: string) => Promise<boolean> }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   async function open() {
     setError(''); setTypes([]); setLoading(true); dialog.current!.showModal();
-    try { setTypes(await invoke<{ id: string; name: string }[]>('tab_types', { workspaceId })); }
+    try { setTypes(await invoke<{ id: string; name: string }[]>('actions', { workspaceId })); }
     catch (error) { setError(String(error)); }
     finally { setLoading(false); }
   }
@@ -139,7 +112,7 @@ function NewTabPicker({ workspaceId, disabled, create }: { workspaceId: number; 
     <button disabled={disabled} onClick={() => void open()}>+ New tab</button>
     <dialog ref={dialog} aria-label="New tab">
       <h2>New tab</h2>
-      {loading && <p role="status">Loading tab types…</p>}
+      {loading && <p role="status">Loading actions…</p>}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="tab-type-options">{types.map(type => <button key={type.id} disabled={disabled} onClick={() => {
         dialog.current!.close(); void create(type.id);
@@ -213,7 +186,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
           <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
         </div>)}
       </div>
-      <NewTabPicker workspaceId={workspace.id} disabled={disabled} create={typeId => mutate('create_tab', { workspaceId: workspace.id, typeId })} />
+      <NewTabPicker workspaceId={workspace.id} disabled={disabled} create={actionId => mutate('create_tab', { workspaceId: workspace.id, actionId })} />
     </div>
     {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
     {openTabs.map(tab => <TabTerminal key={tab.id} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
