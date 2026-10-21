@@ -29,9 +29,33 @@ sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev \
 
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
-Create a workspace and use its initial stopped tab, or add a tab with **+ New tab**. Choose Start for the default user shell or Run Codex. Each tab has independent launch settings: optional working-directory override, executable, JSON argument array, and explicit environment overrides such as `{"PORT":"3000"}`. Save settings stores configuration without launching a process. Blank directory/executable fields use the workspace directory and user shell at launch time. For shell syntax, explicitly choose **Shell command**; executable mode never implicitly evaluates shell syntax.
+Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening has independent launch settings and runtime state. Existing stopped tabs can still be started from their launch settings.
 
-Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a session requires confirmation and keeps its saved definition available in **Open configured tab…**. Reopening launches its saved command. There is currently one opening per definition. Restart explicitly relaunches an exited session after confirmation. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
+## Tab types (YAML)
+
+The app creates `$XDG_CONFIG_HOME/io.local.terminal-stack-prototype/tab-types.yaml` (normally `~/.config/io.local.terminal-stack-prototype/tab-types.yaml`) on first use, using [the default configuration](config/tab-types.yaml). Edit it with your editor, for example `vim ~/.config/io.local.terminal-stack-prototype/tab-types.yaml`. It is reloaded each time you open New tab and when creating the tab. Invalid configuration reports an error and is never silently replaced.
+
+```yaml
+tab_types:
+  - id: bash
+    name: Bash
+    kind: terminal
+    config:
+      executable: bash
+      args: []
+      env: {}
+  - id: codex
+    name: Codex
+    kind: terminal
+    config:
+      executable: codex
+      args: []
+      env: {}
+```
+
+IDs must be unique; names are shown in the picker. Only `kind: terminal` is supported. `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the workspace base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No workspace setup scripts or shell/Codex configuration changes are performed.
+
+Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a session requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Restart explicitly relaunches an exited session after confirmation. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
 
 ## Persistence and command restart
 

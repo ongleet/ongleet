@@ -4,6 +4,7 @@ compile_error!("This prototype currently supports Linux only");
 
 mod session;
 mod storage;
+mod tab_types;
 mod workspace;
 use session::{Output, Status, TerminalSession};
 use std::sync::Mutex;
@@ -40,12 +41,26 @@ fn start(
 }
 
 #[tauri::command]
-fn create_tab(state: State<Sessions>, workspace_id: u64) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .create_tab(workspace_id)
+fn tab_types(app: tauri::AppHandle) -> Result<Vec<tab_types::TabType>, String> {
+    tab_types::load(&app.path().app_config_dir().map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn create_tab(
+    app: tauri::AppHandle,
+    state: State<Sessions>,
+    workspace_id: u64,
+    type_id: String,
+) -> Result<Snapshot, String> {
+    let template = tab_types(app)?
+        .into_iter()
+        .find(|t| t.id == type_id)
+        .ok_or("Tab type is unavailable")?;
+    state.0.lock().map_err(|e| e.to_string())?.create_typed_tab(
+        workspace_id,
+        template.name,
+        template.config,
+    )
 }
 
 #[tauri::command]
@@ -222,6 +237,7 @@ fn main() {
             reorder_workspace,
             close_workspace,
             create_tab,
+            tab_types,
             select_tab,
             rename_tab,
             configure_tab,

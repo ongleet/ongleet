@@ -58,6 +58,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application setup.
 - `src-tauri/src/workspace.rs`: durable metadata, definition/opening state, resume policy, independent sessions, and operations shared by Tauri commands.
+- `config/tab-types.yaml` and `src-tauri/src/tab_types.rs`: default YAML launch types and validated user configuration, reloaded for New tab. Existing openings keep independent SQLite configuration.
 - `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/terminal-probe.py`: interactive Unicode, flood, keyboard, mouse, and alternate-screen probes.

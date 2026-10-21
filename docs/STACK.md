@@ -1,6 +1,6 @@
 # Stage-one stack evaluation
 
-Current scope: workspace sidebar, terminal tabs, and SQLite metadata. At the user's request, previously running commands launch anew on application startup. Definitions and current openings are distinct; closing a tab retains its definition. Each terminal has an independent PTY and emulator. This does not mark all interactive validation checks complete or resolve the process-containment limitation below.
+Current scope: workspace sidebar, terminal tabs, and SQLite metadata. At the user's request, previously running commands launch anew on application startup. Definitions and current openings are distinct; closing a tab retains its metadata internally. New tab creates a fresh opening from a user YAML type; the saved-definition reopening selector is no longer exposed. Each terminal has an independent PTY and emulator. This does not mark all interactive validation checks complete or resolve the process-containment limitation below.
 
 ## Candidate and licensing
 

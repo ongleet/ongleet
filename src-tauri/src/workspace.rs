@@ -16,7 +16,7 @@ pub struct Workspace {
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct TabConfig {
     pub cwd_override: Option<String>,
     pub executable: Option<String>,
@@ -370,6 +370,30 @@ impl WorkspaceRegistry {
     }
 
     pub fn create_tab(&mut self, workspace_id: u64) -> Result<Snapshot, String> {
+        self.insert_tab(workspace_id, None)
+    }
+
+    pub fn create_typed_tab(
+        &mut self,
+        workspace_id: u64,
+        name: String,
+        config: TabConfig,
+    ) -> Result<Snapshot, String> {
+        self.insert_tab(workspace_id, Some((name, config)))
+    }
+
+    fn insert_tab(
+        &mut self,
+        workspace_id: u64,
+        template: Option<(String, TabConfig)>,
+    ) -> Result<Snapshot, String> {
+        let auto_start = template.is_some();
+        let (name, config) = template.unwrap_or_else(|| {
+            (
+                format!("Terminal {}", self.next_tab_id + 1),
+                TabConfig::default(),
+            )
+        });
         let workspace = self
             .workspaces
             .iter_mut()
@@ -379,11 +403,11 @@ impl WorkspaceRegistry {
         workspace.tabs.push(TerminalTab {
             kind: "terminal".into(),
             is_open: true,
-            resume_on_start: false,
+            resume_on_start: auto_start,
             id: self.next_tab_id,
-            name: format!("Terminal {}", self.next_tab_id),
+            name,
             display_order: workspace.tabs.len(),
-            config: TabConfig::default(),
+            config,
         });
         workspace.selected_tab_id = Some(self.next_tab_id);
         self.persist()
@@ -962,6 +986,52 @@ mod tests {
             )
             .is_err());
         registry.shutdown(true).unwrap();
+    }
+
+    #[test]
+    fn yaml_types_reload_without_changing_existing_openings() {
+        let data = Directory::new();
+        let config_directory = Directory::new();
+        let directory = Directory::new();
+        let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+        let workspace = registry
+            .create("Types".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        let types = crate::tab_types::load(&config_directory.0).unwrap();
+        let state = registry
+            .create_typed_tab(workspace, types[0].name.clone(), types[0].config.clone())
+            .unwrap();
+        let first = state.workspaces[0].selected_tab_id.unwrap();
+        let config_path = config_directory.0.join("tab-types.yaml");
+        let updated = "tab_types:\n  - id: bash\n    name: Custom\n    kind: terminal\n    config:\n      executable: /bin/echo\n      args: ['literal; text']\n";
+        fs::write(&config_path, updated).unwrap();
+        let types = crate::tab_types::load(&config_directory.0).unwrap();
+        let state = registry
+            .create_typed_tab(workspace, types[0].name.clone(), types[0].config.clone())
+            .unwrap();
+        let second = state.workspaces[0].selected_tab_id.unwrap();
+        assert_ne!(first, second);
+        let original = state.workspaces[0]
+            .tabs
+            .iter()
+            .find(|t| t.id == first)
+            .unwrap();
+        assert_eq!(original.config.executable.as_deref(), Some("bash"));
+        assert!(original.is_open && original.resume_on_start);
+        fs::write(&config_path, "invalid: [").unwrap();
+        assert!(crate::tab_types::load(&config_directory.0).is_err());
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), "invalid: [");
+        drop(registry);
+        let restored = WorkspaceRegistry::open(&data.0).unwrap();
+        let saved = restored.workspaces[0]
+            .tabs
+            .iter()
+            .find(|t| t.id == second)
+            .unwrap();
+        assert_eq!(saved.config.args, ["literal; text"]);
+        assert_eq!(saved.name, "Custom");
     }
 
     #[test]

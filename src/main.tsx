@@ -126,6 +126,31 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
   </section>;
 }
 
+function NewTabPicker({ disabled, create }: { disabled: boolean; create: (typeId: string) => Promise<boolean> }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  async function open() {
+    setError(''); setTypes([]); setLoading(true); dialog.current!.showModal();
+    try { setTypes(await invoke<{ id: string; name: string }[]>('tab_types')); }
+    catch (error) { setError(String(error)); }
+    finally { setLoading(false); }
+  }
+  return <>
+    <button disabled={disabled} onClick={() => void open()}>+ New tab</button>
+    <dialog ref={dialog} aria-label="New tab">
+      <h2>New tab</h2>
+      {loading && <p role="status">Loading tab types…</p>}
+      {error && <p role="alert" className="error">{error}</p>}
+      <div className="tab-type-options">{types.map(type => <button key={type.id} disabled={disabled} onClick={() => {
+        dialog.current!.close(); void create(type.id);
+      }}>{type.name}</button>)}</div>
+      <div className="dialog-actions"><button onClick={() => dialog.current!.close()}>Cancel</button></div>
+    </dialog>
+  </>;
+}
+
 function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, closeTab, markRestoring }: {
   workspace: Workspace; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean; shell: string;
   markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
@@ -133,7 +158,6 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
   closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
 }) {
   const openTabs = workspace.tabs.filter(tab => tab.isOpen);
-  const availableTabs = workspace.tabs.filter(tab => !tab.isOpen);
   const active = openTabs.find(tab => tab.id === workspace.selectedTabId);
   const [dragTabId, setDragTabId] = useState<number | null>(null);
   const [tabDrop, setTabDrop] = useState<{ id: number; after: boolean } | null>(null);
@@ -192,12 +216,9 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
           <button className="tab-icon tab-close" disabled={disabled} tabIndex={tab.id === active?.id ? 0 : -1} aria-label={`Close ${tab.name}`} title="Close tab" onClick={() => closeTab(tab)}>×</button>
         </div>)}
       </div>
-      {availableTabs.length > 0 && <select aria-label="Open a configured tab" value="" disabled={disabled} onChange={event => {
-        const id = Number(event.target.value); if (id) void mutate('open_tab', { id });
-      }}><option value="" disabled>Open configured tab…</option>{availableTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>}
-      <button disabled={disabled} aria-label="Create terminal tab" onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>+ New tab</button>
+      <NewTabPicker disabled={disabled} create={typeId => mutate('create_tab', { workspaceId: workspace.id, typeId })} />
     </div>
-    {!active && <div className="empty-state"><p>No open tabs. Choose a configured tab above, or create a new definition.</p><button disabled={disabled} onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>Create terminal tab</button></div>}
+    {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
     {openTabs.map(tab => <TabTerminal key={tab.id} workspace={workspace} tab={tab} visible={visible && tab.id === active?.id} shell={shell} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} onState={onState} markRestoring={markRestoring} />)}
   </section>;
 }
@@ -269,7 +290,7 @@ function App() {
       {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} shell={defaults[1]} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} mutate={mutate} onState={setState} markRestoring={markRestoring}
         closeTab={tab => {
           const confirmed = !!statuses[tab.id];
-          if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs? Its configuration will stay available.`)) return;
+          if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs?`)) return;
           void mutate('close_tab', { id: tab.id, confirmed }).then(closed => {
             if (closed) setStatuses(previous => { const next = { ...previous }; delete next[tab.id]; return next; });
           });

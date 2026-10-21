@@ -1,0 +1,17 @@
+# Copied to the application's user config directory on first use.
+# Arguments are literal; use config.shellCommand explicitly for shell syntax.
+tab_types:
+  - id: bash
+    name: Bash
+    kind: terminal
+    config:
+      executable: bash
+      args: []
+      env: {}
+  - id: codex
+    name: Codex
+    kind: terminal
+    config:
+      executable: codex
+      args: []
+      env: {}

@@ -12,7 +12,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY, workspace, tab and SQLite tests | Passed: fourteen tests, including reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
+| Native PTY, workspace, tab and SQLite tests | Passed: sixteen tests, including YAML validation/reload, independent template openings, reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Desktop connection from agent environment | Blocked: `Gtk.init_check()` returned false |
 | Launch compiled Tauri executable from agent environment | Blocked: GTK backend initialization failed before opening a window |
@@ -60,9 +60,16 @@ Remaining native checks and process-containment blockers must be resolved before
 
 ## Persistence and relaunch acceptance
 
-1. Save several workspaces and definitions, reorder/select them, close one tab, and restart. Verify metadata survives and the closed definition can be reopened through its menu.
+1. Save several workspaces and definitions, reorder/select them, close one tab, and restart. Verify metadata survives and closed metadata stays closed and New tab offers the YAML types instead of a reopening menu.
 2. Leave one command running, explicitly stop another, let a third exit, and close a fourth tab. Restart: only the formerly running command should launch automatically, once, with a new PID and fresh terminal state. Stopped open tabs remain stopped; closed definitions remain available without running.
 3. Close the window with confirmation while several tabs run. Verify their processes terminate, then launch anew on the next application start. This is command relaunch, not process survival.
 4. With the app closed, remove/rename a workspace directory. Verify restoration keeps the workspace, launch reports an error, and no directory is recreated. Correct the path and start explicitly.
 5. Verify a second application cannot write the same database or duplicate startup launches. It currently reports an error; window forwarding is pending.
 6. Inspect the standard app-data database and its permissions. Verify no inherited environment or terminal output was saved, and that draft launch-form edits require Save settings or a launch to become durable.
+
+## YAML tab types acceptance
+
+1. Open New tab and launch Bash and Codex. Verify independent processes start in the workspace directory and multiple tabs of the same type can run.
+2. Add a type with literal arguments, environment overrides and a directory override. Reopen the picker without restarting; verify the new type and launch configuration. Existing tabs must remain unchanged.
+3. Try malformed YAML, duplicate IDs, unknown fields/kinds and conflicting shell/executable modes. Verify a clear error without replacing the file or launching a tab. Fix it and retry.
+4. Close a running tab with confirmation; verify no configured-tab reopening selector remains. Restart and verify the existing resume policy is preserved.
