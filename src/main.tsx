@@ -50,26 +50,19 @@ function WorkspaceEditor({ workspace, initialDirectory, save, dismiss, externalE
   </dialog>;
 }
 
-function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, reportStatus, onState, markRestoring }: {
-  workspace: Workspace; tab: TerminalTab; visible: boolean; shell: string; disabled: boolean;
-  markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
-  onState: (state: WorkspaceSnapshot) => void; markRestoring: (delta: number) => void;
+function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
+  tab: TerminalTab; visible: boolean;
+  reportStatus: (id: number, status: ProcessStatus | null) => void;
+  markRestoring: (delta: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const frontend = useRef<TerminalFrontend | null>(null);
-  const [cwdOverride, setCwdOverride] = useState(tab.config.cwdOverride ?? '');
-  const [executable, setExecutable] = useState(tab.config.executable ?? '');
-  const [args, setArgs] = useState(JSON.stringify(tab.config.args));
-  const [environment, setEnvironment] = useState(JSON.stringify(tab.config.env));
-  const [shellMode, setShellMode] = useState(tab.config.shellCommand !== null);
-  const [shellCommand, setShellCommand] = useState(tab.config.shellCommand ?? '');
-  const [status, setStatus] = useState<ProcessStatus | null>(null);
   const [error, setError] = useState('');
   const report: Report = error => setError(String(error));
 
   useEffect(() => {
     const terminal = new TerminalFrontend(host.current!, tab.id, status => {
-      setStatus(status); reportStatus(tab.id, status);
+      reportStatus(tab.id, status);
     }, report);
     frontend.current = terminal;
     // Only the initial attachment may resume a restored/reopened tab. Later
@@ -82,45 +75,7 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
   }, [tab.id, reportStatus, markRestoring]);
   useEffect(() => { frontend.current?.setVisible(visible); }, [visible]);
 
-  async function save(start: boolean, codex = false) {
-    if (start && status?.state === 'exited' && !window.confirm('Restart this tab and terminate any jobs left by its previous session?')) return;
-    markBusy(true); setError('');
-    try {
-      const parsedArgs: unknown = codex || shellMode ? [] : JSON.parse(args);
-      if (!Array.isArray(parsedArgs) || !parsedArgs.every(arg => typeof arg === 'string')) throw new Error('Arguments must be a JSON array of strings.');
-      const env: unknown = JSON.parse(environment);
-      if (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every(value => typeof value === 'string')) throw new Error('Environment overrides must be a JSON object with string values.');
-      const config: TabConfig = {
-        cwdOverride: cwdOverride || null, executable: codex ? 'codex' : shellMode ? null : executable || null,
-        args: parsedArgs, env: env as Record<string, string>, shellCommand: !codex && shellMode ? shellCommand : null,
-      };
-      onState(await invoke<WorkspaceSnapshot>('configure_tab', { id: tab.id, config }));
-      if (codex) { setExecutable('codex'); setArgs('[]'); setShellMode(false); }
-      if (start) {
-        if (status?.state === 'exited') await frontend.current!.close();
-        await frontend.current!.start();
-      }
-    } catch (error) { report(error); } finally { markBusy(false); }
-  }
-
   return <section id={`tab-panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} className="tab-terminal" hidden={!visible}>
-    <details className="launch-settings" open={!status}>
-      <summary>Launch settings</summary>
-      <form className="launch-form" onSubmit={event => { event.preventDefault(); void save(true); }}>
-        <label>Working directory override<input value={cwdOverride} onChange={event => setCwdOverride(event.target.value)} disabled={!!status || disabled} placeholder={workspace.baseDirectory} /></label>
-        <label>Launch mode<select value={shellMode ? 'shell' : 'executable'} onChange={event => setShellMode(event.target.value === 'shell')} disabled={!!status || disabled}>
-          <option value="executable">Executable + arguments</option><option value="shell">Shell command</option>
-        </select></label>
-        {shellMode ? <label>Shell command<input value={shellCommand} onChange={event => setShellCommand(event.target.value)} disabled={!!status || disabled} placeholder="Explicit shell syntax" required /></label> : <>
-          <label>Executable<input value={executable} onChange={event => setExecutable(event.target.value)} disabled={!!status || disabled} placeholder={shell || 'User shell'} /></label>
-          <label>Arguments (JSON array)<input value={args} onChange={event => setArgs(event.target.value)} disabled={!!status || disabled} /></label>
-        </>}
-        <label>Environment overrides (JSON)<input value={environment} onChange={event => setEnvironment(event.target.value)} disabled={!!status || disabled} placeholder={'{"PORT":"3000"}'} /></label>
-        <div className="launch-buttons"><button disabled={status?.state === 'running' || disabled}>{status?.state === 'exited' ? 'Restart' : 'Start'}</button>
-          <button type="button" disabled={!!status || disabled} onClick={() => void save(true, true)}>Run Codex</button>
-          <button type="button" disabled={!!status || disabled} onClick={() => void save(false)}>Save settings</button></div>
-      </form>
-    </details>
     {error && <div role="alert" className="error">{error}</div>}
     <div ref={host} className="terminal" />
   </section>;
@@ -151,10 +106,10 @@ function NewTabPicker({ disabled, create }: { disabled: boolean; create: (typeId
   </>;
 }
 
-function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, closeTab, markRestoring }: {
-  workspace: Workspace; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean; shell: string;
-  markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
-  mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>; onState: (state: WorkspaceSnapshot) => void;
+function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, mutate, closeTab, markRestoring }: {
+  workspace: Workspace; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean;
+  reportStatus: (id: number, status: ProcessStatus | null) => void;
+  mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>;
   closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
 }) {
   const openTabs = workspace.tabs.filter(tab => tab.isOpen);
@@ -219,7 +174,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy
       <NewTabPicker disabled={disabled} create={typeId => mutate('create_tab', { workspaceId: workspace.id, typeId })} />
     </div>
     {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
-    {openTabs.map(tab => <TabTerminal key={tab.id} workspace={workspace} tab={tab} visible={visible && tab.id === active?.id} shell={shell} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} onState={onState} markRestoring={markRestoring} />)}
+    {openTabs.map(tab => <TabTerminal key={tab.id} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
   </section>;
 }
 
@@ -287,7 +242,7 @@ function App() {
     <div className="main-pane">
       {error && <div role="alert" className="error">{error}</div>}
       {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
-      {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} shell={defaults[1]} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} mutate={mutate} onState={setState} markRestoring={markRestoring}
+      {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} disabled={disabled} reportStatus={reportStatus} mutate={mutate} markRestoring={markRestoring}
         closeTab={tab => {
           const confirmed = !!statuses[tab.id];
           if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs?`)) return;

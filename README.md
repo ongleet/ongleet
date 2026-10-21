@@ -29,7 +29,7 @@ sudo apt install build-essential pkg-config libwebkit2gtk-4.1-dev \
 
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
-Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening has independent launch settings and runtime state. Existing stopped tabs can still be started from their launch settings.
+Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the workspace directory. Each opening keeps its own launch configuration and runtime state. Launch settings are configured in YAML; there is no in-tab launch form. To replace an exited or legacy stopped tab, close it and open a new tab.
 
 ## Tab types (YAML)
 
@@ -55,13 +55,13 @@ tab_types:
 
 IDs must be unique; names are shown in the picker. Only `kind: terminal` is supported. `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the workspace base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No workspace setup scripts or shell/Codex configuration changes are performed.
 
-Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a session requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Restart explicitly relaunches an exited session after confirmation. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
+Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a session requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
 
 ## Persistence and command restart
 
 At the user's request, only tabs that were running when the app last closed automatically launch again. These are **new processes**, not recovered live sessions; previous screens and output history are not restored. Tabs explicitly stopped/closed and processes observed to have exited do not auto-start. Stopped open tabs restore as stopped. A crash uses the last committed running set. Startup waits for connected terminal frontends; failed launches report errors without an automatic retry loop.
 
-The database is `workspaces.sqlite3` in Tauri's application data directory, normally `$XDG_DATA_HOME/io.local.terminal-stack-prototype/` or `~/.local/share/io.local.terminal-stack-prototype/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. Draft launch edits require **Save settings** or launching to become durable.
+The database is `workspaces.sqlite3` in Tauri's application data directory, normally `$XDG_DATA_HOME/io.local.terminal-stack-prototype/` or `~/.local/share/io.local.terminal-stack-prototype/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. New tabs persist a copy of their YAML launch configuration.
 
 Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch currently errors instead of focusing the first window. Metadata is saved as changes occur, so this version does not require a manual Save action for workspace/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
 
