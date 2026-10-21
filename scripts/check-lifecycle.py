@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import socket
 import struct
 import subprocess
@@ -81,6 +82,11 @@ def close_window(pid):
 
 def run(args):
     directory = Path(tempfile.mkdtemp(prefix="terminal-lifecycle-validation-"))
+    if args.replace_executable:
+        # Mutate only this harness-owned copy, never a user/build executable.
+        copy = directory / "application"
+        shutil.copy2(args.application, copy)
+        args.application = str(copy)
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"), XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}", GDK_BACKEND="x11", TAURI_WEBVIEW_AUTOMATION="true", TERMINAL_VALIDATION_RUN=str(directory))
     config = directory / "config/io.local.terminal-stack-prototype"
     config.mkdir(parents=True)
@@ -196,11 +202,20 @@ def run(args):
             wait_for(lambda: client.request("GET", "/status", session=False), "driver ready")
             pid = connect()
             if args.workgroups: workgroups_check()
+            if args.replace_executable:
+                application = Path(args.application)
+                retired = directory / "retired-application"
+                application.rename(retired)
+                shutil.copy2(retired, application)
+                retired.unlink()
+                assert os.readlink(f"/proc/{pid}/exe").endswith(" (deleted)")
             workspace = client.invoke("create_workspace", {"name": "Lifecycle", "directory": str(directory)})["workspaces"][0]
             assert len(workspace["tabs"]) == 1 and workspace["tabs"][0]["name"] == "Stream"
             tab = workspace["selectedTabId"]
             client.request("POST", "/refresh", {})
             wait_for(lambda: "TICK=" in client.screen(tab), "stream running")
+            if args.replace_executable:
+                mark("New PTY launches after replacing/unlinking the running application executable")
             before = client.screen(tab)
             stream_pid = next(int(line.split("=",1)[1].split()[0]) for line in before.splitlines() if line.startswith("PID="))
             assert os.stat(path).st_mode & 0o777 == 0o600
@@ -267,6 +282,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")
     parser.add_argument("--workgroups", action="store_true", help="Also check grouped workspace UI, per-group YAML and fold persistence")
     parser.add_argument("--driver", required=True)
     parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/terminal-workspace-prototype"))

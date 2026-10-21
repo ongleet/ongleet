@@ -160,10 +160,10 @@ impl Drop for Handshake {
 }
 
 pub fn executable() -> Result<PathBuf, String> {
-    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
     // Cargo's test harness replaces main; the tiny test helper uses the exact
     // same bootstrap implementation. Installed applications reuse their own binary.
     if cfg!(test) {
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         Ok(executable
             .parent()
             .unwrap()
@@ -171,7 +171,10 @@ pub fn executable() -> Result<PathBuf, String> {
             .unwrap()
             .join("terminal-pty-helper"))
     } else {
-        Ok(executable)
+        // Re-exec this live image, even after a rebuild/update unlinks it.
+        // current_exe() returns a stale path ending in " (deleted)" then;
+        // opening the replacement pathname could also mix helper versions.
+        Ok(PathBuf::from(format!("/proc/{}/exe", std::process::id())))
     }
 }
 

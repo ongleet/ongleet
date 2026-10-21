@@ -152,3 +152,9 @@ After a native-validation frontend/Cargo build, copy the bundled executable to t
 Observed workgroup run: `/tmp/terminal-lifecycle-validation-ynwdaok8/report.json` passed all ten selected checks, including the three workgroup scenarios and seven lifecycle regressions, with no cleanup survivors. The corresponding Wayland/Codex regression report is `/tmp/terminal-native-validation-btewz50h/report.json`; all nine selected checks passed, with mouse explicitly deferred (exit 2). Rust tests additionally verify successful legacy migration, rollback on invalid legacy relationships, and group-edit rollback after failed SQLite writes.
 
 First-action launch regression: `/tmp/terminal-lifecycle-validation-irn292nc/report.json` passed all ten selected native checks. New workspaces open exactly one tab named after their first YAML action and produce live output without using New tab. The Rust suite also verifies persisted copied settings and atomic rejection of empty/invalid action YAML.
+
+## Executable replacement during a running session
+
+After building a native-validation executable, run `scripts/check-lifecycle.py --replace-executable --driver /path/to/WebKitWebDriver --application /path/to/bundled/application`. The harness copies the application into its own private temporary directory, starts it, replaces that copy and unlinks the original inode, and verifies `/proc/<pid>/exe` reports `(deleted)` before creating a workspace/PTY. It never replaces the supplied executable. The application must still launch its first action, preserve hide/reopen, and terminate cleanly on Quit. This catches the deleted-current_exe launch failure seen during development rebuilds.
+
+Observed report: `/tmp/terminal-lifecycle-validation-yblge92l/report.json`, all eight selected checks passed. The Rust PTY/persistence regression suite also passed. A running older application must be restarted once to load this fix; rebuilding alone cannot update its Rust backend.
