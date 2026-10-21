@@ -9,7 +9,8 @@
     "tauri": "tauri",
     "check:host": "bash scripts/check-host.sh",
     "check:wasm": "node scripts/check-wasm.mjs",
-    "check:rendering": "node scripts/check-rendering.mjs"
+    "check:rendering": "node scripts/check-rendering.mjs",
+    "check:engine-loader": "node scripts/check-engine-loader.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.0",

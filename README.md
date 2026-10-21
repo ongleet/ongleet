@@ -1,8 +1,8 @@
 # Terminal workspace preview
 
-A native Linux terminal workspace preview with a compact workspace sidebar and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persistence, hide/reopen lifecycle, single-instance behavior, the Unix-socket CLI, and Ubuntu packages are still pending.
+A native Linux terminal workspace preview with a compact workspace sidebar and **multiple terminal tabs per workspace**. Create, edit, reorder, select, and close workspaces using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or workspaces retains processes and emulator state. SQLite persists metadata and selection. Window hide/reopen, forwarding to an existing instance, the Unix-socket CLI, and Ubuntu packages are still pending.
 
-Workspace and tab metadata are currently kept in Rust memory for the application session only. Restarting the app does not restore them. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory.
+Workspace/tab metadata, ordering and selection are saved transactionally. Changing a workspace's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Workspace operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
 The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git integration, or agent orchestration.
 
@@ -29,7 +29,15 @@ See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A workin
 
 Create a workspace and use its initial stopped tab, or add a tab with **+ New tab**. Choose Start for the default user shell or Run Codex. Each tab has independent launch settings: optional working-directory override, executable, JSON argument array, and explicit environment overrides such as `{"PORT":"3000"}`. Save settings stores configuration without launching a process. Blank directory/executable fields use the workspace directory and user shell at launch time. For shell syntax, explicitly choose **Shell command**; executable mode never implicitly evaluates shell syntax.
 
-Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Move a selected tab with the left/right buttons and rename it with Rename tab. Closing a tab with a session requires confirmation; closing a workspace confirms termination of all its sessions. Stop session ends a process while keeping its tab configuration, and Restart explicitly relaunches an exited session after confirmation. Hidden tabs continue consuming output with painting suppressed.
+Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Move a selected tab with the left/right buttons and rename it with Rename tab. Closing a tab with a session requires confirmation and keeps its saved definition available in **Open configured tab…**. Reopening launches its saved command. There is currently one opening per definition. Stop session ends a process while keeping its tab open; Restart explicitly relaunches an exited session after confirmation. Closing a workspace removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
+
+## Persistence and command restart
+
+At the user's request, only tabs that were running when the app last closed automatically launch again. These are **new processes**, not recovered live sessions; previous screens and output history are not restored. Tabs explicitly stopped/closed and processes observed to have exited do not auto-start. Stopped open tabs restore as stopped. A crash uses the last committed running set. Startup waits for connected terminal frontends; failed launches report errors without an automatic retry loop.
+
+The database is `workspaces.sqlite3` in Tauri's application data directory, normally `$XDG_DATA_HOME/io.local.terminal-stack-prototype/` or `~/.local/share/io.local.terminal-stack-prototype/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. Draft launch edits require **Save settings** or launching to become durable.
+
+Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch currently errors instead of focusing the first window. Metadata is saved as changes occur, so this version does not require a manual Save action for workspace/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
 
 Ordinary React renders do not recreate the terminal. Closing a session asks for confirmation. **At this stage closing the window quits the prototype after confirmation; it does not yet hide it.** Do not rely on production process-lifecycle guarantees yet.
 
@@ -39,6 +47,7 @@ Ordinary React renders do not recreate the terminal. Closing a session asks for 
 mise exec -- npm run build
 mise exec -- npm run check:wasm
 mise exec -- npm run check:rendering
+mise exec -- npm run check:engine-loader
 mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline
 mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline
 ```
@@ -48,3 +57,7 @@ Offline Rust commands require a populated Cargo cache; omit `--offline` for the 
 The Rust checks use actual Linux PTYs and a Tauri channel callback to exercise byte transport, explicit environment overrides, exit status, ACK backpressure, resizing, input, launch failures, and termination of a child in a separate job-control group. Workspace/tab checks cover identities, ordering/selection, directory non-mutation, independent sibling PTYs, literal arguments versus explicit shell syntax, directory inheritance/overrides, and confirmation before closure. A login-shell integration test may require running outside a restrictive sandbox if the user's shell startup files need desktop access. The rendering check uses real independent Ghostty engines and an instrumented drawing boundary to verify hidden output updates without drawing and redraw on return; native visual behavior still needs manual checks.
 
 Use [the native validation checklist](docs/VALIDATION.md) before proceeding to the full application. Findings and design boundaries are in [the stack evaluation](docs/STACK.md).
+
+## Development server unavailable
+
+The development WebView loads terminal WASM lazily when you press Start. If Vite has stopped, an already-open window can still display its interface but cannot fetch the terminal engine. Start the application with `mise exec -- npm run tauri -- dev`, which starts both Vite and the Rust app. After a temporary asset-load failure, Start retries instead of retaining the failed engine request. If restarting the whole development app, close the previous window using its confirmation flow first. Installed builds load their bundled assets and do not require Vite.

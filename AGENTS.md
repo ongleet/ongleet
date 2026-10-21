@@ -10,7 +10,7 @@
 
 ## Scope and implementation order
 
-This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and eventually SQLite. The current preview has an in-memory workspace sidebar and multiple retained terminal tabs per workspace. Persistence remains pending; do not claim unresolved lifecycle guarantees.
+This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and SQLite. The current preview persists workspaces, tab definitions/openings, launch settings, ordering, and selection. Window hide/reopen and complete lifecycle guarantees remain pending.
 
 1. Validate the terminal stack inside Tauri's WebKitGTK WebView with interactive Codex, including Wayland where available.
 2. Complete reliable single-terminal lifecycle, process containment, and bounded IPC.
@@ -44,7 +44,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - Updating a workspace's base directory affects future launches, not running processes. Keep missing directories in metadata and report a clear launch error; allow correcting the directory.
 - SQLite belongs in the standard application user-data directory. Use migrations and transactional updates. Persist selected workspace and selected tab per workspace. Never store the inherited environment or add credential storage.
 - Window close must eventually hide the window while the app and PTYs keep running. Provide single-instance show/reopen via CLI and desktop launcher, plus an explicit Quit action with running-process confirmation.
-- Metadata restoration does not restore live processes. After restart, restore stopped tab configurations and relaunch only on explicit action. Processes are not promised to survive crashes, Quit, or reboot. Historical output is optional and must be bounded and clearly labeled.
+- The user changed the original restart policy: automatically launch new processes for tabs that were running before shutdown, or in the last committed running set after a crash. Explicitly stopped/closed tabs and observed exits must not auto-start. Metadata restoration does not restore live processes or screens. Processes do not survive crashes, Quit, or reboot; commands may be launched anew next time. Historical output remains optional.
+- Separate available tab definitions from their openings. Closing a tab preserves its definition; reopening explicitly launches its saved command. Store the definition kind for future nonterminal types, but only terminal tabs are implemented now, with one opening per definition.
 - UI and CLI must use the same Rust operations. The CLI must never access SQLite directly. Restrict the Unix socket to the current user; use stable targeting IDs, JSON output, structured errors, and meaningful exit codes. Do not silently start the application when unavailable.
 
 ## Code map
@@ -55,7 +56,8 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src/main.tsx`: prototype React interface.
 - `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application setup.
-- `src-tauri/src/workspace.rs`: in-memory metadata, selection/order, independent sessions, and workspace operations shared by Tauri commands.
+- `src-tauri/src/workspace.rs`: durable metadata, definition/opening state, resume policy, independent sessions, and operations shared by Tauri commands.
+- `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/terminal-probe.py`: interactive Unicode, flood, keyboard, mouse, and alternate-screen probes.
 

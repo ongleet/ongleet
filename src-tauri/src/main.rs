@@ -3,6 +3,7 @@
 compile_error!("This prototype currently supports Linux only");
 
 mod session;
+mod storage;
 mod workspace;
 use session::{Output, Status, TerminalSession};
 use std::sync::Mutex;
@@ -110,7 +111,12 @@ fn resize(state: State<Sessions>, id: u64, cols: u16, rows: u16) -> Result<(), S
 
 #[tauri::command]
 fn status(state: State<Sessions>, id: u64) -> Result<Status, String> {
-    with_session(&state, id, |s| s.status())
+    state.0.lock().map_err(|e| e.to_string())?.status(id)
+}
+
+#[tauri::command]
+fn open_tab(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+    state.0.lock().map_err(|e| e.to_string())?.open_tab(id)
 }
 
 #[tauri::command]
@@ -195,7 +201,12 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(Sessions::default())
+        .setup(|app| {
+            let directory = app.path().app_data_dir()?;
+            let registry = WorkspaceRegistry::open(&directory).map_err(std::io::Error::other)?;
+            app.manage(Sessions(Mutex::new(registry)));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start,
             input,
@@ -216,6 +227,7 @@ fn main() {
             configure_tab,
             reorder_tab,
             close_tab,
+            open_tab,
             shutdown
         ])
         .build(tauri::generate_context!())

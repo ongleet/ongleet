@@ -1,4 +1,5 @@
-use crate::session::{Launch, Output, TerminalSession};
+use crate::session::{Launch, Output, Status, TerminalSession};
+use crate::storage::{Metadata, MetadataStore};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use tauri::ipc::Channel;
@@ -27,24 +28,28 @@ pub struct TabConfig {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalTab {
+    pub kind: String,
+    pub is_open: bool,
+    pub resume_on_start: bool,
     pub id: u64,
     pub name: String,
     pub display_order: usize,
     pub config: TabConfig,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub workspaces: Vec<Workspace>,
     pub selected_id: Option<u64>,
 }
 
-// In-memory metadata for the sidebar stage. SQLite will persist these same
-// identities and settings later; navigation never owns native PTY resources.
+// Durable definitions are separate from open tabs and native PTY resources.
 #[derive(Default)]
 pub struct WorkspaceRegistry {
     workspaces: Vec<Workspace>,
+    store: Option<MetadataStore>,
+    last_saved: Option<Metadata>,
     selected_id: Option<u64>,
     next_id: u64,
     next_session_id: u64,
@@ -54,6 +59,53 @@ pub struct WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub fn open(directory: &std::path::Path) -> Result<Self, String> {
+        let store = MetadataStore::open(directory)?;
+        let metadata = store.load()?;
+        if metadata
+            .snapshot
+            .workspaces
+            .iter()
+            .flat_map(|w| &w.tabs)
+            .any(|t| t.kind != "terminal")
+        {
+            return Err(
+                "Saved configuration contains an unsupported tab type; database was not reset"
+                    .into(),
+            );
+        }
+        Ok(Self {
+            workspaces: metadata.snapshot.workspaces.clone(),
+            selected_id: metadata.snapshot.selected_id,
+            next_id: metadata.workspace_sequence,
+            next_tab_id: metadata.tab_sequence,
+            store: Some(store),
+            last_saved: Some(metadata),
+            ..Default::default()
+        })
+    }
+
+    fn persist(&mut self) -> Result<Snapshot, String> {
+        let metadata = Metadata {
+            snapshot: self.snapshot(),
+            workspace_sequence: self.next_id,
+            tab_sequence: self.next_tab_id,
+        };
+        if let Some(store) = &mut self.store {
+            if let Err(error) = store.save(&metadata) {
+                if let Some(previous) = &self.last_saved {
+                    self.workspaces = previous.snapshot.workspaces.clone();
+                    self.selected_id = previous.snapshot.selected_id;
+                    self.next_id = previous.workspace_sequence;
+                    self.next_tab_id = previous.tab_sequence;
+                }
+                return Err(error);
+            }
+            self.last_saved = Some(metadata);
+        }
+        Ok(self.snapshot())
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             workspaces: self.workspaces.clone(),
@@ -90,7 +142,7 @@ impl WorkspaceRegistry {
         }
         workspace.name = name;
         workspace.base_directory = directory;
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn select(&mut self, id: u64) -> Result<Snapshot, String> {
@@ -98,7 +150,7 @@ impl WorkspaceRegistry {
             return Err("Workspace is unavailable".into());
         }
         self.selected_id = Some(id);
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn reorder(&mut self, id: u64, position: usize) -> Result<Snapshot, String> {
@@ -113,7 +165,7 @@ impl WorkspaceRegistry {
         let workspace = self.workspaces.remove(index);
         self.workspaces.insert(position, workspace);
         self.normalize_order();
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn start(
@@ -131,6 +183,15 @@ impl WorkspaceRegistry {
             .iter()
             .find(|w| w.tabs.iter().any(|t| t.id == tab_id))
             .ok_or("Tab is unavailable")?;
+        if !workspace
+            .tabs
+            .iter()
+            .find(|t| t.id == tab_id)
+            .unwrap()
+            .is_open
+        {
+            return Err("Open this tab definition before starting it".into());
+        }
         let config = &workspace
             .tabs
             .iter()
@@ -158,12 +219,35 @@ impl WorkspaceRegistry {
         };
         self.next_session_id += 1;
         let id = self.next_session_id;
-        self.sessions
-            .insert(tab_id, TerminalSession::spawn(id, launch, output)?);
+        let session = match TerminalSession::spawn(id, launch, output) {
+            Ok(session) => session,
+            Err(error) => {
+                self.tab_workspace_mut(tab_id)?
+                    .tabs
+                    .iter_mut()
+                    .find(|t| t.id == tab_id)
+                    .unwrap()
+                    .resume_on_start = false;
+                self.persist()?;
+                return Err(error);
+            }
+        };
+        self.sessions.insert(tab_id, session);
+        self.tab_workspace_mut(tab_id)?
+            .tabs
+            .iter_mut()
+            .find(|t| t.id == tab_id)
+            .unwrap()
+            .resume_on_start = true;
+        if let Err(error) = self.persist() {
+            let mut session = self.sessions.remove(&tab_id).unwrap();
+            let _ = session.close();
+            return Err(error);
+        }
         Ok(id)
     }
 
-    pub fn close_session(&mut self, id: u64, confirmed: bool) -> Result<(), String> {
+    fn terminate_session(&mut self, id: u64, confirmed: bool) -> Result<u64, String> {
         let key = self
             .sessions
             .iter()
@@ -175,7 +259,42 @@ impl WorkspaceRegistry {
         }
         self.sessions.get_mut(&key).unwrap().close()?;
         self.sessions.remove(&key);
+        Ok(key)
+    }
+
+    pub fn close_session(&mut self, id: u64, confirmed: bool) -> Result<(), String> {
+        let tab = self.terminate_session(id, confirmed)?;
+        self.tab_workspace_mut(tab)?
+            .tabs
+            .iter_mut()
+            .find(|t| t.id == tab)
+            .unwrap()
+            .resume_on_start = false;
+        self.persist()?;
         Ok(())
+    }
+
+    pub fn status(&mut self, id: u64) -> Result<Status, String> {
+        let (tab_id, session) = self
+            .sessions
+            .iter_mut()
+            .find(|(_, s)| s.id == id)
+            .ok_or("Session is unavailable")?;
+        let tab_id = *tab_id;
+        let status = session.status()?;
+        if matches!(status, Status::Exited { .. }) {
+            let tab = self
+                .tab_workspace_mut(tab_id)?
+                .tabs
+                .iter_mut()
+                .find(|t| t.id == tab_id)
+                .unwrap();
+            if tab.resume_on_start {
+                tab.resume_on_start = false;
+                self.persist()?;
+            }
+        }
+        Ok(status)
     }
 
     pub fn close(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
@@ -196,7 +315,7 @@ impl WorkspaceRegistry {
             );
         }
         for session in session_ids {
-            self.close_session(session, confirmed)?;
+            self.terminate_session(session, confirmed)?;
         }
         self.workspaces.remove(index);
         self.normalize_order();
@@ -206,16 +325,33 @@ impl WorkspaceRegistry {
                 .get(index.min(self.workspaces.len().saturating_sub(1)))
                 .map(|w| w.id);
         }
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn shutdown(&mut self, confirmed: bool) -> Result<(), String> {
         if !self.sessions.is_empty() && !confirmed {
             return Err("Explicit confirmation is required to terminate session processes".into());
         }
+        // Persist the last running set before killing processes for app exit.
+        // Explicit Stop and tab close clear the flag through their own paths.
+        let mut exited = Vec::new();
+        for (tab, session) in &mut self.sessions {
+            if matches!(session.status()?, Status::Exited { .. }) {
+                exited.push(*tab);
+            }
+        }
+        for id in exited {
+            self.tab_workspace_mut(id)?
+                .tabs
+                .iter_mut()
+                .find(|t| t.id == id)
+                .unwrap()
+                .resume_on_start = false;
+        }
+        self.persist()?;
         let ids: Vec<_> = self.sessions.values().map(|s| s.id).collect();
         for id in ids {
-            self.close_session(id, confirmed)?;
+            self.terminate_session(id, confirmed)?;
         }
         Ok(())
     }
@@ -241,18 +377,25 @@ impl WorkspaceRegistry {
             .ok_or("Workspace is unavailable")?;
         self.next_tab_id += 1;
         workspace.tabs.push(TerminalTab {
+            kind: "terminal".into(),
+            is_open: true,
+            resume_on_start: false,
             id: self.next_tab_id,
             name: format!("Terminal {}", self.next_tab_id),
             display_order: workspace.tabs.len(),
             config: TabConfig::default(),
         });
         workspace.selected_tab_id = Some(self.next_tab_id);
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn select_tab(&mut self, id: u64) -> Result<Snapshot, String> {
-        self.tab_workspace_mut(id)?.selected_tab_id = Some(id);
-        Ok(self.snapshot())
+        let workspace = self.tab_workspace_mut(id)?;
+        if !workspace.tabs.iter().find(|t| t.id == id).unwrap().is_open {
+            return Err("Tab is not open".into());
+        }
+        workspace.selected_tab_id = Some(id);
+        self.persist()
     }
 
     pub fn rename_tab(&mut self, id: u64, name: String) -> Result<Snapshot, String> {
@@ -262,7 +405,7 @@ impl WorkspaceRegistry {
         }
         let workspace = self.tab_workspace_mut(id)?;
         workspace.tabs.iter_mut().find(|t| t.id == id).unwrap().name = name.into();
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn configure_tab(&mut self, id: u64, config: TabConfig) -> Result<Snapshot, String> {
@@ -305,41 +448,62 @@ impl WorkspaceRegistry {
             .find(|t| t.id == id)
             .unwrap()
             .config = config;
-        Ok(self.snapshot())
+        self.persist()
     }
 
     pub fn reorder_tab(&mut self, id: u64, position: usize) -> Result<Snapshot, String> {
         let workspace = self.tab_workspace_mut(id)?;
-        if position >= workspace.tabs.len() {
+        let open_indices: Vec<_> = workspace
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.is_open)
+            .map(|(index, _)| index)
+            .collect();
+        if position >= open_indices.len() {
             return Err("Invalid tab position".into());
         }
+        let position = open_indices[position];
         let index = workspace.tabs.iter().position(|t| t.id == id).unwrap();
+        if !workspace.tabs[index].is_open {
+            return Err("Tab is not open".into());
+        }
         let tab = workspace.tabs.remove(index);
         workspace.tabs.insert(position, tab);
         for (order, tab) in workspace.tabs.iter_mut().enumerate() {
             tab.display_order = order;
         }
-        Ok(self.snapshot())
+        self.persist()
+    }
+
+    pub fn open_tab(&mut self, id: u64) -> Result<Snapshot, String> {
+        let workspace = self.tab_workspace_mut(id)?;
+        let tab = workspace.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        if !tab.is_open {
+            tab.is_open = true;
+            tab.resume_on_start = true;
+        }
+        workspace.selected_tab_id = Some(id);
+        self.persist()
     }
 
     pub fn close_tab(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
         self.tab_workspace_mut(id)?;
         if let Some(session) = self.sessions.get(&id) {
-            self.close_session(session.id, confirmed)?;
+            self.terminate_session(session.id, confirmed)?;
         }
         let workspace = self.tab_workspace_mut(id)?;
         let index = workspace.tabs.iter().position(|t| t.id == id).unwrap();
-        workspace.tabs.remove(index);
-        for (order, tab) in workspace.tabs.iter_mut().enumerate() {
-            tab.display_order = order;
-        }
+        workspace.tabs[index].is_open = false;
+        workspace.tabs[index].resume_on_start = false;
         if workspace.selected_tab_id == Some(id) {
-            workspace.selected_tab_id = workspace
-                .tabs
-                .get(index.min(workspace.tabs.len().saturating_sub(1)))
+            workspace.selected_tab_id = workspace.tabs[index + 1..]
+                .iter()
+                .find(|t| t.is_open)
+                .or_else(|| workspace.tabs[..index].iter().rev().find(|t| t.is_open))
                 .map(|t| t.id);
         }
-        Ok(self.snapshot())
+        self.persist()
     }
 }
 
@@ -640,7 +804,12 @@ mod tests {
         registry.close_tab(a, false).unwrap();
         assert_eq!(registry.workspaces[0].selected_tab_id, Some(b));
         registry.close_tab(b, false).unwrap();
-        assert!(registry.workspaces[0].tabs.is_empty());
+        assert!(registry.workspaces[0].tabs.iter().all(|tab| !tab.is_open));
+        assert_eq!(
+            registry.workspaces[0].tabs.len(),
+            2,
+            "Closing tabs must retain their definitions"
+        );
         assert_eq!(registry.workspaces[0].selected_tab_id, None);
         assert_eq!(registry.workspaces[1].tabs[0].id, c);
         registry.create_tab(first).unwrap();
@@ -793,5 +962,240 @@ mod tests {
             )
             .is_err());
         registry.shutdown(true).unwrap();
+    }
+
+    #[test]
+    fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_resume_flags() {
+        let data = Directory::new();
+        let directory = Directory::new();
+        let (expected, workspace, live, stopped, closed);
+        {
+            let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+            workspace = registry
+                .create("Saved workspace".into(), directory.path())
+                .unwrap()
+                .selected_id
+                .unwrap();
+            live = registry.workspaces[0].selected_tab_id.unwrap();
+            registry
+                .rename_tab(live, "Development server".into())
+                .unwrap();
+            let (channel, receive) = output();
+            start_test(&mut registry, live, directory.path(), channel);
+            assert_eq!(read_cwd(&registry, live, &receive), directory.path());
+            registry.create_tab(workspace).unwrap();
+            stopped = registry.workspaces[0].selected_tab_id.unwrap();
+            registry
+                .configure_tab(
+                    stopped,
+                    TabConfig {
+                        executable: Some("test-command".into()),
+                        args: vec!["literal;argument".into()],
+                        env: BTreeMap::from([("PORT".into(), "3456".into())]),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            registry.create_tab(workspace).unwrap();
+            closed = registry.workspaces[0].selected_tab_id.unwrap();
+            registry
+                .rename_tab(closed, "Available later".into())
+                .unwrap();
+            registry.close_tab(closed, false).unwrap();
+            registry.select_tab(live).unwrap();
+            registry.reorder_tab(live, 1).unwrap();
+            registry
+                .create("Other workspace".into(), directory.path())
+                .unwrap();
+            registry.select(workspace).unwrap();
+            registry.reorder(workspace, 1).unwrap();
+            registry.shutdown(true).unwrap();
+            expected = serde_json::to_value(registry.snapshot()).unwrap();
+        }
+        let mut restored = WorkspaceRegistry::open(&data.0).unwrap();
+        assert_eq!(serde_json::to_value(restored.snapshot()).unwrap(), expected);
+        assert!(
+            restored.sessions.is_empty(),
+            "Loading metadata must not itself spawn disconnected PTYs"
+        );
+        let saved = restored
+            .workspaces
+            .iter()
+            .find(|w| w.id == workspace)
+            .unwrap();
+        assert_eq!(saved.selected_tab_id, Some(live));
+        assert!(
+            saved
+                .tabs
+                .iter()
+                .find(|t| t.id == live)
+                .unwrap()
+                .resume_on_start
+        );
+        assert!(
+            !saved
+                .tabs
+                .iter()
+                .find(|t| t.id == stopped)
+                .unwrap()
+                .resume_on_start
+        );
+        let definition = saved.tabs.iter().find(|t| t.id == closed).unwrap();
+        assert!(!definition.is_open && !definition.resume_on_start);
+        assert_eq!(definition.name, "Available later");
+        assert_eq!(
+            saved
+                .tabs
+                .iter()
+                .find(|t| t.id == stopped)
+                .unwrap()
+                .config
+                .env
+                .len(),
+            1
+        );
+        restored.open_tab(closed).unwrap();
+        assert!(
+            restored
+                .workspaces
+                .iter()
+                .find(|w| w.id == workspace)
+                .unwrap()
+                .tabs
+                .iter()
+                .find(|t| t.id == closed)
+                .unwrap()
+                .resume_on_start
+        );
+        let old_max = restored.next_tab_id;
+        restored.close(workspace, false).unwrap();
+        restored.create_tab(restored.workspaces[0].id).unwrap();
+        assert!(
+            restored.next_tab_id > old_max,
+            "Stable IDs cannot be reused after deletion and restart"
+        );
+    }
+
+    #[test]
+    fn sqlite_stop_and_natural_exit_are_not_relaunched_and_missing_directories_are_retained() {
+        let data = Directory::new();
+        let directory = Directory::new();
+        let (workspace, stopped, exited);
+        {
+            let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+            workspace = registry
+                .create("Missing later".into(), directory.path())
+                .unwrap()
+                .selected_id
+                .unwrap();
+            stopped = registry.workspaces[0].selected_tab_id.unwrap();
+            let (channel, receive) = output();
+            let session = start_test(&mut registry, stopped, directory.path(), channel);
+            read_cwd(&registry, stopped, &receive);
+            registry.close_session(session, true).unwrap();
+            registry.create_tab(workspace).unwrap();
+            exited = registry.workspaces[0].selected_tab_id.unwrap();
+            registry
+                .configure_tab(
+                    exited,
+                    TabConfig {
+                        executable: Some("/usr/bin/python3".into()),
+                        args: vec!["-c".into(), "raise SystemExit(9)".into()],
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let (channel, _) = output();
+            let session = registry.start(exited, 80, 24, channel).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                if let Status::Exited { code } = registry.status(session).unwrap() {
+                    assert_eq!(code, 9);
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            registry.shutdown(true).unwrap();
+        }
+        fs::remove_dir(&directory.0).unwrap();
+        let mut restored = WorkspaceRegistry::open(&data.0).unwrap();
+        assert_eq!(restored.workspaces[0].base_directory, directory.path());
+        assert!(restored.workspaces[0]
+            .tabs
+            .iter()
+            .all(|t| !t.resume_on_start));
+        assert!(restored.workspaces[0].tabs.iter().any(|t| t.id == stopped));
+        let (channel, _) = output();
+        assert!(restored.start(exited, 80, 24, channel).is_err());
+        assert!(!directory.0.exists());
+        restored
+            .update(workspace, "Still here".into(), directory.path())
+            .unwrap();
+        assert_eq!(restored.workspaces[0].name, "Still here");
+    }
+
+    #[test]
+    fn sqlite_failed_writes_preserve_previous_state_and_exclusive_lock_prevents_second_writer() {
+        let data = Directory::new();
+        let directory = Directory::new();
+        let expected;
+        {
+            let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+            registry.create("Keep me".into(), directory.path()).unwrap();
+            assert!(WorkspaceRegistry::open(&data.0).is_err());
+            let id = registry.workspaces[0].id;
+            expected = serde_json::to_value(registry.snapshot()).unwrap();
+            registry.store.as_ref().unwrap().reject_writes();
+            assert!(registry
+                .update(id, "Should roll back".into(), directory.path())
+                .is_err());
+            assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+            assert!(registry
+                .create("Should not appear".into(), directory.path())
+                .is_err());
+            assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+        }
+        let restored = WorkspaceRegistry::open(&data.0).unwrap();
+        assert_eq!(serde_json::to_value(restored.snapshot()).unwrap(), expected);
+    }
+
+    #[test]
+    fn sqlite_transaction_rolls_back_after_partial_replacement_and_future_schema_is_not_reset() {
+        let data = Directory::new();
+        let directory = Directory::new();
+        {
+            let mut registry = WorkspaceRegistry::open(&data.0).unwrap();
+            registry.create("Keep".into(), directory.path()).unwrap();
+            let expected = serde_json::to_value(registry.snapshot()).unwrap();
+            let mut invalid = registry.last_saved.clone().unwrap();
+            invalid.snapshot.workspaces[0].name = "Must roll back".into();
+            invalid
+                .snapshot
+                .workspaces
+                .push(invalid.snapshot.workspaces[0].clone());
+            let store = registry.store.as_mut().unwrap();
+            assert!(
+                store.save(&invalid).is_err(),
+                "Duplicate identity should fail after earlier statements executed"
+            );
+            assert_eq!(
+                serde_json::to_value(store.load().unwrap().snapshot).unwrap(),
+                expected
+            );
+        }
+        {
+            let connection = rusqlite::Connection::open(data.0.join("workspaces.sqlite3")).unwrap();
+            connection.execute_batch("PRAGMA user_version=99;").unwrap();
+        }
+        assert!(WorkspaceRegistry::open(&data.0).is_err());
+        let connection = rusqlite::Connection::open(data.0.join("workspaces.sqlite3")).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT name FROM workspaces", [], |row| row
+                    .get::<_, String>(0))
+                .unwrap(),
+            "Keep"
+        );
     }
 }

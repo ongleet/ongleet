@@ -1,6 +1,6 @@
 # Stage-one stack evaluation
 
-Current scope: workspace sidebar and terminal tabs, requested after user feedback on the native prototype. Rust keeps workspace/tab metadata, launch configuration, ordering, and selected tabs in memory. Each tab has an independently retained PTY and emulator. This does not mark all interactive validation checks complete or resolve the process-containment limitation below.
+Current scope: workspace sidebar, terminal tabs, and SQLite metadata. At the user's request, previously running commands launch anew on application startup. Definitions and current openings are distinct; closing a tab retains its definition. Each terminal has an independent PTY and emulator. This does not mark all interactive validation checks complete or resolve the process-containment limitation below.
 
 ## Candidate and licensing
 
@@ -37,6 +37,14 @@ In 0.4.0, `write` parses into WASM synchronously; its optional completion callba
 3. The leader is reaped on status polling; PTY handles are finally released on explicit close. Eager, race-safe release and attachment-loss recovery belong to stage two.
 4. Browser clipboard reads failed with NotAllowedError during user testing. The Copy/Paste buttons and Ctrl+Shift+C/V now use Tauri's native clipboard-manager plugin with text-only read/write permissions. Paste still goes through Ghostty's paste API to preserve bracketed paste. The user confirmed the fix works; the broader selection/clipboard checklist remains open.
 5. Hidden painting suppression and independent screen updates pass the automated adapter check. Native workspace switching, selection retention, and flood performance across multiple terminals still require interactive observation.
-6. This is not packaged for distribution, has no metadata database or control socket, and does not survive window close, crash, Quit, or reboot. No output history is saved.
+6. There is no distribution package, control socket or window hide/reopen flow yet. Closing the window still quits after confirmation. Processes do not survive termination; eligible commands are launched anew at the next startup. No output history is saved.
+
+## SQLite design
+
+Version 1 stores workspaces, typed tab definitions/configuration, open tabs, resume flags, selection, and ID sequence counters in separate tables. Only `terminal` definitions are supported today, with one opening per definition. Unknown kinds/schema versions fail explicitly. PTY output and inherited environment are excluded. Versioned migrations and small metadata replacements are transactional. Failed writes restore editable in-memory metadata as well; process signals already delivered during a confirmed close cannot be undone if a later disk write fails, and that error is reported.
+
+Successful launches set the resume flag. Explicit Stop/close and observed exit clear it. Shutdown records which processes are still running before terminating them. Loading metadata creates no PTYs; connected frontend controllers launch eligible commands once. Failed launches are reported without a restart loop. Crashes use the last committed running set, so these are fresh process instances with fresh terminal state, not recovered sessions.
+
+An exclusive file lock prevents a second metadata writer and duplicate restoration launches. It does not yet forward requests or focus the existing window. The application data directory is owner-only and the database is mode 0600. A missing workspace directory is retained without being recreated.
 
 No fallback terminal engine is selected. If ghostty-web fails the native gate, report the failing behavior and options before proceeding.

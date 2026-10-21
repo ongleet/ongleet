@@ -4,8 +4,9 @@ import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, SCROLLBACK_LINES } from './byte-transport';
 import { suppressHiddenRendering } from './render-visibility';
+import { createEngineLoader } from './engine-loader';
 
-let sharedGhostty: Promise<Ghostty> | undefined;
+const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
 export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: number };
 type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'eof' } | { type: 'error'; message: string };
@@ -33,7 +34,15 @@ export class TerminalFrontend {
 
   async start() {
     if (this.id !== undefined) throw new Error('Close the existing session first.');
-    const ghostty = await (sharedGhostty ??= Ghostty.load(wasmUrl));
+    let ghostty: Ghostty;
+    try {
+      ghostty = await loadGhostty();
+    } catch (cause) {
+      const hint = import.meta.env.DEV
+        ? ' Check that the development server is running: mise exec -- npm run tauri -- dev. Then try Start again.'
+        : ' Try Start again. If the problem persists, restart the application.';
+      throw new Error(`Unable to load the terminal engine.${hint}`, { cause });
+    }
     this.disposeEmulator();
     const term = new Terminal({ ghostty, cols: 80, rows: 24, fontSize: 14, scrollback: SCROLLBACK_LINES,
       theme: { background: '#12161d', foreground: '#dce3ec', cursor: '#a3e6cc', selectionBackground: '#355369' } });

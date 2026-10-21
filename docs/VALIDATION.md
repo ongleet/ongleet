@@ -12,7 +12,7 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Ghostty WASM through production byte adapter | Passed |
 | 100,000 output lines and configured scrollback bound, engine only | Passed |
 | Native Rust compilation | Passed (`cargo check` and `cargo build`) |
-| Native PTY, workspace and tab integration tests | Passed: ten tests, including sibling PTYs, confirmation, launch modes, directory inheritance, and directory non-mutation. Login-shell test passes outside the sandbox. |
+| Native PTY, workspace, tab and SQLite tests | Passed: fourteen tests, including reopen, resume flags, retained definitions, missing directories, failed writes, transaction rollback, exclusive lock and future-schema refusal. Login-shell test passes outside the sandbox. |
 | Hidden output and drawing adapter | Passed against independent real WASM states with an instrumented drawing boundary |
 | Desktop connection from agent environment | Blocked: `Gtk.init_check()` returned false |
 | Launch compiled Tauri executable from agent environment | Blocked: GTK backend initialization failed before opening a window |
@@ -20,8 +20,8 @@ Host: Ubuntu 26.04.1; GTK 3.24.52; WebKitGTK 2.52.6; Wayland session variables; 
 | Interactive Codex in the Tauri WebKitGTK window | Pending |
 | Native keyboard, selection, clipboard, scrolling, mouse, resize | Pending |
 | Clipboard user test | Native plugin fix confirmed working by the user |
-| Workspace sidebar and terminal tabs | Implemented at user request: in-memory metadata, independent terminals, remembered selected tabs; native switching acceptance pending |
-| Hidden-window output, persistence, CLI | Not implemented; later stages |
+| Workspace sidebar, terminal tabs and persistence | Implemented: durable definitions/openings and selective command restart; native acceptance pending |
+| Hidden-window output and CLI | Not implemented; later stages |
 
 The earlier desktop-access failures describe the initial sandboxed environment. Desktop initialization now succeeds outside the sandbox. This is not a claim that all interactive checks have passed.
 
@@ -44,7 +44,7 @@ The earlier desktop-access failures describe the initial sandboxed environment. 
 4. Update a base directory while its shell is running. Confirm its existing working directory is unchanged; close/restart its terminal and verify the new launch uses the updated base directory unless explicitly overridden.
 5. Cancel closure of a workspace containing a session, then confirm it. Verify other workspaces keep running and the closed workspace's directory and contents remain intact. The documented escaped-descendant limitation still applies.
 6. Verify stopped workspaces close without a process confirmation, closing the selected workspace selects a neighbor, and closing the last workspace shows the creation screen.
-7. Restart the app and verify the interface correctly makes no persistence promise: workspaces are currently session-only. Window close still quits after confirmation.
+7. Restart and verify saved workspaces, definitions, ordering and selection return. Window close still quits after confirmation; previously running commands start anew on next launch.
 
 Remaining native checks and process-containment blockers must be resolved before claiming version-one guarantees.
 
@@ -57,3 +57,12 @@ Remaining native checks and process-containment blockers must be resolved before
 5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. The escaped-descendant limitation remains.
 6. Let a process exit with a nonzero code; verify its tab shows the code and its output stays available. Use Restart for an explicit relaunch or Stop session to retain a stopped configuration. Close the last tab and create a replacement from the empty state.
 7. Verify native clipboard, selection, mouse reporting, and alternate-screen restoration after repeatedly switching between tabs. Compare hidden-output flood responsiveness and memory to the single-terminal baseline.
+
+## Persistence and relaunch acceptance
+
+1. Save several workspaces and definitions, reorder/select them, close one tab, and restart. Verify metadata survives and the closed definition can be reopened through its menu.
+2. Leave one command running, explicitly stop another, let a third exit, and close a fourth tab. Restart: only the formerly running command should launch automatically, once, with a new PID and fresh terminal state. Stopped open tabs remain stopped; closed definitions remain available without running.
+3. Close the window with confirmation while several tabs run. Verify their processes terminate, then launch anew on the next application start. This is command relaunch, not process survival.
+4. With the app closed, remove/rename a workspace directory. Verify restoration keeps the workspace, launch reports an error, and no directory is recreated. Correct the path and start explicitly.
+5. Verify a second application cannot write the same database or duplicate startup launches. It currently reports an error; window forwarding is pending.
+6. Inspect the standard app-data database and its permissions. Verify no inherited environment or terminal output was saved, and that draft launch-form edits require Save settings or a launch to become durable.

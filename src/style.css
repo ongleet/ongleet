@@ -28,6 +28,7 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .workspace-pane, .tab-terminal { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tab-bar { display: flex; gap: 8px; padding: 0 14px; border-bottom: 1px solid #354051; }
 .tab-bar > button { flex-shrink: 0; margin-bottom: 5px; }
+.tab-bar > select { width: auto; max-width: 210px; min-width: 100px; margin-bottom: 5px; }
 .tab-list { display: flex; min-width: 0; flex: 1; gap: 4px; overflow-x: auto; }
 .tab-list [role="tab"] { display: flex; align-items: center; gap: 8px; flex-shrink: 0; max-width: 220px; border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; background: transparent; }
 .tab-list [aria-selected="true"] { color: #c7f5e4; background: #253436; border-bottom-color: #a3e6cc; }
@@ -36,15 +37,17 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .tab-actions button { padding: 4px 8px; font-size: 12px; }
 .launch-settings { background: #1b222d; }
 .launch-settings summary { cursor: pointer; padding: 8px 20px; color: #9cabbf; }
-select { font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }
-.launch-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+select { min-width: 0; width: 100%; font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }
+.launch-buttons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px; }
 .terminal-actions output { margin-left: auto; align-self: center; white-space: nowrap; color: #a3e6cc; }
 .workspace-heading { display: flex; gap: 12px; align-items: center; padding: 18px 20px 14px; }
 h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
 .workspace-heading > div { min-width: 0; }
 .workspace-heading p { color: #9cabbf; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-heading output { margin-left: auto; white-space: nowrap; color: #a3e6cc; }
-.launch-form { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; padding: 12px 20px; background: #1b222d; }
+.launch-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 12px; align-items: end; padding: 12px 20px; background: #1b222d; }
+.launch-form label { min-width: 0; }
+.launch-form input, .launch-form select { height: 36px; }
 label { display: grid; gap: 6px; flex: 1; min-width: 130px; color: #b6c3d4; }
 .terminal-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px; }
 .terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 0 14px 8px; }

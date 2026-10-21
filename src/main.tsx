@@ -7,7 +7,7 @@ import { TerminalFrontend, type ProcessStatus } from './terminal';
 import './style.css';
 
 type TabConfig = { cwdOverride: string | null; executable: string | null; args: string[]; env: Record<string, string>; shellCommand: string | null };
-type TerminalTab = { id: number; name: string; displayOrder: number; config: TabConfig };
+type TerminalTab = { id: number; kind: string; isOpen: boolean; resumeOnStart: boolean; name: string; displayOrder: number; config: TabConfig };
 type Workspace = { id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
 type WorkspaceSnapshot = { workspaces: Workspace[]; selectedId: number | null };
 type Report = (error: unknown) => void;
@@ -49,10 +49,10 @@ function WorkspaceEditor({ workspace, initialDirectory, save, dismiss, externalE
   </dialog>;
 }
 
-function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, reportStatus, onState }: {
+function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, reportStatus, onState, markRestoring }: {
   workspace: Workspace; tab: TerminalTab; visible: boolean; shell: string; disabled: boolean;
   markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
-  onState: (state: WorkspaceSnapshot) => void;
+  onState: (state: WorkspaceSnapshot) => void; markRestoring: (delta: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const frontend = useRef<TerminalFrontend | null>(null);
@@ -72,8 +72,14 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
       setStatus(status); reportStatus(tab.id, status);
     }, report);
     frontend.current = terminal;
+    // Only the initial attachment may resume a restored/reopened tab. Later
+    // metadata snapshots must never launch a second process for a live tab.
+    if (tab.resumeOnStart) {
+      markRestoring(1);
+      void terminal.start().catch(report).finally(() => markRestoring(-1));
+    }
     return () => { terminal.dispose(); frontend.current = null; };
-  }, [tab.id, reportStatus]);
+  }, [tab.id, reportStatus, markRestoring]);
   useEffect(() => { frontend.current?.setVisible(visible); }, [visible]);
 
   async function save(start: boolean, codex = false) {
@@ -146,41 +152,47 @@ function RenameTabDialog({ tab, save, dismiss, error }: { tab: TerminalTab; save
   </dialog>;
 }
 
-function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, rename, closeTab }: {
+function WorkspacePane({ workspace, visible, statuses, disabled, shell, markBusy, reportStatus, mutate, onState, rename, closeTab, markRestoring }: {
   workspace: Workspace; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean; shell: string;
   markBusy: (busy: boolean) => void; reportStatus: (id: number, status: ProcessStatus | null) => void;
   mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>; onState: (state: WorkspaceSnapshot) => void;
-  rename: (tab: TerminalTab) => void; closeTab: (tab: TerminalTab) => void;
+  rename: (tab: TerminalTab) => void; closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
 }) {
-  const active = workspace.tabs.find(tab => tab.id === workspace.selectedTabId);
+  const openTabs = workspace.tabs.filter(tab => tab.isOpen);
+  const availableTabs = workspace.tabs.filter(tab => !tab.isOpen);
+  const active = openTabs.find(tab => tab.id === workspace.selectedTabId);
+  const activePosition = openTabs.findIndex(tab => tab.id === active?.id);
   function navigate(event: React.KeyboardEvent, index: number) {
-    const length = workspace.tabs.length;
+    const length = openTabs.length;
     const target = event.key === 'ArrowRight' ? (index + 1) % length : event.key === 'ArrowLeft' ? (index + length - 1) % length : event.key === 'Home' ? 0 : event.key === 'End' ? length - 1 : null;
     if (target === null) return;
     event.preventDefault();
-    const id = workspace.tabs[target].id;
+    const id = openTabs[target].id;
     void mutate('select_tab', { id }).then(selected => { if (selected) document.getElementById(`tab-${id}`)?.focus(); });
   }
   return <section className="workspace-pane" hidden={!visible} aria-label={workspace.name}>
     <header className="workspace-heading"><div><h1>{workspace.name}</h1><p title={workspace.baseDirectory}>{workspace.baseDirectory}</p></div></header>
     <div className="tab-bar">
       <div role="tablist" aria-label={`${workspace.name} terminals`} className="tab-list">
-        {workspace.tabs.map((tab, index) => <button key={tab.id} id={`tab-${tab.id}`} role="tab" aria-selected={tab.id === active?.id} aria-controls={`tab-panel-${tab.id}`} tabIndex={tab.id === active?.id ? 0 : -1}
+        {openTabs.map((tab, index) => <button key={tab.id} id={`tab-${tab.id}`} role="tab" aria-selected={tab.id === active?.id} aria-controls={`tab-panel-${tab.id}`} tabIndex={tab.id === active?.id ? 0 : -1}
           disabled={disabled} onKeyDown={event => navigate(event, index)} onClick={() => void mutate('select_tab', { id: tab.id })} title={`${tab.name} — ${statuses[tab.id]?.state ?? 'stopped'}`}>
           <span className={`status-dot ${statuses[tab.id]?.state ?? 'stopped'}`} /><span className="tab-name">{tab.name}</span>
           {statuses[tab.id]?.state === 'exited' && <span>({(statuses[tab.id] as { code: number }).code})</span>}
         </button>)}
       </div>
+      {availableTabs.length > 0 && <select aria-label="Open a configured tab" value="" disabled={disabled} onChange={event => {
+        const id = Number(event.target.value); if (id) void mutate('open_tab', { id });
+      }}><option value="" disabled>Open configured tab…</option>{availableTabs.map(tab => <option key={tab.id} value={tab.id}>{tab.name}</option>)}</select>}
       <button disabled={disabled} aria-label="Create terminal tab" onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>+ New tab</button>
     </div>
     {active && <nav className="tab-actions" aria-label="Selected tab actions">
       <button disabled={disabled} onClick={() => rename(active)}>Rename tab</button>
-      <button disabled={disabled || active.displayOrder === 0} aria-label="Move tab left" onClick={() => void mutate('reorder_tab', { id: active.id, position: active.displayOrder - 1 })}>←</button>
-      <button disabled={disabled || active.displayOrder === workspace.tabs.length - 1} aria-label="Move tab right" onClick={() => void mutate('reorder_tab', { id: active.id, position: active.displayOrder + 1 })}>→</button>
+      <button disabled={disabled || activePosition === 0} aria-label="Move tab left" onClick={() => void mutate('reorder_tab', { id: active.id, position: activePosition - 1 })}>←</button>
+      <button disabled={disabled || activePosition === openTabs.length - 1} aria-label="Move tab right" onClick={() => void mutate('reorder_tab', { id: active.id, position: activePosition + 1 })}>→</button>
       <button disabled={disabled} onClick={() => closeTab(active)}>Close tab</button>
     </nav>}
-    {!active && <div className="empty-state"><p>No terminal tabs in this workspace.</p><button disabled={disabled} onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>Create terminal tab</button></div>}
-    {workspace.tabs.map(tab => <TabTerminal key={tab.id} workspace={workspace} tab={tab} visible={visible && tab.id === active?.id} shell={shell} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} onState={onState} />)}
+    {!active && <div className="empty-state"><p>No open tabs. Choose a configured tab above, or create a new definition.</p><button disabled={disabled} onClick={() => void mutate('create_tab', { workspaceId: workspace.id })}>Create terminal tab</button></div>}
+    {openTabs.map(tab => <TabTerminal key={tab.id} workspace={workspace} tab={tab} visible={visible && tab.id === active?.id} shell={shell} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} onState={onState} markRestoring={markRestoring} />)}
   </section>;
 }
 
@@ -194,6 +206,12 @@ function App() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const busyRef = useRef(false);
+  const [restoring, setRestoring] = useState(0);
+  const restoringRef = useRef(0);
+  const markRestoring = useCallback((delta: number) => {
+    restoringRef.current = Math.max(0, restoringRef.current + delta);
+    setRestoring(restoringRef.current);
+  }, []);
   const report: Report = error => setError(String(error));
   const markBusy = useCallback((busy: boolean) => { busyRef.current = busy; setBusy(busy); }, []);
   const reportStatus = useCallback((id: number, status: ProcessStatus | null) => {
@@ -211,7 +229,7 @@ function App() {
     let disposed = false;
     const unlisten = getCurrentWindow().onCloseRequested(async event => {
       event.preventDefault();
-      if (busyRef.current) { report('Please wait for the current operation to finish before quitting.'); return; }
+      if (busyRef.current || restoringRef.current > 0) { report('Please wait for the current operation to finish before quitting.'); return; }
       if (!window.confirm('Quit and terminate terminal sessions in all workspaces?')) return;
       markBusy(true);
       try { await invoke('shutdown', { confirmed: true }); await getCurrentWindow().destroy(); }
@@ -228,26 +246,27 @@ function App() {
     finally { markBusy(false); }
   }
 
+  const disabled = busy || restoring > 0;
   const selected = state.workspaces.find(workspace => workspace.id === state.selectedId);
   return <main className="app">
     <aside className="sidebar" aria-label="Workspaces">
-      <div className="sidebar-heading"><strong>Workspaces</strong><button disabled={!ready || busy} onClick={() => setEditor('new')} aria-label="Create workspace" title="Create workspace">+</button></div>
+      <div className="sidebar-heading"><strong>Workspaces</strong><button disabled={!ready || disabled} onClick={() => setEditor('new')} aria-label="Create workspace" title="Create workspace">+</button></div>
       <nav className="workspace-list" aria-label="Select workspace"><ol>
         {state.workspaces.map(workspace => <li key={workspace.id}>
           <button className="workspace-choice" aria-current={state.selectedId === workspace.id ? 'page' : undefined}
-            disabled={busy} title={workspace.baseDirectory} onClick={() => void mutate('select_workspace', { id: workspace.id })}>
+            disabled={disabled} title={workspace.baseDirectory} onClick={() => void mutate('select_workspace', { id: workspace.id })}>
             <span className={`status-dot ${workspace.tabs.some(tab => statuses[tab.id]?.state === 'running') ? 'running' : workspace.tabs.some(tab => statuses[tab.id]?.state === 'exited') ? 'exited' : 'stopped'}`} aria-label={workspace.tabs.some(tab => statuses[tab.id]?.state === 'running') ? 'running' : workspace.tabs.some(tab => statuses[tab.id]?.state === 'exited') ? 'exited' : 'stopped'} />
             <span className="workspace-name">{workspace.name}</span>
           </button>
         </li>)}
       </ol></nav>
       {selected && <div className="workspace-management" aria-label="Selected workspace actions">
-        <button disabled={busy} onClick={() => setEditor(selected)}>Edit workspace</button>
+        <button disabled={disabled} onClick={() => setEditor(selected)}>Edit workspace</button>
         <div className="reorder-actions">
-          <button disabled={busy || selected.displayOrder === 0} aria-label="Move workspace up" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder - 1 })}>↑ Up</button>
-          <button disabled={busy || selected.displayOrder === state.workspaces.length - 1} aria-label="Move workspace down" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder + 1 })}>↓ Down</button>
+          <button disabled={disabled || selected.displayOrder === 0} aria-label="Move workspace up" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder - 1 })}>↑ Up</button>
+          <button disabled={disabled || selected.displayOrder === state.workspaces.length - 1} aria-label="Move workspace down" onClick={() => void mutate('reorder_workspace', { id: selected.id, position: selected.displayOrder + 1 })}>↓ Down</button>
         </div>
-        <button disabled={busy} onClick={() => {
+        <button disabled={disabled} onClick={() => {
           const confirmed = selected.tabs.some(tab => !!statuses[tab.id]);
           if (confirmed && !window.confirm(`Close “${selected.name}” and terminate all its terminal sessions and jobs?`)) return;
           void mutate('close_workspace', { id: selected.id, confirmed }).then(closed => {
@@ -255,15 +274,15 @@ function App() {
           });
         }}>Close workspace</button>
       </div>}
-      <p className="sidebar-note">Workspaces are kept for this app session. Saving across restarts comes next.</p>
+      <p className="sidebar-note">Workspaces and tab definitions are saved. Previously running tabs restart as new processes.</p>
     </aside>
     <div className="main-pane">
       {error && <div role="alert" className="error">{error}</div>}
-      {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || busy} onClick={() => setEditor('new')}>Create workspace</button></div>}
-      {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} shell={defaults[1]} disabled={busy} markBusy={markBusy} reportStatus={reportStatus} mutate={mutate} onState={setState}
+      {!state.workspaces.length && <div className="empty-state"><h1>Your terminal workspace</h1><p>Create a workspace pointing to an existing directory.</p><button disabled={!ready || disabled} onClick={() => setEditor('new')}>Create workspace</button></div>}
+      {state.workspaces.map(workspace => <WorkspacePane key={workspace.id} workspace={workspace} visible={workspace.id === state.selectedId} statuses={statuses} shell={defaults[1]} disabled={disabled} markBusy={markBusy} reportStatus={reportStatus} mutate={mutate} onState={setState} markRestoring={markRestoring}
         rename={tab => { setError(''); setRenaming(tab); }} closeTab={tab => {
           const confirmed = !!statuses[tab.id];
-          if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its terminal session and jobs?`)) return;
+          if (confirmed && !window.confirm(`Close “${tab.name}” and terminate its session and jobs? Its configuration will stay available.`)) return;
           void mutate('close_tab', { id: tab.id, confirmed }).then(closed => {
             if (closed) setStatuses(previous => { const next = { ...previous }; delete next[tab.id]; return next; });
           });
