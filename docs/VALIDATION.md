@@ -28,13 +28,13 @@ The earlier desktop-access failures describe the initial sandboxed environment. 
 ## Interactive procedure
 
 1. Run `mise exec -- npm run tauri -- dev` from a desktop terminal. Start a shell in an existing directory. Type text, arrows, Backspace, Delete, Home/End, Ctrl+A/E, Ctrl+C, Ctrl+D, and Ctrl+L. Check key behavior without accidentally intercepting terminal controls in the application.
-2. Print `café λ 日本語 🙂 é`. Select across lines, copy using Ctrl+Shift+C and the button, and paste using Ctrl+Shift+V and the button. Test primary selection/middle-click if expected on the desktop. Check IME/composition input where available.
+2. Print `café λ 日本語 🙂 é`. Select across lines, copy using Ctrl+Shift+C, and paste using Ctrl+Shift+V. Test primary selection/middle-click if expected on the desktop. Check IME/composition input where available.
 3. Run the Python fixture directly via the form: executable `/usr/bin/python3`, arguments `["/absolute/path/to/scripts/terminal-probe.py", "unicode"]`. Check the deliberately split bytes produce intact text. Repeat with `flood`; interact with the window during output, scroll afterward, and inspect process memory while repeating it. Engine-only tests do not prove bounded total WebView memory or responsiveness.
 4. Run the same fixture with `screen`. Check alternate screen, arrow and function keys, scrolling/mouse reports, and resize handling. Press q and verify restoration of the normal screen. Test selection with mouse reporting enabled and document the modifier behavior.
 5. Run Codex using the button, or type `codex` in the shell. Check prompt editing, Unicode, multiline paste, menus, scrolling, Ctrl+C, approval prompts, full-screen/alternate-screen behavior where used, and resizing while Codex is active. Do not change shell/Codex configuration automatically.
 6. Resize repeatedly and minimize/restore the window. A hidden window must never trigger a zero-size PTY resize. Confirm the terminal state remains intact. Window-close/hide behavior is intentionally not implemented in this prototype.
 7. Close a running session, first cancelling and then confirming. Verify ordinary shell jobs terminate. The escaped-descendant limitation in STACK.md remains a blocker even if this check passes.
-8. Inspect screen during normal and alternate-screen use. Compare plain text with the display, including wide characters and combining marks. Close the session and confirm screen inspection becomes unavailable. No CLI snapshot support exists yet.
+8. When a snapshot consumer is available, inspect screen snapshots during normal and alternate-screen use. The inspection button has been removed; the frontend adapter remains. Compare plain text with the display, including wide characters and combining marks. Close the session and confirm screen inspection becomes unavailable. No CLI snapshot support exists yet.
 
 ## Sidebar acceptance
 
@@ -55,7 +55,7 @@ Remaining native checks and process-containment blockers must be resolved before
 3. Launch an executable with literal arguments containing shell operators. Confirm no shell evaluation occurs. Then explicitly choose Shell command and verify shell syntax works. Test independent environment overrides in two tabs without saving the inherited environment.
 4. Launch tabs with and without directory overrides. Change the workspace directory and verify existing processes remain unchanged, future launches without overrides follow the new base, and explicit overrides stay fixed. Try a missing launch directory and invalid executable.
 5. Cancel and then confirm closing a running tab. Verify siblings stay running. Cancel closing a workspace with multiple sessions and confirm none stop; then confirm closure and verify all its sessions stop. The escaped-descendant limitation remains.
-6. Let a process exit with a nonzero code; verify its tab shows the code and its output stays available. Use Restart for an explicit relaunch or Stop session to retain a stopped configuration. Close the last tab and create a replacement from the empty state.
+6. Let a process exit with a nonzero code; verify its tab shows the code and its output stays available. Use Restart for an explicit relaunch. Close the last tab and create a replacement from the empty state.
 7. Verify native clipboard, selection, mouse reporting, and alternate-screen restoration after repeatedly switching between tabs. Compare hidden-output flood responsiveness and memory to the single-terminal baseline.
 
 ## Persistence and relaunch acceptance

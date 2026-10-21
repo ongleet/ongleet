@@ -65,7 +65,6 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
   const [shellCommand, setShellCommand] = useState(tab.config.shellCommand ?? '');
   const [status, setStatus] = useState<ProcessStatus | null>(null);
   const [error, setError] = useState('');
-  const [snapshot, setSnapshot] = useState<string | null>(null);
   const report: Report = error => setError(String(error));
 
   useEffect(() => {
@@ -99,7 +98,7 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
       if (codex) { setExecutable('codex'); setArgs('[]'); setShellMode(false); }
       if (start) {
         if (status?.state === 'exited') await frontend.current!.close();
-        setSnapshot(null); await frontend.current!.start();
+        await frontend.current!.start();
       }
     } catch (error) { report(error); } finally { markBusy(false); }
   }
@@ -122,20 +121,8 @@ function TabTerminal({ workspace, tab, visible, shell, disabled, markBusy, repor
           <button type="button" disabled={!!status || disabled} onClick={() => void save(false)}>Save settings</button></div>
       </form>
     </details>
-    <nav className="terminal-actions" aria-label={`${tab.name} terminal actions`}>
-      <button disabled={!status || disabled} onClick={() => void frontend.current?.copy().catch(report)}>Copy selection</button>
-      <button disabled={!status || disabled} onClick={() => void frontend.current?.paste().catch(report)}>Paste</button>
-      <button disabled={!status || disabled} onClick={() => { try { setSnapshot(frontend.current!.snapshot()); } catch (error) { report(error); } }}>Inspect screen</button>
-      <button disabled={!status || disabled} onClick={() => {
-        if (!window.confirm('Stop this terminal session and its jobs? The tab will stay available.')) return;
-        markBusy(true);
-        void frontend.current?.close().catch(report).finally(() => markBusy(false));
-      }}>Stop session</button>
-      <output aria-live="polite">{status?.state === 'exited' ? `Exited (${status.code})` : status ? 'Running' : 'Stopped'}</output>
-    </nav>
     {error && <div role="alert" className="error">{error}</div>}
     <div ref={host} className="terminal" />
-    {snapshot !== null && <div className="snapshot" aria-label="Plain-text snapshot"><button onClick={() => setSnapshot(null)}>Dismiss snapshot</button><pre>{snapshot}</pre></div>}
   </section>;
 }
 

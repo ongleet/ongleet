@@ -53,7 +53,6 @@ input { min-width: 0; width: 100%; padding: 8px 10px; background: #121923; borde
 .launch-settings summary { cursor: pointer; padding: 8px 20px; color: #9cabbf; }
 select { min-width: 0; width: 100%; font: inherit; color: inherit; padding: 8px; background: #121923; border: 1px solid #45546a; border-radius: 5px; }
 .launch-buttons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px; }
-.terminal-actions output { margin-left: auto; align-self: center; white-space: nowrap; color: #a3e6cc; }
 .workspace-heading { display: flex; gap: 12px; align-items: center; padding: 18px 20px 14px; }
 h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
 .workspace-heading > div { min-width: 0; }
@@ -63,11 +62,8 @@ h1 { font-size: 19px; margin: 0 0 5px; font-weight: 600; }
 .launch-form label { min-width: 0; }
 .launch-form input, .launch-form select { height: 36px; }
 label { display: grid; gap: 6px; flex: 1; min-width: 130px; color: #b6c3d4; }
-.terminal-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px; }
-.terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 0 14px 8px; }
+.terminal { position: relative; flex: 1; min-height: 0; overflow: hidden; margin: 8px 14px; }
 .error { padding: 10px 14px; background: #562b32; overflow-wrap: anywhere; }
-.snapshot { max-height: 30vh; overflow: auto; padding: 12px; background: #242e3d; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 footer { color: #95a3b6; font-size: 11px; padding: 8px 20px; border-top: 1px solid #252e3b; }
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; text-align: center; }
 .empty-state p, .muted { color: #9cabbf; line-height: 1.6; }
@@ -77,4 +73,4 @@ dialog form { display: grid; gap: 16px; }
 dialog h2 { font-size: 18px; margin: 0; }
 dialog p { margin: 0; }
 .dialog-actions { display: flex; justify-content: end; gap: 8px; }
-@media (max-width: 760px) { .sidebar { width: 180px; min-width: 150px; } .launch-form, .workspace-heading { padding: 12px; } .terminal-actions { padding: 8px 12px; } }
+@media (max-width: 760px) { .sidebar { width: 180px; min-width: 150px; } .launch-form, .workspace-heading { padding: 12px; } }
