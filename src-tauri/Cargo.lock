@@ -615,6 +615,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "devcenter"
+version = "0.1.0"
+dependencies = [
+ "gtk",
+ "libc",
+ "portable-pty",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3729,22 +3746,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
 dependencies = [
  "new_debug_unreachable",
-]
-
-[[package]]
-name = "terminal-workspace-prototype"
-version = "0.1.0"
-dependencies = [
- "libc",
- "portable-pty",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
 ]
 
 [[package]]

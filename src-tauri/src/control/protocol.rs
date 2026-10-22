@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 pub const REQUEST_LIMIT: usize = 16 * 1024;
 pub const RESPONSE_LIMIT: usize = 1024 * 1024;
 
@@ -40,55 +40,55 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
-    WorkspaceList,
-    WorkspaceCreate {
-        workgroup_id: u64,
+    SessionList,
+    SessionCreate {
+        project_id: u64,
         name: String,
         #[serde(default)]
         directory: String,
     },
-    WorkspaceRename {
+    SessionRename {
         id: u64,
         name: String,
     },
-    WorkspaceDirectory {
+    SessionDirectory {
         id: u64,
         directory: String,
     },
-    WorkspaceMove {
+    SessionMove {
         id: u64,
-        workgroup_id: u64,
+        project_id: u64,
     },
-    WorkspaceReorder {
+    SessionReorder {
         id: u64,
         position: usize,
     },
-    WorkspaceSelect {
+    SessionSelect {
         id: u64,
     },
-    WorkspaceClose {
+    SessionClose {
         id: u64,
         #[serde(default)]
         confirmed: bool,
     },
-    WorkgroupList,
-    WorkgroupCreate {
+    ProjectList,
+    ProjectCreate {
         name: String,
         root: String,
     },
-    WorkgroupRename {
+    ProjectRename {
         id: u64,
         name: String,
     },
-    WorkgroupDirectory {
+    ProjectDirectory {
         id: u64,
         directory: String,
     },
-    WorkgroupFold {
+    ProjectFold {
         id: u64,
         collapsed: bool,
     },
-    WorkgroupClose {
+    ProjectClose {
         id: u64,
     },
 }

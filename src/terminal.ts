@@ -1,10 +1,12 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
-import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { FitAddon, Ghostty, Terminal } from 'ghostty-web';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { FitAddon, Ghostty, Terminal, LinkDetector, OSC8LinkProvider, UrlRegexProvider } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from './byte-transport';
 import { suppressHiddenRendering } from './render-visibility';
 import { createEngineLoader } from './engine-loader';
+import { attachTerminalMouse } from './terminal-mouse';
+import { TerminalLinks } from './terminal-links';
 
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
@@ -19,6 +21,7 @@ export class TerminalFrontend {
   private timer?: ReturnType<typeof setTimeout>;
   private inputQueue: Promise<void> = Promise.resolve();
   private queuedInput = 0;
+  private pasting = false;
   private visible = true;
   private fitVisible?: () => void;
   private replaying = false;
@@ -71,6 +74,46 @@ export class TerminalFrontend {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
+    const terminalLinks = new TerminalLinks(term, bytes => consumeOutput(term, bytes));
+    this.subscriptions.push(attachTerminalMouse(this.host, term, bytes => this.sendBytes(bytes), () => !this.replaying && this.visible && !this.disposed));
+    const redraw = () => {
+      if (term.wasmTerm && this.visible) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
+    };
+    this.subscriptions.push(term.onSelectionChange(() => { redraw(); void this.copy().catch(this.error); }));
+    const paste = (event: ClipboardEvent) => {
+      event.preventDefault(); event.stopImmediatePropagation();
+      void this.paste().catch(this.error);
+    };
+    this.host.addEventListener('paste', paste, true);
+    const copy = (event: ClipboardEvent) => {
+      if (!term.getSelection()) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      void this.copy().catch(this.error);
+    };
+    this.host.addEventListener('copy', copy, true);
+    const links = new LinkDetector(term);
+    links.registerProvider(new OSC8LinkProvider(term));
+    links.registerProvider(new UrlRegexProvider(term));
+    const click = (event: MouseEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.button !== 0 || this.replaying) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      const canvas = this.host.querySelector('canvas');
+      if (!canvas || !term.renderer || !term.wasmTerm) return;
+      const rect = canvas.getBoundingClientRect();
+      const col = Math.floor((event.clientX - rect.left) / term.renderer.charWidth);
+      const row = term.wasmTerm.getScrollbackLength() - Math.floor(term.viewportY) + Math.floor((event.clientY - rect.top) / term.renderer.charHeight);
+      links.invalidateCache();
+      void links.getLinkAt(col, row).then(link => {
+        if (link && this.term === term && !this.disposed) return invoke('open_terminal_link', { uri: link.text });
+      }).catch(this.error);
+    };
+    this.host.addEventListener('click', click, true);
+    this.subscriptions.push({ dispose: () => {
+      this.host.removeEventListener('paste', paste, true);
+      this.host.removeEventListener('copy', copy, true);
+      this.host.removeEventListener('click', click, true);
+      links.dispose();
+    } });
     if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible && !document.hidden);
     const fitVisible = () => {
       if (!this.replaying && this.visible && !document.hidden && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
@@ -89,6 +132,11 @@ export class TerminalFrontend {
     }));
     // ghostty-web's custom handler returns true when it handled the event.
     term.attachCustomKeyEventHandler(event => {
+      // Codex reads image data from the native clipboard on Ctrl+V. Upstream
+      // otherwise lets WebKit swallow this key as a text-only browser paste.
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toUpperCase() === 'V') {
+        this.send('\x16'); return true;
+      }
       if (event.ctrlKey && event.shiftKey && ['C', 'V'].includes(event.key.toUpperCase())) {
         if (event.key.toUpperCase() === 'C') void this.copy().catch(this.error);
         else void this.paste().catch(this.error);
@@ -105,7 +153,7 @@ export class TerminalFrontend {
         if (event.type === 'data') {
           // Preserve byte boundaries all the way into Ghostty's stateful VT
           // parser. Never decode each PTY chunk as an independent UTF-8 string.
-          consumeOutput(term, event.bytes);
+          terminalLinks.write(event.bytes);
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.
           await invoke('acknowledge', { id, seq: event.seq });
@@ -158,7 +206,11 @@ export class TerminalFrontend {
     // Count UTF-8 bytes, including bracketed-paste framing. Reject a whole
     // oversized paste instead of silently truncating commands.
     if (text.length > 65536) { this.error('Input queue limit (64 KiB) exceeded'); return; }
-    const bytes = new TextEncoder().encode(text);
+    this.sendBytes(new TextEncoder().encode(text));
+  }
+
+  private sendBytes(bytes: Uint8Array) {
+    if (this.id === undefined || this.replaying || this.disposed) return;
     if (this.queuedInput + bytes.length > 65536) { this.error('Input queue limit (64 KiB) exceeded'); return; }
     const id = this.id;
     this.queuedInput += bytes.length;
@@ -178,11 +230,15 @@ export class TerminalFrontend {
   async paste() {
     const term = this.term;
     const id = this.id;
-    if (!term || id === undefined) return;
-    const text = await readText();
-    if (this.term !== term || this.id !== id) return;
-    term.paste(text);
-    this.term?.focus();
+    if (!term || id === undefined || this.replaying || this.pasting) return;
+    this.pasting = true;
+    try {
+      const result = await invoke<{ kind: 'text'; text: string } | { kind: 'image' }>('terminal_clipboard');
+      if (this.term !== term || this.id !== id || this.replaying || this.disposed) return;
+      if (result.kind === 'image') this.send('\x16');
+      else term.paste(result.text);
+      term.focus();
+    } finally { this.pasting = false; }
   }
 
   snapshot(): string {
@@ -198,7 +254,7 @@ export class TerminalFrontend {
 
   async close() {
     if (this.id === undefined) return;
-    await invoke('close_session', { id: this.id, confirmed: true });
+    await invoke('close_terminal_session', { id: this.id, confirmed: true });
     this.id = undefined;
     clearTimeout(this.timer);
     this.changed(null);

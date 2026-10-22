@@ -88,14 +88,14 @@ def run(args):
         shutil.copy2(args.application, copy)
         args.application = str(copy)
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"), XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}", GDK_BACKEND="x11", TAURI_WEBVIEW_AUTOMATION="true", TERMINAL_VALIDATION_RUN=str(directory))
-    config = directory / "config/io.local.terminal-stack-prototype"
+    config = directory / "config/devcenter"
     config.mkdir(parents=True)
-    (config / "workgroups/1").mkdir(parents=True)
-    (config / "workgroups/1/actions.yaml").write_text(json.dumps({"actions": [{"id": "stream", "name": "Stream", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
-    data = directory / "data/io.local.terminal-stack-prototype"
+    (config / "projects/1").mkdir(parents=True)
+    (config / "projects/1/actions.yaml").write_text(json.dumps({"actions": [{"id": "stream", "name": "Stream", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
+    data = directory / "data/devcenter"
     value = 0xcbf29ce484222325
     for byte in os.fsencode(data): value = ((value ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
-    path = f"/run/user/{os.getuid()}/terminal-workspace-{value:016x}.sock"
+    path = f"/run/user/{os.getuid()}/devcenter-{value:016x}.sock"
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0)); port = listener.getsockname()[1]
     report = {"artifacts": str(directory), "checks": []}
@@ -105,7 +105,7 @@ def run(args):
     def connect():
         session = client.request("POST", "/session", {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": args.application}}}}, session=False)
         client.session = session["sessionId"]
-        wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "frontend ready")
+        wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), "frontend ready")
         with socket.socket(socket.AF_UNIX) as peer:
             peer.connect(path)
             pid, _, _ = struct.unpack("3i", peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
@@ -129,8 +129,8 @@ def run(args):
         def settings(view):
             client.click(f'#settings-{view}')
             wait_for(lambda: client.js("const button=document.getElementById('settings-'+arguments[0]);return button?.getAttribute('aria-selected')==='true' && !button.disabled", view), 'settings view ready')
-        client.click(f'#workgroup-menu-{group["id"]}')
-        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", "xpath")
+        client.click(f'#project-menu-{group["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit project']", "xpath")
         settings('actions')
         for name, value in [('EDITOR_COMMON', 'shared'), ('EDITOR_TEST', 'group default')]:
             client.click("//button[normalize-space()='Add variable']", 'xpath')
@@ -150,15 +150,15 @@ def run(args):
         client.click("//fieldset[1]//button[normalize-space()='Move later']", "xpath")
         client.click("//fieldset[2]//button[normalize-space()='Remove action']", "xpath")
         settings('yaml')
-        yaml = client.js("return document.querySelector('#workgroup-actions-yaml').value")
+        yaml = client.js("return document.querySelector('#project-actions-yaml').value")
         assert 'actions:' in yaml and 'EDITOR_COMMON: shared' in yaml and 'Edited action' in yaml and 'tab_types' not in yaml
-        config = Path(client.invoke('workgroup_config', {'id': group['id']}))
+        config = Path(client.invoke('project_config', {'id': group['id']}))
         original = config.read_text()
-        client.fill('#workgroup-actions-yaml', 'actions: []')
+        client.fill('#project-actions-yaml', 'actions: []')
         client.click("//button[normalize-space()='Save actions']", "xpath")
         wait_for(lambda: client.js("return Array.from(document.querySelectorAll('[role=alert]')).some(element=>element.innerText.includes('between 1 and 100 actions'))"), 'invalid actions rejected')
         assert config.read_text() == original
-        client.fill('#workgroup-actions-yaml', yaml.replace('Edited action', 'Edited from YAML'))
+        client.fill('#project-actions-yaml', yaml.replace('Edited action', 'Edited from YAML'))
         settings('actions')
         assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
         client.click("//button[normalize-space()='Save actions']", "xpath")
@@ -167,13 +167,13 @@ def run(args):
         client.click("//dialog[@open]//button[normalize-space()='Close']", "xpath")
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
         assert b'EDITOR_COMMON=' not in Path(f'/proc/{terminal_pid}/environ').read_bytes()
-        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
+        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
         client.click("//dialog[@open]//button[normalize-space()='Edited from YAML']", 'xpath')
-        tab = wait_for(lambda: next((w['selectedTabId'] for w in client.invoke('workspaces')['workspaces'] if w['workgroupId'] == group['id'] and w['selectedTabId'] != old_tab), None), 'edited action selected')
+        tab = wait_for(lambda: next((w['selectedTabId'] for w in client.invoke('sessions')['sessions'] if w['projectId'] == group['id'] and w['selectedTabId'] != old_tab), None), 'edited action selected')
         wait_for(lambda: 'EDITOR_READY=saved value;COMMON=shared' in client.screen(tab), 'edited action executes')
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
-        client.click(f'#workgroup-menu-{group["id"]}')
-        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", 'xpath')
+        client.click(f'#project-menu-{group["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit project']", 'xpath')
         settings('actions')
         assert client.js("return document.querySelector('#settings-panel-actions fieldset input').value") == 'Edited from YAML'
         assert client.js("return Array.from(document.querySelectorAll('.env-row input')).some(input=>input.value==='EDITOR_COMMON')")
@@ -183,99 +183,99 @@ def run(args):
         client.js("const select=document.querySelector(arguments[0]);select.value='command';select.dispatchEvent(new Event('change',{bubbles:true}))", field + '[aria-label="Action type"]')
         client.fill(field + '[aria-label="Executable"]', '/usr/bin/python3')
         artifact = directory / 'external-result.json'
-        script = "import os,sys,json; open(" + repr(str(artifact)) + ",'w').write(json.dumps({'args':sys.argv[1:],'cwd':os.getcwd(),'env':os.getenv('WORKSPACE_PATH'),'common':os.getenv('EDITOR_COMMON')}))"
-        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-c',script,'{{workspace.path}}','literal ; $(touch nope)']))
+        script = "import os,sys,json; open(" + repr(str(artifact)) + ",'w').write(json.dumps({'args':sys.argv[1:],'cwd':os.getcwd(),'env':os.getenv('SESSION_PATH'),'common':os.getenv('EDITOR_COMMON')}))"
+        client.fill(field + '[aria-label="Arguments"]', json.dumps(['-c',script,'{{session.path}}','literal ; $(touch nope)']))
         client.click("//button[normalize-space()='Save actions']", 'xpath')
         wait_for(lambda: 'kind: command' in config.read_text(), 'external action saved')
         settings('yaml')
-        assert 'kind: command' in client.js("return document.querySelector('#workgroup-actions-yaml').value")
+        assert 'kind: command' in client.js("return document.querySelector('#project-actions-yaml').value")
         settings('actions')
         assert client.js("return document.querySelector(arguments[0]).value", field + '[aria-label="Action type"]') == 'command'
         client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
-        workspace_before = next(w for w in client.invoke('workspaces')['workspaces'] if w['workgroupId'] == group['id'])
-        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='Actions']", 'xpath')
+        session_before = next(w for w in client.invoke('sessions')['sessions'] if w['projectId'] == group['id'])
+        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='Actions']", 'xpath')
         client.click("//dialog[@aria-label='External actions']//button[normalize-space()='External probe']", 'xpath')
         wait_for(artifact.exists, 'external command completed')
         result = json.loads(artifact.read_text())
-        assert result['args'] == [workspace_before['baseDirectory'],'literal ; $(touch nope)']
-        assert result['cwd'] == workspace_before['baseDirectory'] and result['env'] == result['cwd'] and result['common'] == 'shared'
-        assert len(next(w for w in client.invoke('workspaces')['workspaces'] if w['id'] == workspace_before['id'])['tabs']) == len(workspace_before['tabs'])
+        assert result['args'] == [session_before['baseDirectory'],'literal ; $(touch nope)']
+        assert result['cwd'] == session_before['baseDirectory'] and result['env'] == result['cwd'] and result['common'] == 'shared'
+        assert len(next(w for w in client.invoke('sessions')['sessions'] if w['id'] == session_before['id'])['tabs']) == len(session_before['tabs'])
         assert client.state(old_tab)['sessionId'] == session_id and pid_alive(terminal_pid)
-        mark('External action form/YAML persists, launches with literal workspace placeholders and common environment, and creates no tab')
+        mark('External action form/YAML persists, launches with literal session placeholders and common environment, and creates no tab')
         mark('Common environment form/YAML roundtrip, override precedence and edited command launch preserve the live sibling')
 
-    def workgroups_check():
+    def projects_check():
         first_root, second_root = directory / "projects-one", directory / "projects-two"
         first_root.mkdir(); second_root.mkdir()
         (first_root / "keep").write_text("first")
         (second_root / "keep").write_text("second")
         groups = []
         for name, root in [("Group One", first_root), ("Group Two", second_root)]:
-            client.click('[aria-label="Create workgroup"]')
-            client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(1) input', name)
-            client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(2) input', str(root))
-            client.click("//dialog[@open]//button[normalize-space()='Save workgroup']", "xpath")
-            group = wait_for(lambda: next((g for g in client.invoke("workspaces")["workgroups"] if g["name"] == name), None), "new workgroup")
-            path = Path(client.invoke("workgroup_config", {"id": group["id"]}))
+            client.click('[aria-label="Create project"]')
+            client.fill('dialog[aria-label="Project editor"] label:nth-of-type(1) input', name)
+            client.fill('dialog[aria-label="Project editor"] label:nth-of-type(2) input', str(root))
+            client.click("//dialog[@open]//button[normalize-space()='Save project']", "xpath")
+            group = wait_for(lambda: next((g for g in client.invoke("sessions")["projects"] if g["name"] == name), None), "new project")
+            path = Path(client.invoke("project_config", {"id": group["id"]}))
             path.write_text(json.dumps({"actions": [{"id": "action", "name": name + " action", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
             groups.append(group)
         first, second = groups
-        client.click(f'[data-workgroup-id="{first["id"]}"] [aria-label="Create workspace"]')
-        wait_for(lambda: client.js("return document.querySelector('#workspace-directory')?.value") == str(first_root), "workgroup default directory")
-        client.fill("#workspace-name", "First project")
-        client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
-        workspace = wait_for(lambda: next((w for w in client.invoke("workspaces")["workspaces"] if w["name"] == "First project"), None), "new grouped workspace")
-        wait_for(lambda: (state := client.state(client.invoke("workspaces")["workspaces"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
-        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
+        client.click(f'[data-project-id="{first["id"]}"] [aria-label="Create session"]')
+        wait_for(lambda: client.js("return document.querySelector('#session-directory')?.value") == str(first_root), "project default directory")
+        client.fill("#session-name", "First project")
+        client.click("//dialog[@open]//button[normalize-space()='Save session']", "xpath")
+        session = wait_for(lambda: next((w for w in client.invoke("sessions")["sessions"] if w["name"] == "First project"), None), "new grouped session")
+        wait_for(lambda: (state := client.state(client.invoke("sessions")["sessions"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
+        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
         wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group One action')"), "scoped actions")
         assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group Two action')")
         client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
-        assert len(workspace["tabs"]) == 1 and workspace["tabs"][0]["name"] == "Group One action"
-        tab = workspace["selectedTabId"]
+        assert len(session["tabs"]) == 1 and session["tabs"][0]["name"] == "Group One action"
+        tab = session["selectedTabId"]
         wait_for(lambda: "TICK=" in client.screen(tab), "group action running")
         terminal_pid = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
         assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
         session_id = client.state(tab)["sessionId"]
-        mark("New workspace automatically starts its first YAML action as its only tab, in the default group path")
+        mark("New session automatically starts its first YAML action as its only tab, in the default group path")
         before = client.screen(tab)
-        client.click(f'[data-workgroup-id="{first["id"]}"] .workgroup-toggle')
-        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0]).hidden", first["id"]), "folded workspace list")
+        client.click(f'[data-project-id="{first["id"]}"] .project-toggle')
+        wait_for(lambda: client.js("return document.getElementById('project-'+arguments[0]).hidden", first["id"]), "folded session list")
         time.sleep(.4)
         assert client.state(tab)["sessionId"] == session_id and client.screen(tab) != before
         client.request("POST", "/refresh", {})
-        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0])?.hidden", first["id"]), "persisted fold")
+        wait_for(lambda: client.js("return document.getElementById('project-'+arguments[0])?.hidden", first["id"]), "persisted fold")
         wait_for(lambda: (state := client.state(tab)) and state.get("sessionId") == session_id and not state["replaying"], "same grouped PTY after reload")
-        mark("Folding hides workspace entries, preserves active output and persists through reload without relaunch")
-        client.click(f'#workgroup-menu-{first["id"]}')
-        client.click("//button[@role='menuitem'][normalize-space()='Edit workgroup']", "xpath")
-        client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(1) input', "Group One renamed")
-        client.fill('dialog[aria-label="Workgroup editor"] label:nth-of-type(2) input', str(second_root))
-        assert client.js("return Array.from(document.querySelectorAll('dialog[aria-label=\"Workgroup editor\"] input')).some(input=>input.readOnly && input.value.endsWith('/actions.yaml'))")
-        client.click("//dialog[@open]//button[normalize-space()='Save workgroup']", "xpath")
-        wait_for(lambda: client.invoke("workspaces")["workgroups"][1]["name"] == "Group One renamed", "group edited")
+        mark("Folding hides session entries, preserves active output and persists through reload without relaunch")
+        client.click(f'#project-menu-{first["id"]}')
+        client.click("//button[@role='menuitem'][normalize-space()='Edit project']", "xpath")
+        client.fill('dialog[aria-label="Project editor"] label:nth-of-type(1) input', "Group One renamed")
+        client.fill('dialog[aria-label="Project editor"] label:nth-of-type(2) input', str(second_root))
+        assert client.js("return Array.from(document.querySelectorAll('dialog[aria-label=\"Project editor\"] input')).some(input=>input.readOnly && input.value.endsWith('/actions.yaml'))")
+        client.click("//dialog[@open]//button[normalize-space()='Save project']", "xpath")
+        wait_for(lambda: client.invoke("sessions")["projects"][1]["name"] == "Group One renamed", "group edited")
         assert Path(f"/proc/{terminal_pid}/cwd").resolve() == first_root
         assert client.state(tab)["sessionId"] == session_id
         if args.actions_editor: actions_editor_check(first, terminal_pid, session_id, tab)
-        client.click(f'[data-workgroup-id="{second["id"]}"] [aria-label="Create workspace"]')
-        wait_for(lambda: client.js("return document.querySelector('#workspace-directory')?.value") == str(second_root), "second group default")
-        client.fill("#workspace-name", "Overridden project")
-        client.fill("#workspace-directory", str(first_root))
-        client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
-        overridden = wait_for(lambda: next((w for w in client.invoke("workspaces")["workspaces"] if w["name"] == "Overridden project"), None), "override workspace")
-        assert overridden["baseDirectory"] == str(first_root) and overridden["workgroupId"] == second["id"]
-        wait_for(lambda: (state := client.state(client.invoke("workspaces")["workspaces"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
-        client.click("//section[contains(@class,'workspace-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
+        client.click(f'[data-project-id="{second["id"]}"] [aria-label="Create session"]')
+        wait_for(lambda: client.js("return document.querySelector('#session-directory')?.value") == str(second_root), "second group default")
+        client.fill("#session-name", "Overridden project")
+        client.fill("#session-directory", str(first_root))
+        client.click("//dialog[@open]//button[normalize-space()='Save session']", "xpath")
+        overridden = wait_for(lambda: next((w for w in client.invoke("sessions")["sessions"] if w["name"] == "Overridden project"), None), "override session")
+        assert overridden["baseDirectory"] == str(first_root) and overridden["projectId"] == second["id"]
+        wait_for(lambda: (state := client.state(client.invoke("sessions")["sessions"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
+        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
         wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group Two action')"), "second group actions")
         assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group One action')")
         client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
-        mark("Workgroup editing exposes its config path, preserves running cwd, and workspace directory overrides work")
-        client.invoke("close_workspace", {"id": workspace["id"], "confirmed": True})
-        client.invoke("close_workspace", {"id": overridden["id"], "confirmed": True})
-        for group in groups: client.invoke("close_workgroup", {"id": group["id"]})
+        mark("Project editing exposes its config path, preserves running cwd, and session directory overrides work")
+        client.invoke("close_session", {"id": session["id"], "confirmed": True})
+        client.invoke("close_session", {"id": overridden["id"], "confirmed": True})
+        for group in groups: client.invoke("close_project", {"id": group["id"]})
         assert list(first_root.iterdir()) == [first_root / "keep"]
         assert list(second_root.iterdir()) == [second_root / "keep"]
         client.request("POST", "/refresh", {})
-        wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "ready after group checks")
+        wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), "ready after group checks")
 
     def cli(*arguments, code=0):
         result = subprocess.run([args.cli, *map(str, arguments)], env=env, capture_output=True, text=True, timeout=40)
@@ -290,73 +290,73 @@ def run(args):
         root, other = directory / 'cli-root', directory / 'cli-other'
         root.mkdir(); other.mkdir()
         for entry in [root, other]: (entry / 'keep').write_text('unchanged')
-        group = cli('workgroup', 'create', '--name', 'CLI group', '--root', root)
+        group = cli('project', 'create', '--name', 'CLI group', '--root', root)
         gid = group['id']
-        assert any(g['id'] == gid for g in cli('workgroup', 'list')['workgroups'])
-        cli('workgroup', 'rename', gid, '--name', 'CLI renamed')
-        wait_for(lambda: client.js("return document.querySelector('[data-workgroup-id=\"'+arguments[0]+'\"]')?.innerText.includes('CLI renamed')", gid), 'CLI group in sidebar')
-        cli('workgroup', 'directory', gid, '--directory', other)
-        cli('workgroup', 'directory', gid, '--directory', root)
+        assert any(g['id'] == gid for g in cli('project', 'list')['projects'])
+        cli('project', 'rename', gid, '--name', 'CLI renamed')
+        wait_for(lambda: client.js("return document.querySelector('[data-project-id=\"'+arguments[0]+'\"]')?.innerText.includes('CLI renamed')", gid), 'CLI group in sidebar')
+        cli('project', 'directory', gid, '--directory', other)
+        cli('project', 'directory', gid, '--directory', root)
         # Use a known long-running first action, never the user's configuration.
-        config_path = config / f'workgroups/{gid}'
+        config_path = config / f'projects/{gid}'
         config_path.mkdir(parents=True, exist_ok=True)
-        actions = json.loads((config / 'workgroups/1/actions.yaml').read_text())
+        actions = json.loads((config / 'projects/1/actions.yaml').read_text())
         probe = str(native.ROOT / 'scripts/terminal-probe.py')
         actions['actions'][0]['config']['args'] = ['-u', '-c',
-            "import subprocess,os,json,sys,runpy; result=subprocess.run(['terminal-workspace','workspace','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
+            "import subprocess,os,json,sys,runpy; result=subprocess.run(['devcenter','session','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
         (config_path / 'actions.yaml').write_text(json.dumps(actions))
-        first = cli('workspace', 'create', '--workgroup', gid, '--name', 'CLI first')
+        first = cli('session', 'create', '--project', gid, '--name', 'CLI first')
         wid, tab = first['id'], first['selectedTabId']
         wait_for(lambda: 'TICK=' in client.screen(tab), 'CLI-created action running without reload')
         assert 'CLI_ON_PATH' in client.screen(tab)
         terminal_pid = next(int(line.split('=',1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith('PID='))
         session = client.state(tab)['sessionId']
         assert Path(f'/proc/{terminal_pid}/cwd').resolve() == root
-        cli('workspace', 'rename', wid, '--name', 'CLI renamed workspace')
-        wait_for(lambda: client.js("return document.querySelector('.sidebar')?.innerText.includes('CLI renamed workspace')"), 'CLI rename displayed')
-        cli('workspace', 'directory', wid, '--directory', other)
+        cli('session', 'rename', wid, '--name', 'CLI renamed session')
+        wait_for(lambda: client.js("return document.querySelector('.sidebar')?.innerText.includes('CLI renamed session')"), 'CLI rename displayed')
+        cli('session', 'directory', wid, '--directory', other)
         assert Path(f'/proc/{terminal_pid}/cwd').resolve() == root
-        cli('workgroup', 'fold', gid)
-        wait_for(lambda: client.js("return document.getElementById('workgroup-'+arguments[0])?.hidden", gid), 'CLI fold displayed')
-        cli('workgroup', 'unfold', gid)
+        cli('project', 'fold', gid)
+        wait_for(lambda: client.js("return document.getElementById('project-'+arguments[0])?.hidden", gid), 'CLI fold displayed')
+        cli('project', 'unfold', gid)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            created = list(pool.map(lambda name: cli('workspace','create','--workgroup',gid,'--name',name), ['CLI second','CLI third']))
-        for item in created: wait_for(lambda: 'TICK=' in client.screen(item['selectedTabId']), 'concurrent workspace action running')
-        cli('workspace', 'reorder', created[1]['id'], '--position', 0)
-        ordered = [w for w in cli('workspace', 'list')['workspaces'] if w['workgroupId'] == gid]
+            created = list(pool.map(lambda name: cli('session','create','--project',gid,'--name',name), ['CLI second','CLI third']))
+        for item in created: wait_for(lambda: 'TICK=' in client.screen(item['selectedTabId']), 'concurrent session action running')
+        cli('session', 'reorder', created[1]['id'], '--position', 0)
+        ordered = [w for w in cli('session', 'list')['sessions'] if w['projectId'] == gid]
         assert ordered[0]['id'] == created[1]['id']
-        cli('workspace', 'select', wid)
-        wait_for(lambda: client.js("return document.querySelector('.workspace-pane:not([hidden])')?.getAttribute('aria-label')") == 'CLI renamed workspace', 'CLI selection displayed')
+        cli('session', 'select', wid)
+        wait_for(lambda: client.js("return document.querySelector('.session-pane:not([hidden])')?.getAttribute('aria-label')") == 'CLI renamed session', 'CLI selection displayed')
         assert client.state(tab)['sessionId'] == session and pid_alive(terminal_pid)
-        cli('workspace', 'move', wid, '--workgroup', 1)
+        cli('session', 'move', wid, '--project', 1)
         assert client.state(tab)['sessionId'] == session
-        assert cli('workspace','close',wid,code=5)['code'] == 'confirmation_required'
+        assert cli('session','close',wid,code=5)['code'] == 'confirmation_required'
         assert pid_alive(terminal_pid)
-        assert cli('workspace','select',999999,code=4)['code'] == 'not_found'
-        cli('workspace','reorder',wid,'--position',99999,code=2)
-        cli('workspace','create','--workgroup',gid,'--name','Missing','--directory',root/'missing',code=6)
+        assert cli('session','select',999999,code=4)['code'] == 'not_found'
+        cli('session','reorder',wid,'--position',99999,code=2)
+        cli('session','create','--project',gid,'--name','Missing','--directory',root/'missing',code=6)
         assert not (root/'missing').exists()
-        cli('workspace','close',wid,'--confirm')
+        cli('session','close',wid,'--confirm')
         wait_for(lambda: not pid_alive(terminal_pid), 'CLI close kills owned process')
-        for item in created: cli('workspace','close',item['id'],'--confirm')
-        cli('workgroup','close',gid)
-        wait_for(lambda: not client.js("return !!document.querySelector('[data-workgroup-id=\"'+arguments[0]+'\"]')",gid), 'CLI deletion displayed')
+        for item in created: cli('session','close',item['id'],'--confirm')
+        cli('project','close',gid)
+        wait_for(lambda: not client.js("return !!document.querySelector('[data-project-id=\"'+arguments[0]+'\"]')",gid), 'CLI deletion displayed')
         assert all(list(path.iterdir()) == [path/'keep'] and (path/'keep').read_text() == 'unchanged' for path in [root,other])
         with ThreadPoolExecutor(max_workers=4) as pool:
             assert all(pool.map(lambda _: cli('app','status')['pid'] > 0, range(8)))
-        for payload, error in [(b'x' * 17000,'message_too_large'),(b'{"version":99,"command":"status"}','protocol_error'),(b'{"version":1,"command":"workspace_list","extra":true}','invalid_request')]:
+        for payload, error in [(b'x' * 17000,'message_too_large'),(b'{"version":99,"command":"status"}','protocol_error'),(b'{"version":2,"command":"session_list","extra":true}','invalid_request')]:
             with socket.socket(socket.AF_UNIX) as peer:
                 peer.connect(path_for_cli)
                 peer.sendall(payload); peer.shutdown(socket.SHUT_WR)
                 assert json.loads(peer.recv(4096))['error']['code'] == error
-        mark('CLI workspace/workgroup CRUD, concurrent creation, live UI, stable PTYs, structured errors and confirmed cleanup preserve directories')
+        mark('CLI session/project CRUD, concurrent creation, live UI, stable PTYs, structured errors and confirmed cleanup preserve directories')
 
     with (directory / "driver.log").open("w") as log:
         driver = subprocess.Popen([args.driver, "--host=127.0.0.1", f"--port={port}"], env=env, stdout=log, stderr=log)
         try:
             wait_for(lambda: client.request("GET", "/status", session=False), "driver ready")
             pid = connect()
-            if args.workgroups: workgroups_check()
+            if args.projects: projects_check()
             if args.cli: cli_check()
             if args.replace_executable:
                 application = Path(args.application)
@@ -365,9 +365,9 @@ def run(args):
                 shutil.copy2(retired, application)
                 retired.unlink()
                 assert os.readlink(f"/proc/{pid}/exe").endswith(" (deleted)")
-            workspace = client.invoke("create_workspace", {"name": "Lifecycle", "directory": str(directory)})["workspaces"][0]
-            assert len(workspace["tabs"]) == 1 and workspace["tabs"][0]["name"] == "Stream"
-            tab = workspace["selectedTabId"]
+            session = client.invoke("create_session", {"name": "Lifecycle", "directory": str(directory)})["sessions"][0]
+            assert len(session["tabs"]) == 1 and session["tabs"][0]["name"] == "Stream"
+            tab = session["selectedTabId"]
             client.request("POST", "/refresh", {})
             wait_for(lambda: "TICK=" in client.screen(tab), "stream running")
             if args.replace_executable:
@@ -388,25 +388,25 @@ def run(args):
             wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "Quit warning")
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", "xpath")
             wait_for(lambda: client.js("return !document.querySelector('footer button').disabled"), "Quit cancellation")
-            assert pid_alive(stream_pid) and client.invoke("application_status")["runningSessions"] == 1
+            assert pid_alive(stream_pid) and client.invoke("application_status")["runningTerminals"] == 1
             mark("Cancelling the Quit confirmation keeps the live session intact")
             close_window(pid)
             wait_for(lambda: not client.invoke("application_status")["visible"], "window hidden")
             time.sleep(2)
             if args.cli:
                 assert cli('app','status')['visible'] is False
-                cli('workspace','rename',workspace['id'],'--name','Hidden CLI workspace')
-                wait_for(lambda: client.js("return document.querySelector('.sidebar').innerText.includes('Hidden CLI workspace')"), 'hidden frontend consumes CLI changes')
-                assert cli('app','status')['runningSessions'] == 1
+                cli('session','rename',session['id'],'--name','Hidden CLI session')
+                wait_for(lambda: client.js("return document.querySelector('.sidebar').innerText.includes('Hidden CLI session')"), 'hidden frontend consumes CLI changes')
+                assert cli('app','status')['runningTerminals'] == 1
                 cli('app','show')
             assert pid_alive(stream_pid)
             subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
             wait_for(lambda: client.invoke("application_status")["visible"], "window reopened")
             assert client.screen(tab) != before and f"PID={stream_pid}" in client.screen(tab)
-            assert client.invoke("application_status")["runningSessions"] == 1
+            assert client.invoke("application_status")["runningTerminals"] == 1
             mark("Native window close hides it; output continues and --show retains the same PTY")
             subprocess.run([args.application], env=env, check=True, timeout=5)
-            assert client.invoke("application_status")["runningSessions"] == 1
+            assert client.invoke("application_status")["runningTerminals"] == 1
             mark("Second launch activates the existing instance without duplicate processes")
             quit_app(pid, ui=True)
             wait_for(lambda: not pid_alive(stream_pid), "PTY stopped after Quit")
@@ -421,7 +421,7 @@ def run(args):
             wait_for(lambda: "TICK=" in client.screen(tab), "formerly running command restarted")
             new_stream = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
             assert new_stream != stream_pid
-            assert client.invoke("workspaces")["workspaces"][0]["id"] == workspace["id"]
+            assert client.invoke("sessions")["sessions"][0]["id"] == session["id"]
             if args.cli:
                 cli('app','quit',code=5)
                 cli('app','quit','--confirm')
@@ -462,9 +462,9 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", help="Path to CLI executable for native shared-state integration checks")
-    parser.add_argument("--actions-editor", action="store_true", help="Exercise the workgroup Actions form and YAML editor (with --workgroups)")
+    parser.add_argument("--actions-editor", action="store_true", help="Exercise the project Actions form and YAML editor (with --projects)")
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")
-    parser.add_argument("--workgroups", action="store_true", help="Also check grouped workspace UI, per-group YAML and fold persistence")
+    parser.add_argument("--projects", action="store_true", help="Also check grouped session UI, per-group YAML and fold persistence")
     parser.add_argument("--driver", required=True)
-    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/terminal-workspace-prototype"))
+    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/devcenter-gui"))
     run(parser.parse_args())

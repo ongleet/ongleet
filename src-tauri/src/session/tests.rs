@@ -1,448 +1,835 @@
 use super::*;
-use std::time::Instant;
+use crate::terminal_session::{Output, Status};
+use std::{
+    fs,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
+    time::Duration,
+};
+use tauri::ipc::Channel;
 use tauri::ipc::InvokeResponseBody;
 
-fn launch(script: &str) -> Launch {
-    Launch {
-        executable: Some("/usr/bin/python3".into()),
-        args: vec!["-u".into(), "-c".into(), script.into()],
-        cwd: "/tmp".into(),
-        env: BTreeMap::from([("PROTOTYPE_TEST".into(), "explicit-override".into())]),
-        cols: 80,
-        rows: 24,
+struct Directory(std::path::PathBuf);
+impl Directory {
+    fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let path = std::env::temp_dir().join(format!(
+            "session-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+    fn path(&self) -> String {
+        self.0.to_str().unwrap().into()
+    }
+}
+impl Drop for Directory {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
-fn channel() -> (Channel<Output>, mpsc::Receiver<Output>) {
+mod projects;
+
+#[test]
+fn codex_wrapper_receives_stable_context_and_records_from_a_contained_pty() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = Directory::new();
+    let fake = directory.0.join("codex");
+    fs::write(&fake, r#"#!/usr/bin/python3
+import json, os, subprocess, sys, tomllib
+args = sys.argv[1:]
+config = next(tomllib.loads(args[i+1]) for i, a in enumerate(args) if a == '-c' and args[i+1].startswith('hooks.'))
+command = config['hooks']['SessionStart'][0]['hooks'][0]['command']
+subprocess.run(command, shell=True, input=json.dumps({'session_id': 'pty-conversation', 'hook_event_name': 'SessionStart'}), text=True, check=True)
+print('CONTEXT:' + os.environ['DEVCENTER_SESSION_ID'] + ':' + os.environ['DEVCENTER_TAB_ID'], flush=True)
+"#).unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
+    let mut registry = SessionRegistry::open(&directory.0).unwrap();
+    registry.create("Codex".into(), directory.path()).unwrap();
+    let session = registry.sessions[0].id;
+    let tab = registry.sessions[0].tabs[0].id;
+    registry.sessions[0].tabs[0].config = TabConfig {
+        executable: Some("dcodex".into()),
+        env: BTreeMap::from([
+            ("PATH".into(), format!("{}:/usr/bin:/bin", directory.path())),
+            ("DEVCENTER_TAB_ID".into(), "999".into()),
+        ]),
+        ..Default::default()
+    };
+    let (channel, receive) = output();
+    let terminal_id = registry.start(tab, 80, 24, channel).unwrap();
+    let mut bytes = Vec::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if let Ok(Output::Data { seq, bytes: chunk }) =
+            receive.recv_timeout(Duration::from_millis(50))
+        {
+            bytes.extend(chunk);
+            registry.terminals[&tab].acknowledge(seq).unwrap();
+        }
+        if matches!(registry.status(terminal_id).unwrap(), Status::Exited { .. }) {
+            break;
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.contains(&format!("CONTEXT:{session}:{tab}")), "{text}");
+    let saved: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            directory
+                .0
+                .join(format!("codex-sessions/{session}/{tab}.json")),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(saved["conversation"], "pty-conversation");
+    registry.shutdown(true).unwrap();
+}
+
+#[test]
+fn metadata_operations_preserve_identity_order_selection_and_directories() {
+    let directory = Directory::new();
+    fs::write(directory.0.join("keep.txt"), b"untouched").unwrap();
+    let other = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let first = registry
+        .create("First".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let second = registry
+        .create("Second".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    assert_ne!(first, second);
+    registry.select(first).unwrap();
+    let state = registry.reorder(first, 1).unwrap();
+    assert_eq!(state.selected_id, Some(first));
+    assert_eq!(
+        state
+            .sessions
+            .iter()
+            .map(|w| (w.id, w.display_order))
+            .collect::<Vec<_>>(),
+        vec![(second, 0), (first, 1)]
+    );
+    let state = registry
+        .update(first, "Renamed".into(), other.path())
+        .unwrap();
+    assert_eq!(state.sessions[1].id, first);
+    assert_eq!(state.sessions[1].name, "Renamed");
+    assert_eq!(state.sessions[1].base_directory, other.path());
+    let state = registry.close(first, false).unwrap();
+    assert_eq!(state.selected_id, Some(second));
+    assert_eq!(state.sessions[0].display_order, 0);
+    assert!(registry.close(second, false).unwrap().selected_id.is_none());
+    assert_eq!(
+        fs::read(directory.0.join("keep.txt")).unwrap(),
+        b"untouched"
+    );
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+    assert!(other.0.is_dir());
+}
+
+#[test]
+fn invalid_updates_are_atomic_and_missing_directory_does_not_prevent_rename() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    assert!(registry.create(" ".into(), directory.path()).is_err());
+    let id = registry
+        .create("Keep".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let missing = directory.0.join("missing").to_str().unwrap().to_owned();
+    assert!(registry.create("Invalid".into(), missing.clone()).is_err());
+    assert!(registry
+        .update(id, "Wrong".into(), missing.clone())
+        .is_err());
+    assert!(registry.reorder(id, 8).is_err());
+    assert!(registry.select(999).is_err());
+    assert_eq!(registry.snapshot().selected_id, Some(id));
+    assert_eq!(registry.snapshot().sessions[0].name, "Keep");
+    assert!(!std::path::Path::new(&missing).exists());
+    fs::remove_dir(&directory.0).unwrap();
+    let state = registry
+        .update(id, "Renamed".into(), directory.path())
+        .unwrap();
+    assert_eq!(state.sessions[0].name, "Renamed");
+    assert_eq!(state.sessions[0].base_directory, directory.path());
+    assert!(!directory.0.exists());
+}
+
+fn start_test(
+    registry: &mut SessionRegistry,
+    tab: u64,
+    directory: String,
+    channel: Channel<Output>,
+) -> u64 {
+    registry.configure_tab(tab, TabConfig {
+            executable: Some("/usr/bin/python3".into()),
+            args: vec!["-u".into(), "-c".into(), "import os,time; print(os.getcwd(),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into()],
+            cwd_override: Some(directory), ..Default::default()
+        }).unwrap();
+    registry.start(tab, 80, 24, channel).unwrap()
+}
+
+fn output() -> (Channel<Output>, mpsc::Receiver<Output>) {
     let (send, receive) = mpsc::channel();
     let channel = Channel::new(move |body| {
-        let InvokeResponseBody::Json(json) = body else {
-            panic!("Expected JSON byte envelope")
-        };
-        let _ = send.send(serde_json::from_str(&json).unwrap());
+        if let InvokeResponseBody::Json(json) = body {
+            let _ = send.send(serde_json::from_str(&json).unwrap());
+        }
         Ok(())
     });
     (channel, receive)
 }
 
-fn drain(session: &TerminalSession, receive: &mpsc::Receiver<Output>) -> Vec<u8> {
-    let mut result = Vec::new();
+fn read_cwd(registry: &SessionRegistry, session: u64, receive: &mpsc::Receiver<Output>) -> String {
+    let mut collected = Vec::new();
     loop {
-        match receive
-            .recv_timeout(Duration::from_secs(5))
-            .expect("PTY stalled")
-        {
-            Output::Data { seq, bytes } => {
-                result.extend(bytes);
-                session.acknowledge(seq).unwrap();
-            }
-            Output::Size { seq, .. } | Output::Ready { seq } => session.acknowledge(seq).unwrap(),
-            Output::Eof => return result,
-            Output::Error { message } => panic!("PTY read failed: {message}"),
-        }
-    }
-}
-
-#[test]
-fn pty_preserves_bytes_environment_and_exit_code() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(1, launch(
-            "import os,sys; assert os.isatty(0); assert os.getcwd() == '/tmp'; assert os.environ['PROTOTYPE_TEST'] == 'explicit-override'; [os.write(1,bytes([b])) for b in 'café λ 🙂'.encode()]; sys.exit(7)"
-        ), output).unwrap();
-    let bytes = drain(&session, &receive);
-    assert_eq!(bytes, "café λ 🙂".as_bytes());
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Status::Exited { code } = session.status().unwrap() {
-            assert_eq!(code, 7);
-            break;
-        }
-        assert!(Instant::now() < deadline, "Child did not exit");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    session.close().unwrap();
-    session.close().unwrap(); // Resource cleanup is idempotent.
-}
-
-#[test]
-fn reload_replays_pending_bytes_and_resizes_then_resumes_same_pty() {
-    let (old_output, old_receive) = channel();
-    let mut session = TerminalSession::spawn(20, launch(
-            "import os,time; os.write(1,'before café 日本語 🙂'.encode()); input(); os.write(1,b'after-reload'); time.sleep(60)"
-        ), old_output).unwrap();
-    let Output::Data {
-        seq: old_seq,
-        bytes: original,
-    } = old_receive.recv_timeout(Duration::from_secs(5)).unwrap()
-    else {
-        panic!("Expected initial output")
-    };
-    session.resize(103, 31).unwrap();
-    let (new_output, new_receive) = channel();
-    let attached = session.attach(new_output).unwrap();
-    assert_eq!(
-        (attached.id, attached.cols, attached.rows, attached.replay),
-        (20, 80, 24, true)
-    );
-    assert!(
-        session.acknowledge(old_seq).is_err(),
-        "Old frontend released new attachment's pending data"
-    );
-    let mut replayed = Vec::new();
-    let mut resized = false;
-    loop {
-        let event = new_receive.recv_timeout(Duration::from_secs(5)).unwrap();
-        let (seq, ready) = match event {
-            Output::Data { seq, bytes } => {
-                replayed.extend(bytes);
-                (seq, false)
-            }
-            Output::Size { seq, cols, rows } => {
-                assert_eq!((cols, rows), (103, 31));
-                resized = true;
-                (seq, false)
-            }
-            Output::Ready { seq } => (seq, true),
-            _ => panic!("Unexpected replay event"),
+        let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
+        else {
+            panic!("Expected working directory")
         };
-        assert!(
-            new_receive.recv_timeout(Duration::from_millis(25)).is_err(),
-            "Replay bypassed ACK backpressure"
-        );
-        session.acknowledge(seq).unwrap();
-        if ready {
-            break;
+        collected.extend(bytes);
+        registry
+            .terminals
+            .get(&session)
+            .unwrap()
+            .acknowledge(seq)
+            .unwrap();
+        if collected.ends_with(b"\n") {
+            if let Some(path) = String::from_utf8_lossy(&collected)
+                .lines()
+                .find(|line| line.starts_with('/'))
+            {
+                return path.trim().to_owned();
+            }
         }
     }
-    assert_eq!(replayed, original);
-    assert!(resized);
-    session
+}
+
+#[test]
+fn session_navigation_keeps_independent_ptys_and_closure_requires_confirmation() {
+    let first_directory = Directory::new();
+    let second_directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let first = registry
+        .create("First".into(), first_directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let second = registry
+        .create("Second".into(), second_directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let first_tab = registry.sessions[0].tabs[0].id;
+    let second_tab = registry.sessions[1].tabs[0].id;
+    let (channel, receive) = output();
+    let first_session = start_test(&mut registry, first_tab, first_directory.path(), channel);
+    assert_eq!(
+        read_cwd(&registry, first_tab, &receive),
+        first_directory.path()
+    );
+    let session_id = registry.terminals.get(&first_tab).unwrap().id;
+    registry.select(second).unwrap();
+    registry
+        .update(first, "Renamed".into(), second_directory.path())
+        .unwrap();
+    registry
+        .terminals
+        .get(&first_tab)
+        .unwrap()
         .queue_input(b"\n".to_vec())
         .unwrap()
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
         .unwrap();
-    let mut live = Vec::new();
-    while !live
-        .windows(b"after-reload".len())
-        .any(|bytes| bytes == b"after-reload")
-    {
-        let Output::Data { seq, bytes } = new_receive.recv_timeout(Duration::from_secs(5)).unwrap()
-        else {
-            panic!("Expected live output")
-        };
-        live.extend(bytes);
-        session.acknowledge(seq).unwrap();
-    }
-    assert!(matches!(session.status().unwrap(), Status::Running));
-    session.close().unwrap();
-}
-
-#[test]
-fn reload_replays_acknowledged_output_after_process_exit() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(
-        21,
-        launch("import os; os.write(1,'finished café 🙂'.encode())"),
-        output,
-    )
-    .unwrap();
-    let original = drain(&session, &receive);
-    let (output, receive) = channel();
-    session.attach(output).unwrap();
-    let mut replayed = Vec::new();
-    let mut ready = false;
-    loop {
-        match receive.recv_timeout(Duration::from_secs(5)).unwrap() {
-            Output::Data { seq, bytes } => {
-                replayed.extend(bytes);
-                session.acknowledge(seq).unwrap();
-            }
-            Output::Ready { seq } => {
-                ready = true;
-                session.acknowledge(seq).unwrap();
-            }
-            Output::Eof => break,
-            _ => panic!("Unexpected replay event"),
-        }
-    }
-    assert!(ready);
-    assert_eq!(replayed, original);
-    session.close().unwrap();
-}
-
-#[test]
-fn replay_budget_discards_incomplete_history_instead_of_replaying_partial_vt() {
-    let mut flow = Flow::default();
-    for _ in 0..(REPLAY_LIMIT / CHUNK + 2) {
-        flow.record(Record::Data(vec![b'x'; CHUNK]));
-    }
-    assert!(flow.incomplete);
-    assert!(flow.journal.is_empty());
-    assert_eq!(flow.journal_bytes, 0);
-    flow.record(Record::Size(100, 30));
-    assert!(flow.journal.is_empty());
-}
-
-#[test]
-fn output_requires_ack_and_rejects_invalid_acknowledgements() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(2, launch(
-            "import os; data=b'x'*1048576; offset=0\nwhile offset<len(data): offset+=os.write(1,data[offset:])"
-        ), output).unwrap();
-    let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap() else {
-        panic!("Expected output")
-    };
-    assert!(!bytes.is_empty() && bytes.len() <= CHUNK);
-    assert!(
-        receive.recv_timeout(Duration::from_millis(100)).is_err(),
-        "Output bypassed backpressure"
+    assert_eq!(
+        read_cwd(&registry, first_tab, &receive),
+        first_directory.path(),
+        "Editing session metadata changed a running process's cwd"
     );
-    assert!(session.acknowledge(seq + 1).is_err());
-    session.acknowledge(seq).unwrap();
-    assert!(session.acknowledge(0).is_err());
-    let remaining = drain(&session, &receive);
-    assert_eq!(bytes.len() + remaining.len(), 1048576);
-    assert!(remaining.iter().all(|byte| *byte == b'x'));
-    session.close().unwrap();
+    let (channel, _) = output();
+    let second_session = start_test(&mut registry, second_tab, second_directory.path(), channel);
+    assert_ne!(first_session, second_session);
+    registry.select(first).unwrap();
+    assert_eq!(registry.terminals.get(&first_tab).unwrap().id, session_id);
+    assert!(matches!(
+        registry
+            .terminals
+            .get_mut(&first_tab)
+            .unwrap()
+            .status()
+            .unwrap(),
+        Status::Running
+    ));
+    assert!(registry.close(first, false).is_err());
+    assert!(registry.shutdown(false).is_err());
+    assert_eq!(registry.snapshot().sessions.len(), 2);
+    registry.close(first, true).unwrap();
+    assert!(matches!(
+        registry
+            .terminals
+            .get_mut(&second_tab)
+            .unwrap()
+            .status()
+            .unwrap(),
+        Status::Running
+    ));
+    assert_eq!(registry.snapshot().selected_id, Some(second));
+    registry.shutdown(true).unwrap();
+    assert!(registry.terminals.is_empty());
+    assert!(first_directory.0.is_dir() && second_directory.0.is_dir());
 }
 
 #[test]
-fn resize_input_and_close_include_other_job_control_groups() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(3, launch(
-            "import os,subprocess,time,sys\nchild=subprocess.Popen(['/usr/bin/python3','-c','import time; time.sleep(60)'],preexec_fn=os.setpgrp)\nprint('CHILD='+str(child.pid),flush=True)\nline=sys.stdin.readline()\nprint('SIZE='+str(os.get_terminal_size(0).columns)+'x'+str(os.get_terminal_size(0).lines),flush=True)\ntime.sleep(60)"
-        ), output).unwrap();
+fn tab_order_names_selection_and_last_tab_close_are_session_local() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let first = registry
+        .create("First".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let a = registry.sessions[0].tabs[0].id;
+    registry.create_tab(first).unwrap();
+    let b = registry.sessions[0].selected_tab_id.unwrap();
+    let second = registry
+        .create("Second".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let c = registry.sessions[1].selected_tab_id.unwrap();
+    assert!(a != b && b != c && a != c);
+    registry.rename_tab(a, "Shell".into()).unwrap();
+    assert!(registry.rename_tab(a, " ".into()).is_err());
+    registry.select_tab(a).unwrap();
+    registry.reorder_tab(a, 1).unwrap();
+    assert_eq!(
+        registry.sessions[0]
+            .tabs
+            .iter()
+            .map(|t| (t.id, t.display_order))
+            .collect::<Vec<_>>(),
+        vec![(b, 0), (a, 1)]
+    );
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(a));
+    assert_eq!(registry.sessions[1].selected_tab_id, Some(c));
+    assert_eq!(registry.selected_id, Some(second));
+    registry.select(first).unwrap();
+    assert_eq!(registry.sessions[0].tabs[1].name, "Shell");
+    assert!(registry.reorder_tab(a, 9).is_err());
+    registry.close_tab(a, false).unwrap();
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(b));
+    registry.close_tab(b, false).unwrap();
+    assert!(registry.sessions[0].tabs.iter().all(|tab| !tab.is_open));
+    assert_eq!(
+        registry.sessions[0].tabs.len(),
+        2,
+        "Closing tabs must retain their definitions"
+    );
+    assert_eq!(registry.sessions[0].selected_tab_id, None);
+    assert_eq!(registry.sessions[1].tabs[0].id, c);
+    registry.create_tab(first).unwrap();
+    assert!(registry.sessions[0].selected_tab_id.unwrap() > c);
+}
+
+#[test]
+fn sibling_ptys_survive_tab_changes_and_session_close_preflights_all_sessions() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let session = registry
+        .create("Session".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let a = registry.sessions[0].tabs[0].id;
+    registry.create_tab(session).unwrap();
+    let b = registry.sessions[0].selected_tab_id.unwrap();
+    let (channel, receive_a) = output();
+    let session_a = start_test(&mut registry, a, directory.path(), channel);
+    assert_eq!(read_cwd(&registry, a, &receive_a), directory.path());
+    let (channel, receive_b) = output();
+    let session_b = start_test(&mut registry, b, directory.path(), channel);
+    assert_eq!(read_cwd(&registry, b, &receive_b), directory.path());
+    assert_ne!(session_a, session_b);
+    registry.rename_tab(a, "Live shell".into()).unwrap();
+    registry.reorder_tab(a, 1).unwrap();
+    registry.select_tab(a).unwrap();
+    let (channel, _) = output();
+    assert!(registry.start(a, 80, 24, channel).is_err());
+    assert!(registry.close(session, false).is_err());
+    assert!(registry.close_tab(a, false).is_err());
+    for (tab, session) in [(a, session_a), (b, session_b)] {
+        assert_eq!(registry.terminals[&tab].id, session);
+        assert!(matches!(
+            registry.terminals.get_mut(&tab).unwrap().status().unwrap(),
+            Status::Running
+        ));
+    }
+    registry.close_tab(a, true).unwrap();
+    assert!(!registry.terminals.contains_key(&a));
+    assert!(matches!(
+        registry.terminals.get_mut(&b).unwrap().status().unwrap(),
+        Status::Running
+    ));
+    registry.close(session, true).unwrap();
+    assert!(registry.terminals.is_empty());
+    assert!(registry.sessions.is_empty());
+    assert!(directory.0.is_dir());
+}
+
+fn read_line(registry: &SessionRegistry, tab: u64, receive: &mpsc::Receiver<Output>) -> String {
     let mut collected = Vec::new();
-    let child = loop {
+    loop {
         let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
         else {
-            panic!("Expected child PID")
+            panic!("Expected fixture output")
         };
         collected.extend(bytes);
-        session.acknowledge(seq).unwrap();
-        let text = String::from_utf8_lossy(&collected);
-        if let Some(line) = text.lines().find(|line| line.starts_with("CHILD=")) {
-            if text.ends_with('\n') {
-                break line[6..].trim().parse::<i32>().unwrap();
-            }
+        registry.terminals[&tab].acknowledge(seq).unwrap();
+        if collected.ends_with(b"\n") {
+            return String::from_utf8(collected).unwrap().trim().to_owned();
         }
-    };
-    session.resize(123, 37).unwrap();
-    session
-        .queue_input(b"probe\n".to_vec())
+    }
+}
+
+#[test]
+fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shell() {
+    let old_directory = Directory::new();
+    let new_directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let session = registry
+        .create("Session".into(), old_directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let a = registry.sessions[0].tabs[0].id;
+    let mut config = TabConfig {
+            executable: Some("/usr/bin/python3".into()),
+            args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
+            env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into())]), ..Default::default()
+        };
+    registry.configure_tab(a, config.clone()).unwrap();
+    let (channel, receive) = output();
+    registry.start(a, 80, 24, channel).unwrap();
+    let payload: serde_json::Value =
+        serde_json::from_str(&read_line(&registry, a, &receive)).unwrap();
+    assert_eq!(
+        payload,
+        serde_json::json!([
+            old_directory.path(),
+            "literal; echo $(shell-syntax)",
+            "explicit",
+            true
+        ])
+    );
+    registry
+        .update(session, "Updated".into(), new_directory.path())
+        .unwrap();
+    registry.terminals[&a]
+        .queue_input(b"\n".to_vec())
         .unwrap()
         .recv_timeout(Duration::from_secs(5))
         .unwrap()
         .unwrap();
-    while !String::from_utf8_lossy(&collected).contains("SIZE=123x37") {
-        let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
-        else {
-            panic!("Expected size report")
-        };
-        collected.extend(bytes);
-        session.acknowledge(seq).unwrap();
-    }
-    assert!(session.resize(0, 0).is_err());
-    session.close().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let stat = std::fs::read_to_string(format!("/proc/{child}/stat"));
-        if stat.as_ref().map_or(true, |s| {
-            s.rsplit_once(')').unwrap().1.trim_start().starts_with('Z')
-        }) {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "Job-control child survived close"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-fn assert_dead(pid: i32) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"));
-        if stat.as_ref().map_or(true, |s| {
-            s.rsplit_once(')').unwrap().1.trim_start().starts_with('Z')
-        }) {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "Detached descendant {pid} survived"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-#[test]
-fn detached_descendants_die_and_resources_release_without_status_polling() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(30, launch(
-            "import os,time\nif os.fork()==0:\n os.setsid()\n if os.fork()==0:\n  print(os.getpid(),flush=True); time.sleep(60)\n os._exit(0)\ntime.sleep(.2); os._exit(9)"
-        ), output).unwrap();
-    let group = session.containment.directory().to_owned();
-    let bytes = drain(&session, &receive);
-    let pid = String::from_utf8(bytes).unwrap().trim().parse().unwrap();
-    let (lock, notify) = &*session.resources;
-    let resources = lock.lock().unwrap();
-    let (resources, _) = notify
-        .wait_timeout_while(resources, Duration::from_secs(5), |r| !r.completed)
+    assert_eq!(read_cwd(&registry, a, &receive), old_directory.path());
+    registry.create_tab(session).unwrap();
+    let b = registry.sessions[0].selected_tab_id.unwrap();
+    registry.configure_tab(b, config.clone()).unwrap();
+    let (channel, receive) = output();
+    registry.start(b, 80, 24, channel).unwrap();
+    let payload: serde_json::Value =
+        serde_json::from_str(&read_line(&registry, b, &receive)).unwrap();
+    assert_eq!(payload[0], new_directory.path());
+    config.cwd_override = Some(old_directory.path());
+    registry.create_tab(session).unwrap();
+    let c = registry.sessions[0].selected_tab_id.unwrap();
+    registry.configure_tab(c, config).unwrap();
+    let (channel, receive) = output();
+    registry.start(c, 80, 24, channel).unwrap();
+    let payload: serde_json::Value =
+        serde_json::from_str(&read_line(&registry, c, &receive)).unwrap();
+    assert_eq!(payload[0], old_directory.path());
+    assert_eq!(registry.sessions[0].tabs[0].config.env.len(), 1);
+    registry.create_tab(session).unwrap();
+    let d = registry.sessions[0].selected_tab_id.unwrap();
+    registry
+        .configure_tab(
+            d,
+            TabConfig {
+                shell_command: Some("printf '%s\\n' explicit-shell".into()),
+                ..Default::default()
+            },
+        )
         .unwrap();
-    assert!(resources.completed);
-    assert!(resources.master.is_none() && resources.input.is_none());
-    assert!(matches!(resources.status, Status::Exited { code: 9 }));
-    drop(resources);
-    assert_dead(pid);
-    assert!(!group.exists());
-    session.close().unwrap();
-}
-
-#[test]
-fn close_interrupts_unacknowledged_output_and_blocked_input() {
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(
-        31,
-        launch("import os,tty; tty.setraw(0)\nwhile True: os.write(1,b'x'*8192)"),
-        output,
-    )
-    .unwrap();
-    assert!(matches!(
-        receive.recv_timeout(Duration::from_secs(5)).unwrap(),
-        Output::Data { .. }
-    ));
-    let mut pending = Vec::new();
-    for _ in 0..100 {
-        if let Ok(result) = session.queue_input(vec![b'x'; 8192]) {
-            pending.push(result);
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    assert!(!pending.is_empty());
-    let before = Instant::now();
-    session.close().unwrap();
-    assert!(before.elapsed() < Duration::from_secs(5));
-    for result in pending {
-        assert!(result.recv_timeout(Duration::from_secs(1)).is_ok());
-    }
-    assert!(session.resources.0.lock().unwrap().completed);
-}
-
-#[test]
-fn crash_owner_fixture() {
-    let Ok(path) = std::env::var("TERMINAL_TEST_CRASH_STATE") else {
-        return;
-    };
-    let (output, receive) = channel();
-    let session = TerminalSession::spawn(32, launch(
-            "import os,subprocess,time; child=subprocess.Popen(['/usr/bin/python3','-c','import time; time.sleep(60)'],start_new_session=True); print(child.pid,flush=True); time.sleep(60)"
-        ), output).unwrap();
-    let Output::Data { bytes, .. } = receive.recv_timeout(Duration::from_secs(5)).unwrap() else {
-        panic!("Missing PID")
-    };
-    std::fs::write(
-        path,
-        serde_json::to_vec(&(
-            session.containment.directory(),
-            String::from_utf8(bytes)
-                .unwrap()
-                .trim()
-                .parse::<i32>()
-                .unwrap(),
-        ))
-        .unwrap(),
-    )
-    .unwrap();
-    loop {
-        std::thread::park();
-    }
-}
-
-#[test]
-fn application_death_watchdog_kills_detached_children() {
-    struct Owner(std::process::Child);
-    impl Drop for Owner {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-    let path = std::env::temp_dir().join(format!("terminal-crash-test-{}", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-    let mut owner = Owner(
-        std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "session::tests::crash_owner_fixture",
-                "--nocapture",
-            ])
-            .env("TERMINAL_TEST_CRASH_STATE", &path)
-            .spawn()
-            .unwrap(),
-    );
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let (group, pid): (std::path::PathBuf, i32) = loop {
-        if let Ok(bytes) = std::fs::read(&path) {
-            if let Ok(value) = serde_json::from_slice(&bytes) {
-                break value;
+    let (channel, receive) = output();
+    registry.start(d, 80, 24, channel).unwrap();
+    assert_eq!(read_line(&registry, d, &receive), "explicit-shell");
+    assert!(registry
+        .configure_tab(
+            d,
+            TabConfig {
+                env: BTreeMap::from([("INVALID=KEY".into(), "value".into())]),
+                ..Default::default()
             }
-        }
-        assert!(Instant::now() < deadline, "Fixture never launched");
-        std::thread::sleep(Duration::from_millis(20));
+        )
+        .is_err());
+    registry.shutdown(true).unwrap();
+}
+
+#[test]
+fn new_tab_names_avoid_open_sibling_collisions() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let session = registry
+        .create("Names".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let create = |registry: &mut SessionRegistry, session| {
+        let state = registry
+            .create_typed_tab(session, "Bash".into(), TabConfig::default())
+            .unwrap();
+        let session = state.sessions.iter().find(|w| w.id == session).unwrap();
+        let tab = session
+            .tabs
+            .iter()
+            .find(|t| Some(t.id) == session.selected_tab_id)
+            .unwrap();
+        (tab.id, tab.name.clone())
     };
-    owner.0.kill().unwrap();
-    owner.0.wait().unwrap();
-    assert_dead(pid);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while group.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "Watchdog did not remove empty cgroup"
-        );
-        std::thread::sleep(Duration::from_millis(10));
+    let (first, name) = create(&mut registry, session);
+    assert_eq!(name, "Bash");
+    registry.rename_tab(first, "Bash 2".into()).unwrap();
+    assert_eq!(create(&mut registry, session).1, "Bash");
+    assert_eq!(create(&mut registry, session).1, "Bash 3");
+    registry.close_tab(first, false).unwrap();
+    assert_eq!(create(&mut registry, session).1, "Bash 2");
+    let other = registry
+        .create("Other".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    assert_eq!(create(&mut registry, other).1, "Bash");
+}
+
+#[test]
+fn reload_connect_reuses_live_session_and_never_starts_stopped_tabs() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let session = registry
+        .create("Reload".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let tab = registry.snapshot().sessions[0].selected_tab_id.unwrap();
+    let (channel, _) = output();
+    assert!(registry
+        .connect(tab, 80, 24, channel, false)
+        .unwrap()
+        .is_none());
+    let (channel, receive) = output();
+    let first = start_test(&mut registry, tab, directory.path(), channel);
+    let initial = receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(matches!(initial, Output::Data { .. }));
+    let (channel, _) = output();
+    let connection = registry
+        .connect(tab, 90, 30, channel, true)
+        .unwrap()
+        .unwrap();
+    assert_eq!(connection.id, first);
+    assert!(connection.replay);
+    assert_eq!(registry.terminals.len(), 1);
+    assert_eq!(registry.snapshot().selected_id, Some(session));
+    registry.shutdown(true).unwrap();
+}
+
+#[test]
+fn yaml_types_reload_without_changing_existing_openings() {
+    let data = Directory::new();
+    let config_directory = Directory::new();
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let session = registry
+        .create("Types".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let types = crate::actions::load(&config_directory.0).unwrap();
+    let state = registry
+        .create_typed_tab(session, types[0].name.clone(), types[0].config.clone())
+        .unwrap();
+    let first = state.sessions[0].selected_tab_id.unwrap();
+    let config_path = config_directory.0.join("actions.yaml");
+    let updated = "actions:\n  - id: bash\n    name: Custom\n    kind: terminal\n    config:\n      executable: /bin/echo\n      args: ['literal; text']\n";
+    fs::write(&config_path, updated).unwrap();
+    let types = crate::actions::load(&config_directory.0).unwrap();
+    let state = registry
+        .create_typed_tab(session, types[0].name.clone(), types[0].config.clone())
+        .unwrap();
+    let second = state.sessions[0].selected_tab_id.unwrap();
+    assert_ne!(first, second);
+    let original = state.sessions[0]
+        .tabs
+        .iter()
+        .find(|t| t.id == first)
+        .unwrap();
+    assert_eq!(original.config.executable.as_deref(), Some("bash"));
+    assert!(original.is_open && original.resume_on_start);
+    fs::write(&config_path, "invalid: [").unwrap();
+    assert!(crate::actions::load(&config_directory.0).is_err());
+    assert_eq!(fs::read_to_string(&config_path).unwrap(), "invalid: [");
+    drop(registry);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    let saved = restored.sessions[0]
+        .tabs
+        .iter()
+        .find(|t| t.id == second)
+        .unwrap();
+    assert_eq!(saved.config.args, ["literal; text"]);
+    assert_eq!(saved.name, "Custom");
+}
+
+#[test]
+fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_resume_flags() {
+    let data = Directory::new();
+    let directory = Directory::new();
+    let (expected, session, live, stopped, closed);
+    {
+        let mut registry = SessionRegistry::open(&data.0).unwrap();
+        session = registry
+            .create("Saved session".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        live = registry.sessions[0].selected_tab_id.unwrap();
+        registry
+            .rename_tab(live, "Development server".into())
+            .unwrap();
+        let (channel, receive) = output();
+        start_test(&mut registry, live, directory.path(), channel);
+        assert_eq!(read_cwd(&registry, live, &receive), directory.path());
+        registry.create_tab(session).unwrap();
+        stopped = registry.sessions[0].selected_tab_id.unwrap();
+        registry
+            .configure_tab(
+                stopped,
+                TabConfig {
+                    executable: Some("test-command".into()),
+                    args: vec!["literal;argument".into()],
+                    env: BTreeMap::from([("PORT".into(), "3456".into())]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        registry.create_tab(session).unwrap();
+        closed = registry.sessions[0].selected_tab_id.unwrap();
+        registry
+            .rename_tab(closed, "Available later".into())
+            .unwrap();
+        registry.close_tab(closed, false).unwrap();
+        registry.select_tab(live).unwrap();
+        registry.reorder_tab(live, 1).unwrap();
+        registry
+            .create("Other session".into(), directory.path())
+            .unwrap();
+        registry.select(session).unwrap();
+        registry.reorder(session, 1).unwrap();
+        registry.shutdown(true).unwrap();
+        expected = serde_json::to_value(registry.snapshot()).unwrap();
     }
-    let _ = std::fs::remove_file(path);
+    let mut restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(serde_json::to_value(restored.snapshot()).unwrap(), expected);
+    assert!(
+        restored.terminals.is_empty(),
+        "Loading metadata must not itself spawn disconnected PTYs"
+    );
+    let saved = restored.sessions.iter().find(|w| w.id == session).unwrap();
+    assert_eq!(saved.selected_tab_id, Some(live));
+    assert!(
+        saved
+            .tabs
+            .iter()
+            .find(|t| t.id == live)
+            .unwrap()
+            .resume_on_start
+    );
+    assert!(
+        !saved
+            .tabs
+            .iter()
+            .find(|t| t.id == stopped)
+            .unwrap()
+            .resume_on_start
+    );
+    let definition = saved.tabs.iter().find(|t| t.id == closed).unwrap();
+    assert!(!definition.is_open && !definition.resume_on_start);
+    assert_eq!(definition.name, "Available later");
+    assert_eq!(
+        saved
+            .tabs
+            .iter()
+            .find(|t| t.id == stopped)
+            .unwrap()
+            .config
+            .env
+            .len(),
+        1
+    );
+    restored.open_tab(closed).unwrap();
+    assert!(
+        restored
+            .sessions
+            .iter()
+            .find(|w| w.id == session)
+            .unwrap()
+            .tabs
+            .iter()
+            .find(|t| t.id == closed)
+            .unwrap()
+            .resume_on_start
+    );
+    let old_max = restored.next_tab_id;
+    restored.close(session, false).unwrap();
+    restored.create_tab(restored.sessions[0].id).unwrap();
+    assert!(
+        restored.next_tab_id > old_max,
+        "Stable IDs cannot be reused after deletion and restart"
+    );
 }
 
 #[test]
-fn missing_directory_and_executable_fail_without_creating_directories() {
-    let (output, _) = channel();
-    let mut request = launch("pass");
-    request.cwd = format!("/tmp/terminal-prototype-missing-{}", std::process::id());
-    let directory = request.cwd.clone();
-    assert!(TerminalSession::spawn(4, request, output).is_err());
-    assert!(!std::path::Path::new(&directory).exists());
-    let (output, _) = channel();
-    let mut request = launch("pass");
-    request.executable = Some("/nonexistent/terminal-prototype-executable".into());
-    assert!(TerminalSession::spawn(5, request, output).is_err());
+fn sqlite_stop_and_natural_exit_are_not_relaunched_and_missing_directories_are_retained() {
+    let data = Directory::new();
+    let directory = Directory::new();
+    let (session, stopped, exited);
+    {
+        let mut registry = SessionRegistry::open(&data.0).unwrap();
+        session = registry
+            .create("Missing later".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        stopped = registry.sessions[0].selected_tab_id.unwrap();
+        let (channel, receive) = output();
+        let session = start_test(&mut registry, stopped, directory.path(), channel);
+        read_cwd(&registry, stopped, &receive);
+        registry.close_terminal_session(session, true).unwrap();
+        registry.create_tab(session).unwrap();
+        exited = registry.sessions[0].selected_tab_id.unwrap();
+        registry
+            .configure_tab(
+                exited,
+                TabConfig {
+                    executable: Some("/usr/bin/python3".into()),
+                    args: vec!["-c".into(), "raise SystemExit(9)".into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let (channel, _) = output();
+        let session = registry.start(exited, 80, 24, channel).unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Status::Exited { code } = registry.status(session).unwrap() {
+                assert_eq!(code, 9);
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        registry.shutdown(true).unwrap();
+    }
+    fs::remove_dir(&directory.0).unwrap();
+    let mut restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(restored.sessions[0].base_directory, directory.path());
+    assert!(restored.sessions[0].tabs.iter().all(|t| !t.resume_on_start));
+    assert!(restored.sessions[0].tabs.iter().any(|t| t.id == stopped));
+    let (channel, _) = output();
+    assert!(restored.start(exited, 80, 24, channel).is_err());
+    assert!(!directory.0.exists());
+    restored
+        .update(session, "Still here".into(), directory.path())
+        .unwrap();
+    assert_eq!(restored.sessions[0].name, "Still here");
 }
 
 #[test]
-fn terminal_path_includes_application_directory_and_explicit_override_wins() {
-    let parent = std::env::current_exe()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let (output, receive) = channel();
-    let mut session = TerminalSession::spawn(
-        901,
-        launch("import os; print(os.environ['PATH'], end='')"),
-        output,
-    )
-    .unwrap();
-    let path = String::from_utf8(drain(&session, &receive)).unwrap();
-    assert_eq!(std::env::split_paths(&path).next().unwrap(), parent);
-    session.close().unwrap();
+fn sqlite_failed_writes_preserve_previous_state_and_exclusive_lock_prevents_second_writer() {
+    let data = Directory::new();
+    let directory = Directory::new();
+    let expected;
+    {
+        let mut registry = SessionRegistry::open(&data.0).unwrap();
+        registry.create("Keep me".into(), directory.path()).unwrap();
+        assert!(SessionRegistry::open(&data.0).is_err());
+        let id = registry.sessions[0].id;
+        expected = serde_json::to_value(registry.snapshot()).unwrap();
+        registry.store.as_ref().unwrap().reject_writes();
+        let group = registry.projects[0].id;
+        assert!(registry.fold_project(group, true).is_err());
+        assert!(registry
+            .update_project(group, "Failed rename".into(), directory.path())
+            .is_err());
+        assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+        assert!(registry
+            .update(id, "Should roll back".into(), directory.path())
+            .is_err());
+        assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+        assert!(registry
+            .create("Should not appear".into(), directory.path())
+            .is_err());
+        assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
+    }
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(serde_json::to_value(restored.snapshot()).unwrap(), expected);
+}
 
-    let (output, receive) = channel();
-    let mut command = launch("import os; print(os.environ['PATH'], end='')");
-    command.env.insert("PATH".into(), "/usr/bin:/bin".into());
-    let mut session = TerminalSession::spawn(902, command, output).unwrap();
-    assert_eq!(drain(&session, &receive), b"/usr/bin:/bin");
-    session.close().unwrap();
+#[test]
+fn sqlite_transaction_rolls_back_after_partial_replacement_and_future_schema_is_not_reset() {
+    let data = Directory::new();
+    let directory = Directory::new();
+    {
+        let mut registry = SessionRegistry::open(&data.0).unwrap();
+        registry.create("Keep".into(), directory.path()).unwrap();
+        let expected = serde_json::to_value(registry.snapshot()).unwrap();
+        let mut invalid = registry.last_saved.clone().unwrap();
+        invalid.snapshot.sessions[0].name = "Must roll back".into();
+        invalid
+            .snapshot
+            .sessions
+            .push(invalid.snapshot.sessions[0].clone());
+        let store = registry.store.as_mut().unwrap();
+        assert!(
+            store.save(&invalid).is_err(),
+            "Duplicate identity should fail after earlier statements executed"
+        );
+        assert_eq!(
+            serde_json::to_value(store.load().unwrap().snapshot).unwrap(),
+            expected
+        );
+    }
+    {
+        let connection = rusqlite::Connection::open(data.0.join("workspaces.sqlite3")).unwrap();
+        connection.execute_batch("PRAGMA user_version=99;").unwrap();
+    }
+    assert!(SessionRegistry::open(&data.0).is_err());
+    let connection = rusqlite::Connection::open(data.0.join("workspaces.sqlite3")).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT name FROM sessions", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "Keep"
+    );
 }

@@ -70,10 +70,10 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
     let needs_id = matches!(
         (resource, verb),
         (
-            "workspace",
+            "session",
             "rename" | "directory" | "move" | "reorder" | "select" | "close"
         ) | (
-            "workgroup",
+            "project",
             "rename" | "directory" | "fold" | "unfold" | "close"
         )
     );
@@ -115,9 +115,9 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         }
         offset += 2;
     }
-    if confirmed && !matches!((resource, verb), ("workspace", "close") | ("app", "quit")) {
+    if confirmed && !matches!((resource, verb), ("session", "close") | ("app", "quit")) {
         return Err(invalid(
-            "--confirm applies only to workspace close or app quit",
+            "--confirm applies only to session close or app quit",
         ));
     }
     let mut take = |key: &str| {
@@ -126,63 +126,63 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
             .ok_or_else(|| invalid(format!("Required option: {key}")))
     };
     let command = match (resource, verb) {
-        ("workspace", "list") => Command::WorkspaceList,
-        ("workspace", "create") => {
-            let workgroup_id = positive(&take("--workgroup")?)?;
+        ("session", "list") => Command::SessionList,
+        ("session", "create") => {
+            let project_id = positive(&take("--project")?)?;
             let name = take("--name")?;
             let directory = options
                 .remove("--directory")
                 .map(absolute)
                 .transpose()?
                 .unwrap_or_default();
-            Command::WorkspaceCreate {
-                workgroup_id,
+            Command::SessionCreate {
+                project_id,
                 name,
                 directory,
             }
         }
-        ("workspace", "rename") => Command::WorkspaceRename {
+        ("session", "rename") => Command::SessionRename {
             id,
             name: take("--name")?,
         },
-        ("workspace", "directory") => Command::WorkspaceDirectory {
+        ("session", "directory") => Command::SessionDirectory {
             id,
             directory: absolute(take("--directory")?)?,
         },
-        ("workspace", "move") => Command::WorkspaceMove {
+        ("session", "move") => Command::SessionMove {
             id,
-            workgroup_id: positive(&take("--workgroup")?)?,
+            project_id: positive(&take("--project")?)?,
         },
-        ("workspace", "reorder") => Command::WorkspaceReorder {
+        ("session", "reorder") => Command::SessionReorder {
             id,
             position: take("--position")?
                 .parse()
                 .map_err(|_| invalid("Position must be a nonnegative integer"))?,
         },
-        ("workspace", "select") => Command::WorkspaceSelect { id },
-        ("workspace", "close") => Command::WorkspaceClose { id, confirmed },
-        ("workgroup", "list") => Command::WorkgroupList,
-        ("workgroup", "create") => Command::WorkgroupCreate {
+        ("session", "select") => Command::SessionSelect { id },
+        ("session", "close") => Command::SessionClose { id, confirmed },
+        ("project", "list") => Command::ProjectList,
+        ("project", "create") => Command::ProjectCreate {
             name: take("--name")?,
             root: absolute(take("--root")?)?,
         },
-        ("workgroup", "rename") => Command::WorkgroupRename {
+        ("project", "rename") => Command::ProjectRename {
             id,
             name: take("--name")?,
         },
-        ("workgroup", "directory") => Command::WorkgroupDirectory {
+        ("project", "directory") => Command::ProjectDirectory {
             id,
             directory: absolute(take("--directory")?)?,
         },
-        ("workgroup", "fold") => Command::WorkgroupFold {
+        ("project", "fold") => Command::ProjectFold {
             id,
             collapsed: true,
         },
-        ("workgroup", "unfold") => Command::WorkgroupFold {
+        ("project", "unfold") => Command::ProjectFold {
             id,
             collapsed: false,
         },
-        ("workgroup", "close") => Command::WorkgroupClose { id },
+        ("project", "close") => Command::ProjectClose { id },
         ("app", "show") => Command::Show,
         ("app", "status") => Command::Status,
         ("app", "quit") => Command::Quit { confirmed },
@@ -221,7 +221,7 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
                     .map_err(|e| RpcError::new("operation_failed", e.to_string()))?
                     .parent()
                     .unwrap()
-                    .join("terminal-workspace-prototype")
+                    .join("devcenter-gui")
             };
             let mut command = ProcessCommand::new(executable);
             command

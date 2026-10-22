@@ -1,4 +1,4 @@
-use crate::workspace::{Snapshot, TabConfig, TerminalTab, Workgroup, Workspace};
+use crate::session::{Project, Session, Snapshot, TabConfig, TerminalTab};
 use rusqlite::{params, Connection, TransactionBehavior};
 use std::{
     fs::{self, File, OpenOptions},
@@ -9,9 +9,9 @@ use std::{
 
 #[derive(Clone)]
 pub struct Metadata {
-    pub workgroup_sequence: u64,
+    pub project_sequence: u64,
     pub snapshot: Snapshot,
-    pub workspace_sequence: u64,
+    pub session_sequence: u64,
     pub tab_sequence: u64,
 }
 
@@ -47,13 +47,13 @@ impl MetadataStore {
             .map_err(|e| e.to_string())?;
         lock.try_lock().map_err(|e| {
             format!(
-                "Cannot lock workspace metadata; another application instance may be running: {e}"
+                "Cannot lock session metadata; another application instance may be running: {e}"
             )
         })?;
         let lock = MetadataLock(lock);
         let path = directory.join("workspaces.sqlite3");
         let mut connection =
-            Connection::open(&path).map_err(|e| format!("Cannot open workspace database: {e}"))?;
+            Connection::open(&path).map_err(|e| format!("Cannot open session database: {e}"))?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
         connection
             .busy_timeout(Duration::from_millis(500))
@@ -64,8 +64,10 @@ impl MetadataStore {
         let version: u32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 2 {
-            return Err(format!("Unsupported workspace database schema version {version}; the database was not reset"));
+        if version > 3 {
+            return Err(format!(
+                "Unsupported session database schema version {version}; the database was not reset"
+            ));
         }
         if version < 2 {
             // Rebuild the referenced workspace table without cascading deletion
@@ -109,6 +111,23 @@ impl MetadataStore {
                 .execute_batch("PRAGMA foreign_keys=ON;")
                 .map_err(|e| e.to_string())?;
         }
+        if version < 3 {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            transaction
+                .execute_batch(include_str!("../migrations/003_projects_sessions.sql"))
+                .map_err(|e| format!("Project/session migration failed: {e}"))?;
+            let violations: i64 = transaction
+                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get(0)
+                })
+                .map_err(|e| e.to_string())?;
+            if violations != 0 {
+                return Err("Project/session migration found invalid metadata relationships; database was not changed".into());
+            }
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             connection,
             _lock: lock,
@@ -117,13 +136,13 @@ impl MetadataStore {
 
     pub fn load(&self) -> Result<Metadata, String> {
         let result = (|| -> rusqlite::Result<Metadata> {
-            let (selected_id, workspace_sequence, tab_sequence, workgroup_sequence) = self.connection.query_row(
-                "SELECT selected_workspace_id, workspace_sequence, tab_sequence, workgroup_sequence FROM app_state WHERE singleton=1",
+            let (selected_id, session_sequence, tab_sequence, project_sequence) = self.connection.query_row(
+                "SELECT selected_session_id, session_sequence, tab_sequence, project_sequence FROM app_state WHERE singleton=1",
                 [], |row| Ok((optional_id(row, 0)?, read_id(row, 1)?, read_id(row, 2)?, read_id(row, 3)?)))?;
-            let mut groups = self.connection.prepare("SELECT id,name,root_directory,display_order,collapsed FROM workgroups ORDER BY display_order")?;
-            let workgroups = groups
+            let mut groups = self.connection.prepare("SELECT id,name,root_directory,display_order,collapsed FROM projects ORDER BY display_order")?;
+            let projects = groups
                 .query_map([], |row| {
-                    Ok(Workgroup {
+                    Ok(Project {
                         id: read_id(row, 0)?,
                         name: row.get(1)?,
                         root_directory: row.get(2)?,
@@ -132,11 +151,11 @@ impl MetadataStore {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,workgroup_id FROM workspaces ORDER BY display_order")?;
-            let mut workspaces = statement
+            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id FROM sessions ORDER BY display_order")?;
+            let mut sessions = statement
                 .query_map([], |row| {
-                    Ok(Workspace {
-                        workgroup_id: read_id(row, 5)?,
+                    Ok(Session {
+                        project_id: read_id(row, 5)?,
                         id: read_id(row, 0)?,
                         name: row.get(1)?,
                         base_directory: row.get(2)?,
@@ -146,10 +165,10 @@ impl MetadataStore {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for workspace in &mut workspaces {
-                let mut statement = self.connection.prepare("SELECT d.id,d.name,d.kind,d.config_json,d.display_order,o.definition_id IS NOT NULL,COALESCE(o.resume_on_start,0) FROM tab_definitions d LEFT JOIN open_tabs o ON o.definition_id=d.id WHERE d.workspace_id=? ORDER BY d.display_order")?;
-                workspace.tabs = statement
-                    .query_map([sql_id(workspace.id)?], |row| {
+            for session in &mut sessions {
+                let mut statement = self.connection.prepare("SELECT d.id,d.name,d.kind,d.config_json,d.display_order,o.definition_id IS NOT NULL,COALESCE(o.resume_on_start,0) FROM tab_definitions d LEFT JOIN open_tabs o ON o.definition_id=d.id WHERE d.session_id=? ORDER BY d.display_order")?;
+                session.tabs = statement
+                    .query_map([sql_id(session.id)?], |row| {
                         let json: String = row.get(3)?;
                         let config: TabConfig = serde_json::from_str(&json).map_err(|e| {
                             rusqlite::Error::FromSqlConversionFailure(
@@ -171,17 +190,17 @@ impl MetadataStore {
                     .collect::<rusqlite::Result<Vec<_>>>()?;
             }
             Ok(Metadata {
-                workgroup_sequence,
+                project_sequence,
                 snapshot: Snapshot {
-                    workgroups,
-                    workspaces,
+                    projects,
+                    sessions,
                     selected_id,
                 },
-                workspace_sequence,
+                session_sequence,
                 tab_sequence,
             })
         })();
-        result.map_err(|e| format!("Cannot read workspace metadata; database was not reset: {e}"))
+        result.map_err(|e| format!("Cannot read session metadata; database was not reset: {e}"))
     }
 
     pub fn save(&mut self, metadata: &Metadata) -> Result<(), String> {
@@ -192,11 +211,11 @@ impl MetadataStore {
             // One small metadata snapshot is committed atomically. No PTY data,
             // inherited environment, or historical terminal output is stored.
             transaction.execute_batch(
-                "DELETE FROM open_tabs; DELETE FROM tab_definitions; DELETE FROM workspaces; DELETE FROM workgroups;",
+                "DELETE FROM open_tabs; DELETE FROM tab_definitions; DELETE FROM sessions; DELETE FROM projects;",
             )?;
-            for group in &metadata.snapshot.workgroups {
+            for group in &metadata.snapshot.projects {
                 transaction.execute(
-                    "INSERT INTO workgroups VALUES (?1,?2,?3,?4,?5)",
+                    "INSERT INTO projects VALUES (?1,?2,?3,?4,?5)",
                     params![
                         sql_id(group.id)?,
                         group.name,
@@ -206,26 +225,26 @@ impl MetadataStore {
                     ],
                 )?;
             }
-            for workspace in &metadata.snapshot.workspaces {
+            for session in &metadata.snapshot.sessions {
                 transaction.execute(
-                    "INSERT INTO workspaces VALUES (?1,?2,?3,?4,?5,?6)",
+                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6)",
                     params![
-                        sql_id(workspace.id)?,
-                        workspace.name,
-                        workspace.base_directory,
-                        sql_order(workspace.display_order)?,
-                        workspace.selected_tab_id.map(sql_id).transpose()?,
-                        sql_id(workspace.workgroup_id)?
+                        sql_id(session.id)?,
+                        session.name,
+                        session.base_directory,
+                        sql_order(session.display_order)?,
+                        session.selected_tab_id.map(sql_id).transpose()?,
+                        sql_id(session.project_id)?
                     ],
                 )?;
-                for tab in &workspace.tabs {
+                for tab in &session.tabs {
                     let config = serde_json::to_string(&tab.config)
                         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     transaction.execute(
                         "INSERT INTO tab_definitions VALUES (?1,?2,?3,?4,?5,?6)",
                         params![
                             sql_id(tab.id)?,
-                            sql_id(workspace.id)?,
+                            sql_id(session.id)?,
                             tab.name,
                             tab.kind,
                             config,
@@ -240,10 +259,10 @@ impl MetadataStore {
                     }
                 }
             }
-            transaction.execute("UPDATE app_state SET selected_workspace_id=?1,workspace_sequence=?2,tab_sequence=?3,workgroup_sequence=?4 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.workspace_sequence)?,sql_id(metadata.tab_sequence)?,sql_id(metadata.workgroup_sequence)?])?;
+            transaction.execute("UPDATE app_state SET selected_session_id=?1,session_sequence=?2,tab_sequence=?3,project_sequence=?4 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.session_sequence)?,sql_id(metadata.tab_sequence)?,sql_id(metadata.project_sequence)?])?;
             transaction.commit()
         })();
-        result.map_err(|e| format!("Cannot save workspace metadata: {e}"))
+        result.map_err(|e| format!("Cannot save session metadata: {e}"))
     }
 
     #[cfg(test)]

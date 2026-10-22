@@ -69,7 +69,14 @@ pub fn call(path: &Path, command: Command) -> Result<Response, RpcError> {
     if bytes.len() > REQUEST_LIMIT {
         return Err(RpcError::new("request_too_large", "Request exceeds 16 KiB"));
     }
-    let mut stream = UnixStream::connect(path).map_err(|e| RpcError::new("unavailable", format!("Application unavailable: {e}. Start it explicitly with `terminal-workspace app start`.")))?;
+    let mut stream = UnixStream::connect(path).map_err(|e| {
+        RpcError::new(
+            "unavailable",
+            format!(
+                "Application unavailable: {e}. Start it explicitly with `devcenter app start`."
+            ),
+        )
+    })?;
     verify_peer(&stream)?;
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))

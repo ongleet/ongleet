@@ -13,6 +13,6 @@ actions:
     name: Codex
     kind: terminal
     config:
-      executable: codex
+      executable: dcodex
       args: []
       env: {}

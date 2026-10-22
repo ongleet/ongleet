@@ -10,16 +10,16 @@
 
 ## Scope and implementation order
 
-This is a native Linux terminal workspace application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and SQLite. The current preview persists workspaces, tab definitions/openings, launch settings, ordering, and selection. Window hide/reopen, single-instance activation and explicit Quit are implemented; workspace/workgroup/application CLI commands are implemented; terminal-specific CLI and packaging remain pending.
+DevCenter is a native Linux terminal session application built with Tauri 2, React, TypeScript, Rust, Ghostty WASM through `ghostty-web`, portable-pty, and SQLite. The current preview persists sessions, tab definitions/openings, launch settings, ordering, and selection. Window hide/reopen, single-instance activation and explicit Quit are implemented; session/project/application CLI commands are implemented; terminal-specific CLI and packaging remain pending.
 
 1. Validate the terminal stack inside Tauri's WebKitGTK WebView with interactive Codex, including Wayland where available.
 2. Complete reliable single-terminal lifecycle, process containment, and bounded IPC.
-3. Add the workspace sidebar and terminal tabs.
+3. Add the session sidebar and terminal tabs.
 4. Add SQLite metadata persistence and window hide/reopen behavior.
 5. Add a CLI using a user-private Unix socket.
 6. Package for Ubuntu and document installation and limitations.
 
-Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, Git integration, worktree management, workspace setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically.
+Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, Git integration, worktree management, session setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically.
 
 ## Terminal invariants
 
@@ -37,17 +37,17 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - Use Tauri's native clipboard plugin for application copy/paste. Browser clipboard APIs failed under WebKitGTK. Pass pasted text through Ghostty's paste API to preserve bracketed-paste behavior.
 - Ghostty's existing frontend state is authoritative for plain-text snapshots. Do not regex-strip ANSI or add a second emulator. Bound snapshots and return an explicit unavailable error when no connected frontend can provide them.
 
-## Workspace and persistence contract
+## Session and persistence contract
 
-- Navigation is workgroups → workspaces → terminal tabs. Workgroups have a name and existing root, supply the default path for new workspaces, and fold their sidebar list without changing processes or the active terminal. Persist membership/fold state. Existing workspace paths never follow root changes automatically.
-- User-configurable workspace properties are name and an existing base directory. Store stable IDs and display order internally.
+- Navigation is projects → sessions → terminal tabs. Projects have a name and existing root, supply the default path for new sessions, and fold their sidebar list without changing processes or the active terminal. Persist membership/fold state. Existing session paths never follow root changes automatically.
+- User-configurable session properties are name and an existing base directory. Store stable IDs and display order internally.
 - Tab metadata includes stable ID, editable name, working-directory override, executable and arguments, explicit environment overrides, and ordering. Process status comes from the runtime.
-- External `kind: command` actions launch explicitly without tabs or PTYs and intentionally outlive workspace/app closure. Bound direct-child waiters, discard output, reap children and report launch/nonzero-exit failures. Resolve documented workspace/workgroup placeholders literally in argument arrays; shell commands use quoted reserved context environment variables. Never automatically execute external actions or store them as tab definitions.
-- Common workgroup environment variables live in the actions YAML root `env`. Merge inherited process environment → common group env → explicit action overrides at launch. Never mutate running process environments or persist the inherited/merged environment in tab metadata.
-- New tabs default to the user's shell in the workspace directory. Switching tabs or workspaces preserves processes and emulator state.
-- Creating a workspace opens and starts the first configured terminal workgroup action with its name and copied launch settings; validate YAML before changing metadata. Never create a generic stopped Terminal N placeholder. Creating a workspace requires an existing directory and supports a native picker. Renaming or closing a workspace must never create, move, modify, or delete its directory.
-- Updating a workspace's base directory affects future launches, not running processes. Keep missing directories in metadata and report a clear launch error; allow correcting the directory.
-- SQLite belongs in the standard application user-data directory. Use migrations and transactional updates. Persist selected workspace and selected tab per workspace. Never store the inherited environment or add credential storage.
+- External `kind: command` actions launch explicitly without tabs or PTYs and intentionally outlive session/app closure. Bound direct-child waiters, discard output, reap children and report launch/nonzero-exit failures. Resolve documented session/project placeholders literally in argument arrays; shell commands use quoted reserved context environment variables. Never automatically execute external actions or store them as tab definitions.
+- Common project environment variables live in the actions YAML root `env`. Merge inherited process environment → common group env → explicit action overrides at launch. Never mutate running process environments or persist the inherited/merged environment in tab metadata.
+- New tabs default to the user's shell in the session directory. Switching tabs or sessions preserves processes and emulator state.
+- Creating a session opens and starts the first configured terminal project action with its name and copied launch settings; validate YAML before changing metadata. Never create a generic stopped Terminal N placeholder. Creating a session requires an existing directory and supports a native picker. Renaming or closing a session must never create, move, modify, or delete its directory.
+- Updating a session's base directory affects future launches, not running processes. Keep missing directories in metadata and report a clear launch error; allow correcting the directory.
+- SQLite belongs in the standard application user-data directory. Use migrations and transactional updates. Persist selected session and selected tab per session. Never store the inherited environment or add credential storage.
 - Native window close hides the window while the app and PTYs keep running. Repeated launch or --show activates it through a private socket; --show must never start an unavailable app. Keep explicit Quit confirmation and clean up before exiting. Desktop installation remains packaging work.
 - The user changed the original restart policy: automatically launch new processes for tabs that were running before shutdown, or in the last committed running set after a crash. Explicitly stopped/closed tabs and observed exits must not auto-start. Metadata restoration does not restore live processes or screens. Processes do not survive crashes, Quit, or reboot; commands may be launched anew next time. Historical output remains optional.
 - Separate available tab definitions from their openings. Closing a tab preserves its definition; reopening explicitly launches its saved command. Store the definition kind for future nonterminal types, but only terminal tabs are implemented now, with one opening per definition.
@@ -57,20 +57,22 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 
 - `src/terminal.ts`: persistent frontend controller, Ghostty integration, input/output attachment, resizing, clipboard, snapshots.
 - `src/byte-transport.ts`: shared raw-byte adapter and transport limits.
-- `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden workspaces while VT parsing continues.
+- `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden sessions while VT parsing continues.
 - `src/main.tsx`: prototype React interface.
-- `src/WorkgroupEditor.tsx`: General, Actions form and YAML settings tabs; action views share an editable list and save atomically through Rust.
-- `src/WorkspaceSidebar.tsx`: per-workspace action menus, drag handles and keyboard reordering.
-- `src-tauri/src/session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
+- `src/ProjectEditor.tsx`: General, Actions form and YAML settings tabs; action views share an editable list and save atomically through Rust.
+- `src/SessionSidebar.tsx`: per-session action menus, drag handles and keyboard reordering.
+- `src-tauri/src/terminal_session.rs`: native PTY ownership, output acknowledgements, input worker, process status and cleanup, integration tests.
 - `src-tauri/src/main.rs`: Tauri commands and application/window lifecycle.
 - `src-tauri/src/containment.rs`: Linux cgroup containment, exec handshake and session-scoped death watchdog.
 - `src-tauri/src/instance.rs`: private single-instance and bounded control socket; delegates to shared registry operations.
-- `src-tauri/src/control/`: versioned protocol, current-user socket client/paths and GUI dispatcher. `src-tauri/src/cli/` and `bin/terminal-workspace.rs`: headless CLI parsing and JSON/exit-code handling.
+- `src-tauri/src/control/`: versioned protocol, current-user socket client/paths and GUI dispatcher. `src-tauri/src/cli/` and `bin/devcenter.rs`: headless CLI parsing and JSON/exit-code handling.
 - `scripts/check-lifecycle.py`: isolated X11/XWayland native hide/reopen, activation, Quit and restart checks.
-- `src-tauri/src/workspace.rs`: registry, transactional metadata and workspace operations shared by Tauri commands.
-- `src-tauri/src/workspace/{workgroups,tabs,sessions}.rs`: group metadata, tab operations and terminal lifecycle integration.
-- `src-tauri/src/{workspace,session,storage,actions}/tests.rs` and `workspace/tests/workgroups.rs`: separate Rust behavioral tests.
-- `config/actions.yaml` and `src-tauri/src/actions.rs`: default launch types and per-workgroup `workgroups/<id>/actions.yaml`, reloaded for New tab and creation. Only the `actions` YAML schema is accepted; no legacy/global-file fallback. Keep config outside project directories; existing openings keep independent SQLite configuration.
+- `src-tauri/src/session.rs`: registry, transactional metadata and session operations shared by Tauri commands.
+- `src-tauri/src/session/{projects,tabs,terminals}.rs`: group metadata, tab operations and terminal lifecycle integration.
+- `src-tauri/src/{session,terminal_session,storage,actions}/tests.rs` and `session/tests/projects.rs`: separate Rust behavioral tests.
+- `config/actions.yaml` and `src-tauri/src/actions.rs`: default launch types and per-project `projects/<id>/actions.yaml`, reloaded for New tab and creation. Only the `actions` YAML schema is accepted; no legacy/global-file fallback. Keep config outside project directories; existing openings keep independent SQLite configuration.
+- `src-tauri/src/branding.rs`: legacy config/data directory migration; preserve database sidecars and Codex mappings, reject live writers and destination conflicts.
+- `src-tauri/src/codex.rs` and `bin/dcodex.rs`: opt-in conversation recording/resume wrapper.
 - `src-tauri/src/storage.rs` and `src-tauri/migrations/`: SQLite migrations, transactional metadata and exclusive writer lock. Never silently reset a database on failure.
 - `src-tauri/capabilities/default.json`: frontend permissions; grant only capabilities required by implemented features.
 - `scripts/check-native.py` and `src/native-validation.ts`: isolated WebKitGTK automation and mode-gated bounded diagnostics; never target the user's live app.

@@ -1,4 +1,4 @@
-use crate::workspace::TabConfig;
+use crate::session::TabConfig;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -119,15 +119,35 @@ pub fn load(directory: &Path) -> Result<Vec<Action>, String> {
     result.map_err(|e| format!("{}: {e}", path.display()))
 }
 
-pub fn workgroup_path(directory: &Path, id: u64) -> std::path::PathBuf {
+/// Called only while holding the application metadata writer lock.
+/// Rename the complete tree so custom files and stable project IDs survive.
+pub fn migrate_projects(directory: &Path) -> Result<(), String> {
+    let source = directory.join("workgroups");
+    let target = directory.join("projects");
+    match std::fs::symlink_metadata(&source) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err("Legacy workgroups configuration is not a directory".into())
+        }
+        Ok(_) => {}
+    }
+    if target.try_exists().map_err(|e| e.to_string())? {
+        return Err("Both workgroups and projects configuration directories exist; resolve the conflict explicitly. Neither was changed".into());
+    }
+    std::fs::rename(&source, &target)
+        .map_err(|e| format!("Cannot migrate project configuration: {e}"))
+}
+
+pub fn project_path(directory: &Path, id: u64) -> std::path::PathBuf {
     directory
-        .join("workgroups")
+        .join("projects")
         .join(id.to_string())
         .join("actions.yaml")
 }
 
-pub fn load_workgroup(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
-    let path = workgroup_path(directory, id);
+pub fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
+    let path = project_path(directory, id);
     let result = (|| {
         if !path.exists() {
             let seed = DEFAULTS;
@@ -153,21 +173,21 @@ pub fn format(config: Config) -> Result<String, String> {
     Ok(yaml)
 }
 
-pub fn read_workgroup_yaml(directory: &Path, id: u64) -> Result<String, String> {
-    let path = workgroup_path(directory, id);
+pub fn read_project_yaml(directory: &Path, id: u64) -> Result<String, String> {
+    let path = project_path(directory, id);
     if !path.exists() {
-        load_workgroup(directory, id)?;
+        load_project(directory, id)?;
     }
     // Read existing malformed YAML too, so the editor can repair it.
     read_config(&path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub fn save_workgroup_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
+pub fn save_project_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
     if text.len() as u64 > MAX_BYTES {
         return Err("Configuration exceeds 64 KiB".into());
     }
     parse(text)?;
-    let path = workgroup_path(directory, id);
+    let path = project_path(directory, id);
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let stamp = std::time::SystemTime::now()

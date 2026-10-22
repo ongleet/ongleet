@@ -5,28 +5,28 @@ fn args(values: &[&str]) -> Vec<String> {
 #[test]
 fn parser_requires_explicit_ids_and_confirmation_and_rejects_extra_input() {
     assert!(matches!(
-        parse(args(&["workspace", "close", "12"])).unwrap(),
-        Invocation::Request(Command::WorkspaceClose {
+        parse(args(&["session", "close", "12"])).unwrap(),
+        Invocation::Request(Command::SessionClose {
             id: 12,
             confirmed: false
         })
     ));
     assert!(matches!(
-        parse(args(&["workspace", "close", "12", "--confirm", "--json"])).unwrap(),
-        Invocation::Request(Command::WorkspaceClose {
+        parse(args(&["session", "close", "12", "--confirm", "--json"])).unwrap(),
+        Invocation::Request(Command::SessionClose {
             id: 12,
             confirmed: true
         })
     ));
     assert!(
-        matches!(parse(args(&["workspace","create","--workgroup","2","--name","Name with spaces"])).unwrap(),Invocation::Request(Command::WorkspaceCreate {workgroup_id:2,directory,..}) if directory.is_empty())
+        matches!(parse(args(&["session","create","--project","2","--name","Name with spaces"])).unwrap(),Invocation::Request(Command::SessionCreate {project_id:2,directory,..}) if directory.is_empty())
     );
     for values in [
-        vec!["workspace", "close", "0"],
-        vec!["workspace", "close", "-1"],
-        vec!["workspace", "list", "--confirm"],
-        vec!["workspace", "create", "--name", "Missing group"],
-        vec!["workspace", "rename", "1", "--name", "A", "--name", "B"],
+        vec!["session", "close", "0"],
+        vec!["session", "close", "-1"],
+        vec!["session", "list", "--confirm"],
+        vec!["session", "create", "--name", "Missing group"],
+        vec!["session", "rename", "1", "--name", "A", "--name", "B"],
         vec!["app", "quit", "--unexpected", "yes"],
     ] {
         assert!(parse(args(&values)).is_err(), "{values:?}");
@@ -42,11 +42,11 @@ fn protocol_rejects_unknown_fields_and_accepts_activation_frame() {
         Command::Show
     ));
     assert!(serde_json::from_str::<Request>(
-        r#"{"version":1,"command":"workspace_list","unexpected":true}"#
+        r#"{"version":1,"command":"session_list","unexpected":true}"#
     )
     .is_err());
     assert!(serde_json::from_str::<Request>(
-        r#"{"version":1,"command":"workspace_close","id":1,"confirmed":"yes"}"#
+        r#"{"version":1,"command":"session_close","id":1,"confirmed":"yes"}"#
     )
     .is_err());
 }
@@ -102,9 +102,9 @@ fn oversized_response_returns_a_bounded_structured_error() {
 #[test]
 fn scoped_help_needs_no_target_or_required_options() {
     for values in [
-        vec!["workspace", "--help"],
-        vec!["workspace", "create", "--help"],
-        vec!["--json", "workspace", "close", "-h"],
+        vec!["session", "--help"],
+        vec!["session", "create", "--help"],
+        vec!["--json", "session", "close", "-h"],
         vec!["app", "quit", "--help"],
     ] {
         let Invocation::Help(text) = parse(args(&values)).unwrap() else {
@@ -112,22 +112,22 @@ fn scoped_help_needs_no_target_or_required_options() {
         };
         assert!(text.contains("AUTOMATION CONTRACT"));
     }
-    let Invocation::Help(text) = parse(args(&["workspace", "create", "--help"])).unwrap() else {
+    let Invocation::Help(text) = parse(args(&["session", "create", "--help"])).unwrap() else {
         panic!("Expected help");
     };
-    assert!(text.contains("workspace create --workgroup ID --name NAME"));
-    assert!(text.contains("poll workspace list"));
-    assert!(!text.contains("workspace rename ID"));
+    assert!(text.contains("session create --project ID --name NAME"));
+    assert!(text.contains("poll session list"));
+    assert!(!text.contains("session rename ID"));
     for values in [
         vec!["unknown", "--help"],
-        vec!["workspace", "unknown", "--help"],
+        vec!["session", "unknown", "--help"],
         vec!["app", "quit", "--help", "--confirm"],
     ] {
         assert!(parse(args(&values)).is_err(), "{values:?}");
     }
     // A literal name is not a help request.
     assert!(matches!(
-        parse(args(&["workspace", "rename", "1", "--name", "-h"])).unwrap(),
-        Invocation::Request(Command::WorkspaceRename { name, .. }) if name == "-h"
+        parse(args(&["session", "rename", "1", "--name", "-h"])).unwrap(),
+        Invocation::Request(Command::SessionRename { name, .. }) if name == "-h"
     ));
 }

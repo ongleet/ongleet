@@ -1,6 +1,6 @@
 //! Explicitly launched desktop commands are independent of managed PTY sessions.
 use super::Action;
-use crate::workspace::{TabConfig, WorkspaceRegistry};
+use crate::session::{SessionRegistry, TabConfig};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
@@ -17,7 +17,7 @@ const MAX_CHILDREN: usize = 64;
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Exit {
-    pub workspace_id: u64,
+    pub session_id: u64,
     pub name: String,
     pub code: Option<i32>,
     pub error: Option<String>,
@@ -46,24 +46,24 @@ fn expand(text: &str, values: &BTreeMap<&str, String>) -> Result<String, String>
 pub struct Prepared {
     pub config: TabConfig,
     pub name: String,
-    pub workspace_id: u64,
+    pub session_id: u64,
 }
 
-impl WorkspaceRegistry {
+impl SessionRegistry {
     pub fn prepare_external(
         &self,
-        workspace_id: u64,
+        session_id: u64,
         action_id: &str,
         directory: &std::path::Path,
     ) -> Result<Prepared, String> {
         let snapshot = self.snapshot();
-        let workspace = snapshot
-            .workspaces
+        let session = snapshot
+            .sessions
             .iter()
-            .find(|w| w.id == workspace_id)
-            .ok_or("Workspace is unavailable")?;
-        let group = self.workgroup(workspace.workgroup_id)?;
-        let yaml = super::read_workgroup_yaml(directory, group.id)?;
+            .find(|w| w.id == session_id)
+            .ok_or("Session is unavailable")?;
+        let group = self.project(session.project_id)?;
+        let yaml = super::read_project_yaml(directory, group.id)?;
         let settings = super::parse_config(&yaml)?;
         let Action {
             name,
@@ -79,9 +79,16 @@ impl WorkspaceRegistry {
             return Err("This action opens a terminal tab".into());
         }
         let values = BTreeMap::from([
-            ("workspace.path", workspace.base_directory.clone()),
-            ("workspace.name", workspace.name.clone()),
-            ("workspace.id", workspace.id.to_string()),
+            ("session.path", session.base_directory.clone()),
+            ("session.name", session.name.clone()),
+            ("session.id", session.id.to_string()),
+            ("project.path", group.root_directory.clone()),
+            ("project.name", group.name.clone()),
+            ("project.id", group.id.to_string()),
+            // Preserve existing user YAML without rewriting arbitrary commands.
+            ("workspace.path", session.base_directory.clone()),
+            ("workspace.name", session.name.clone()),
+            ("workspace.id", session.id.to_string()),
             ("workgroup.path", group.root_directory.clone()),
             ("workgroup.name", group.name.clone()),
             ("workgroup.id", group.id.to_string()),
@@ -91,7 +98,7 @@ impl WorkspaceRegistry {
             .as_ref()
             .is_some_and(|s| s.contains("{{"))
         {
-            return Err("Use quoted $WORKSPACE_PATH / $WORKGROUP_PATH environment variables in shell commands, not placeholders".into());
+            return Err("Use quoted $SESSION_PATH / $PROJECT_PATH environment variables in shell commands, not placeholders".into());
         }
         config.executable = config
             .executable
@@ -104,10 +111,7 @@ impl WorkspaceRegistry {
             .map(|s| expand(s, &values))
             .collect::<Result<_, _>>()?;
         config.cwd_override = Some(expand(
-            config
-                .cwd_override
-                .as_deref()
-                .unwrap_or("{{workspace.path}}"),
+            config.cwd_override.as_deref().unwrap_or("{{session.path}}"),
             &values,
         )?);
         let mut env = settings.env;
@@ -118,21 +122,29 @@ impl WorkspaceRegistry {
             .collect::<Result<_, String>>()?;
         config
             .env
-            .insert("WORKSPACE_PATH".into(), workspace.base_directory.clone());
+            .insert("SESSION_PATH".into(), session.base_directory.clone());
         config
             .env
-            .insert("WORKSPACE_NAME".into(), workspace.name.clone());
+            .insert("SESSION_NAME".into(), session.name.clone());
         config
             .env
-            .insert("WORKGROUP_PATH".into(), group.root_directory.clone());
-        config
-            .env
-            .insert("WORKGROUP_NAME".into(), group.name.clone());
+            .insert("PROJECT_PATH".into(), group.root_directory.clone());
+        config.env.insert("PROJECT_NAME".into(), group.name.clone());
+        for (legacy, current) in [
+            ("WORKSPACE_PATH", "SESSION_PATH"),
+            ("WORKSPACE_NAME", "SESSION_NAME"),
+            ("WORKGROUP_PATH", "PROJECT_PATH"),
+            ("WORKGROUP_NAME", "PROJECT_NAME"),
+        ] {
+            config
+                .env
+                .insert(legacy.into(), config.env[current].clone());
+        }
         config.validate()?;
         Ok(Prepared {
             config,
             name,
-            workspace_id,
+            session_id,
         })
     }
 }
@@ -140,7 +152,7 @@ impl WorkspaceRegistry {
 pub fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Result<u32, String> {
     use std::os::unix::process::CommandExt;
     if CHILDREN
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             (n < MAX_CHILDREN).then_some(n + 1)
         })
         .is_err()
@@ -197,7 +209,7 @@ pub fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Re
             Err(e) => (None, Some(e.to_string())),
         };
         exited(Exit {
-            workspace_id: prepared.workspace_id,
+            session_id: prepared.session_id,
             name: prepared.name,
             code,
             error,

@@ -1,9 +1,13 @@
 [package]
-name = "terminal-workspace-prototype"
+name = "devcenter"
 version = "0.1.0"
-default-run = "terminal-workspace-prototype"
+default-run = "devcenter-gui"
 edition = "2021"
 rust-version = "1.98"
+
+[[bin]]
+name = "devcenter-gui"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -12,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
+gtk = "0.18"
 serde = { version = "1", features = ["derive"] }
 portable-pty = "0.9"
 libc = "0.2"

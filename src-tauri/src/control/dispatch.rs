@@ -1,8 +1,8 @@
 use crate::{
     control::protocol::{Command, RpcError},
-    session::Status,
-    workspace::{Snapshot, Workspace, WorkspaceRegistry},
-    Lifecycle, Sessions,
+    session::{Session, SessionRegistry, Snapshot},
+    terminal_session::Status,
+    AppRegistry, Lifecycle,
 };
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
@@ -15,19 +15,19 @@ pub enum Effect {
 fn failed(error: String) -> RpcError {
     RpcError::new("operation_failed", error)
 }
-fn workspace(snapshot: &Snapshot, id: u64) -> Result<Workspace, RpcError> {
+fn session(snapshot: &Snapshot, id: u64) -> Result<Session, RpcError> {
     snapshot
-        .workspaces
+        .sessions
         .iter()
         .find(|w| w.id == id)
         .cloned()
-        .ok_or_else(|| RpcError::new("not_found", "Workspace ID is unavailable"))
+        .ok_or_else(|| RpcError::new("not_found", "Session ID is unavailable"))
 }
-fn summary(registry: &mut WorkspaceRegistry, workspace: &Workspace) -> Result<Value, RpcError> {
+fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, RpcError> {
     let mut tabs = Vec::new();
     let mut running = 0;
-    for tab in workspace.tabs.iter().filter(|tab| tab.is_open) {
-        let status = if let Some(id) = registry.sessions.get(&tab.id).map(|session| session.id) {
+    for tab in session.tabs.iter().filter(|tab| tab.is_open) {
+        let status = if let Some(id) = registry.terminals.get(&tab.id).map(|session| session.id) {
             let status = registry.status(id).map_err(failed)?;
             if matches!(status, Status::Running) {
                 running += 1;
@@ -39,7 +39,7 @@ fn summary(registry: &mut WorkspaceRegistry, workspace: &Workspace) -> Result<Va
         tabs.push(json!({"id":tab.id,"name":tab.name,"status":status}));
     }
     Ok(
-        json!({"id":workspace.id,"workgroupId":workspace.workgroup_id,"name":workspace.name,"baseDirectory":workspace.base_directory,"displayOrder":workspace.display_order,"selectedTabId":workspace.selected_tab_id,"runningSessions":running,"tabs":tabs}),
+        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"runningTerminals":running,"tabs":tabs}),
     )
 }
 
@@ -59,7 +59,7 @@ pub fn handle(
         return Err(RpcError::new("unavailable", "Application is shutting down"));
     }
     let visible = lifecycle.visible.load(std::sync::atomic::Ordering::Acquire);
-    let shared = &app.state::<Sessions>().0;
+    let shared = &app.state::<AppRegistry>().0;
     let mut registry = shared.lock().map_err(|e| failed(e.to_string()))?;
     let snapshot = registry.snapshot();
     let mut changed = false;
@@ -68,16 +68,16 @@ pub fn handle(
         Command::Show => unreachable!(),
         Command::Status => {
             let mut running = 0;
-            for session in registry.sessions.values_mut() {
+            for session in registry.terminals.values_mut() {
                 if matches!(session.status().map_err(failed)?, Status::Running) {
                     running += 1;
                 }
             }
-            json!({"pid":std::process::id(),"visible":visible,"workgroups":snapshot.workgroups.len(),"workspaces":snapshot.workspaces.len(),"runningSessions":running})
+            json!({"pid":std::process::id(),"visible":visible,"projects":snapshot.projects.len(),"sessions":snapshot.sessions.len(),"runningTerminals":running})
         }
         Command::Quit { confirmed } => {
             if !confirmed {
-                for session in registry.sessions.values_mut() {
+                for session in registry.terminals.values_mut() {
                     if matches!(session.status().map_err(failed)?, Status::Running) {
                         return Err(RpcError::new(
                             "confirmation_required",
@@ -93,83 +93,80 @@ pub fn handle(
             effect = Effect::Quit;
             json!({"quitting":true})
         }
-        Command::WorkspaceList => {
+        Command::SessionList => {
             let mut list = Vec::new();
-            for item in &snapshot.workspaces {
+            for item in &snapshot.sessions {
                 list.push(summary(&mut registry, item)?);
             }
-            json!({"workspaces":list,"selectedId":snapshot.selected_id})
+            json!({"sessions":list,"selectedId":snapshot.selected_id})
         }
-        Command::WorkspaceCreate {
-            workgroup_id,
+        Command::SessionCreate {
+            project_id,
             name,
             directory,
         } => {
-            if !snapshot.workgroups.iter().any(|g| g.id == workgroup_id) {
-                return Err(RpcError::new("not_found", "Workgroup ID is unavailable"));
+            if !snapshot.projects.iter().any(|g| g.id == project_id) {
+                return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
-            let directory_config = app
-                .path()
-                .app_config_dir()
-                .map_err(|e| failed(e.to_string()))?;
+            let directory_config = crate::control::paths::config_directory().map_err(failed)?;
             let next = registry
-                .create_from_first_action(Some(workgroup_id), name, directory, &directory_config)
+                .create_from_first_action(Some(project_id), name, directory, &directory_config)
                 .map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, next.selected_id.unwrap())?)?
+            summary(&mut registry, &session(&next, next.selected_id.unwrap())?)?
         }
-        Command::WorkspaceRename { id, name } => {
-            let old = workspace(&snapshot, id)?;
+        Command::SessionRename { id, name } => {
+            let old = session(&snapshot, id)?;
             let next = registry
                 .update(id, name, old.base_directory)
                 .map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, id)?)?
+            summary(&mut registry, &session(&next, id)?)?
         }
-        Command::WorkspaceDirectory { id, directory } => {
-            let old = workspace(&snapshot, id)?;
+        Command::SessionDirectory { id, directory } => {
+            let old = session(&snapshot, id)?;
             let next = registry.update(id, old.name, directory).map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, id)?)?
+            summary(&mut registry, &session(&next, id)?)?
         }
-        Command::WorkspaceMove { id, workgroup_id } => {
-            let old = workspace(&snapshot, id)?;
-            if !snapshot.workgroups.iter().any(|g| g.id == workgroup_id) {
-                return Err(RpcError::new("not_found", "Workgroup ID is unavailable"));
+        Command::SessionMove { id, project_id } => {
+            let old = session(&snapshot, id)?;
+            if !snapshot.projects.iter().any(|g| g.id == project_id) {
+                return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
             let next = registry
-                .update_in_workgroup(id, workgroup_id, old.name, old.base_directory)
+                .update_in_project(id, project_id, old.name, old.base_directory)
                 .map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, id)?)?
+            summary(&mut registry, &session(&next, id)?)?
         }
-        Command::WorkspaceReorder { id, position } => {
-            let old = workspace(&snapshot, id)?;
+        Command::SessionReorder { id, position } => {
+            let old = session(&snapshot, id)?;
             let target = snapshot
-                .workspaces
+                .sessions
                 .iter()
-                .filter(|w| w.workgroup_id == old.workgroup_id)
+                .filter(|w| w.project_id == old.project_id)
                 .nth(position)
                 .ok_or_else(|| {
                     RpcError::new(
                         "invalid_argument",
-                        "Position is outside this workgroup's workspace list",
+                        "Position is outside this project's session list",
                     )
                 })?
                 .display_order;
             let next = registry.reorder(id, target).map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, id)?)?
+            summary(&mut registry, &session(&next, id)?)?
         }
-        Command::WorkspaceSelect { id } => {
-            workspace(&snapshot, id)?;
+        Command::SessionSelect { id } => {
+            session(&snapshot, id)?;
             let next = registry.select(id).map_err(failed)?;
             changed = true;
-            summary(&mut registry, &workspace(&next, id)?)?
+            summary(&mut registry, &session(&next, id)?)?
         }
-        Command::WorkspaceClose { id, confirmed } => {
-            let old = workspace(&snapshot, id)?;
-            if summary(&mut registry, &old)?["runningSessions"]
+        Command::SessionClose { id, confirmed } => {
+            let old = session(&snapshot, id)?;
+            if summary(&mut registry, &old)?["runningTerminals"]
                 .as_u64()
                 .unwrap_or(0)
                 > 0
@@ -177,7 +174,7 @@ pub fn handle(
             {
                 return Err(RpcError::new(
                     "confirmation_required",
-                    "Running workspace processes require --confirm to close",
+                    "Running session processes require --confirm to close",
                 ));
             }
             // The registry independently preflights every session before signals.
@@ -185,61 +182,61 @@ pub fn handle(
             changed = true;
             json!({"closed":id})
         }
-        Command::WorkgroupList => json!({"workgroups":snapshot.workgroups}),
-        Command::WorkgroupCreate { name, root } => {
-            let next = registry.create_workgroup(name, root).map_err(failed)?;
+        Command::ProjectList => json!({"projects":snapshot.projects}),
+        Command::ProjectCreate { name, root } => {
+            let next = registry.create_project(name, root).map_err(failed)?;
             changed = true;
-            serde_json::to_value(next.workgroups.last().unwrap())
+            serde_json::to_value(next.projects.last().unwrap())
                 .map_err(|e| failed(e.to_string()))?
         }
-        Command::WorkgroupRename { id, name } => {
+        Command::ProjectRename { id, name } => {
             let old = snapshot
-                .workgroups
+                .projects
                 .iter()
                 .find(|g| g.id == id)
-                .ok_or_else(|| RpcError::new("not_found", "Workgroup ID is unavailable"))?;
+                .ok_or_else(|| RpcError::new("not_found", "Project ID is unavailable"))?;
             registry
-                .update_workgroup(id, name, old.root_directory.clone())
+                .update_project(id, name, old.root_directory.clone())
                 .map_err(failed)?;
             changed = true;
-            serde_json::to_value(registry.workgroup(id).map_err(failed)?)
+            serde_json::to_value(registry.project(id).map_err(failed)?)
                 .map_err(|e| failed(e.to_string()))?
         }
-        Command::WorkgroupDirectory { id, directory } => {
+        Command::ProjectDirectory { id, directory } => {
             let old = snapshot
-                .workgroups
+                .projects
                 .iter()
                 .find(|g| g.id == id)
-                .ok_or_else(|| RpcError::new("not_found", "Workgroup ID is unavailable"))?;
+                .ok_or_else(|| RpcError::new("not_found", "Project ID is unavailable"))?;
             registry
-                .update_workgroup(id, old.name.clone(), directory)
+                .update_project(id, old.name.clone(), directory)
                 .map_err(failed)?;
             changed = true;
-            serde_json::to_value(registry.workgroup(id).map_err(failed)?)
+            serde_json::to_value(registry.project(id).map_err(failed)?)
                 .map_err(|e| failed(e.to_string()))?
         }
-        Command::WorkgroupFold { id, collapsed } => {
-            if !snapshot.workgroups.iter().any(|g| g.id == id) {
-                return Err(RpcError::new("not_found", "Workgroup ID is unavailable"));
+        Command::ProjectFold { id, collapsed } => {
+            if !snapshot.projects.iter().any(|g| g.id == id) {
+                return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
-            registry.fold_workgroup(id, collapsed).map_err(failed)?;
+            registry.fold_project(id, collapsed).map_err(failed)?;
             changed = true;
-            serde_json::to_value(registry.workgroup(id).map_err(failed)?)
+            serde_json::to_value(registry.project(id).map_err(failed)?)
                 .map_err(|e| failed(e.to_string()))?
         }
-        Command::WorkgroupClose { id } => {
-            if !snapshot.workgroups.iter().any(|g| g.id == id) {
-                return Err(RpcError::new("not_found", "Workgroup ID is unavailable"));
+        Command::ProjectClose { id } => {
+            if !snapshot.projects.iter().any(|g| g.id == id) {
+                return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
-            registry.close_workgroup(id).map_err(failed)?;
+            registry.close_project(id).map_err(failed)?;
             changed = true;
             json!({"closed":id})
         }
     };
     drop(registry);
     if changed {
-        if let Err(error) = app.emit("workspace-changed", ()) {
-            eprintln!("Workspace change committed; UI notification failed: {error}");
+        if let Err(error) = app.emit("session-changed", ()) {
+            eprintln!("Session change committed; UI notification failed: {error}");
         }
     }
     Ok((Some(data), effect))

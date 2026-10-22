@@ -1,5 +1,5 @@
 {
-  "name": "terminal-workspace-prototype",
+  "name": "devcenter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,6 +11,7 @@
     "check:wasm": "node scripts/check-wasm.mjs",
     "check:terminal-reuse": "node scripts/check-terminal-reuse.mjs",
     "check:rendering": "node scripts/check-rendering.mjs",
+    "check:terminal-input": "node scripts/check-terminal-input.mjs",
     "check:engine-loader": "node scripts/check-engine-loader.mjs"
   },
   "dependencies": {

@@ -126,7 +126,7 @@ def run(args):
     if not driver_binary:
         raise SystemExit("WebKitWebDriver is missing; install Ubuntu package webkitgtk-webdriver or pass --driver PATH")
     run_dir = Path(tempfile.mkdtemp(prefix="terminal-native-validation-"))
-    app_config = run_dir / "config" / "io.local.terminal-stack-prototype"
+    app_config = run_dir / "config" / "devcenter"
     app_config.mkdir(parents=True)
     # JSON is a YAML subset; all generated fixture paths/arguments stay literal.
     types = [
@@ -138,8 +138,8 @@ def run(args):
     codex = shutil.which("codex")
     if codex and not args.skip_codex:
         types.append({"id": "codex", "name": "Codex", "kind": "terminal", "config": {"executable": codex, "args": [], "cwdOverride": str(ROOT)}})
-    (app_config / "workgroups/1").mkdir(parents=True)
-    (app_config / "workgroups/1/actions.yaml").write_text(json.dumps({"actions": types}))
+    (app_config / "projects/1").mkdir(parents=True)
+    (app_config / "projects/1/actions.yaml").write_text(json.dumps({"actions": types}))
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -147,6 +147,17 @@ def run(args):
                XDG_CACHE_HOME=str(run_dir / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}",
                TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND=args.backend, TERMINAL_VALIDATION_RUN=str(run_dir))
     report = {"backend": args.backend, "artifacts": str(run_dir), "checks": [], "memory": []}
+    # A private URI handler records link activation without opening the user's browser.
+    applications = run_dir / "data/applications"
+    applications.mkdir(parents=True)
+    link_log = run_dir / "opened-links.txt"
+    handler = run_dir / "open-link.py"
+    handler.write_text("import pathlib,sys\nwith pathlib.Path(" + repr(str(link_log)) + ").open('a') as log: log.write(sys.argv[1]+'\\n')\n")
+    (applications / "devcenter-validation.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=DevCenter validation\nExec=/usr/bin/python3 " + str(handler) + " %u\nMimeType=x-scheme-handler/https;\n")
+    (run_dir / "config/mimeapps.list").write_text("[Default Applications]\nx-scheme-handler/https=devcenter-validation.desktop\n")
+    uri_handler = subprocess.run(["gio", "mime", "x-scheme-handler/https"], env=env, capture_output=True, text=True, check=True)
+    assert "devcenter-validation.desktop" in uri_handler.stdout, "Test URI handler must be registered before clicking links"
     client = WebDriver(f"http://127.0.0.1:{port}")
     clipboard_backup = None
     clipboard_touched = False
@@ -160,11 +171,11 @@ def run(args):
             }}}, session=False)
             client.session = session["sessionId"]
             report["capabilities"] = session["capabilities"]
-            wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create workspace\"]:not(:disabled)')"), "native app ready")
-            client.click('[aria-label="Create workspace"]')
-            client.fill("#workspace-name", "Native validation")
-            client.fill("#workspace-directory", str(run_dir))
-            client.click("//dialog[@open]//button[normalize-space()='Save workspace']", "xpath")
+            wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), "native app ready")
+            client.click('[aria-label="Create session"]')
+            client.fill("#session-name", "Native validation")
+            client.fill("#session-directory", str(run_dir))
+            client.click("//dialog[@open]//button[normalize-space()='Save session']", "xpath")
             wait_for(lambda: client.js("return !!window.__terminalValidation"), "validation bridge (requires native-validation build)")
 
             try:
@@ -198,8 +209,7 @@ def run(args):
             def focus(tab):
                 client.click(f"#tab-{tab}")
                 wait_for(lambda: client.js("const panel=document.getElementById('tab-panel-'+arguments[0]);return panel && !panel.hidden", tab), "selected panel visible")
-                client.js("document.querySelector('#tab-panel-'+arguments[0]+' textarea').focus()", tab)
-                wait_for(lambda: client.js("return document.activeElement===document.querySelector('#tab-panel-'+arguments[0]+' textarea')", tab), "terminal input focused")
+                wait_for(lambda: client.js("const input=document.querySelector('#tab-panel-'+arguments[0]+' textarea'); input?.focus(); return document.activeElement===input", tab), "terminal input focused")
 
             def command(tab, text):
                 focus(tab)
@@ -245,6 +255,36 @@ def run(args):
                 client.keys("\n")
                 wait_for(lambda: "PASTED café 日本語 🙂" in client.screen(first), "native Unicode paste shortcut")
                 mark("Ctrl+Shift+C/V use native clipboard after reload")
+                command(first, "printf '\\033[2J\\033[HSELECT_WITH_MOUSE\\n'")
+                wait_for(lambda: "SELECT_WITH_MOUSE" in client.screen(first), "selection fixture")
+                rect = client.js("const r=document.querySelector('#tab-panel-'+arguments[0]+' canvas').getBoundingClientRect(); const s=window.__terminalValidation.state(arguments[0]);return {x:r.x,y:r.y,w:r.width/s.cols,h:r.height/s.rows}", first)
+                client.request("POST", "/actions", {"actions": [{"type":"pointer", "id":"selection", "parameters":{"pointerType":"mouse"}, "actions":[
+                    {"type":"pointerMove", "origin":"viewport", "x":round(rect['x']+1), "y":round(rect['y']+rect['h']/2)},
+                    {"type":"pointerDown", "button":0},
+                    {"type":"pointerMove", "origin":"viewport", "x":round(rect['x']+16*rect['w']), "y":round(rect['y']+rect['h']/2), "duration":250},
+                    {"type":"pointerUp", "button":0}
+                ]}]})
+                wait_for(lambda: "SELECT_WITH_MOUSE" in (client.invoke("plugin:clipboard-manager|read_text") or ""), "mouse selection copies to native clipboard")
+                mark("Real mouse drag selects terminal text and copies through the native clipboard")
+                if shutil.which("wl-copy"):
+                    subprocess.run(["wl-copy", "--type", "image/png"], input=(ROOT / "src-tauri/icons/32x32.png").read_bytes(), env=env, check=True, timeout=3)
+                    assert client.invoke("terminal_clipboard") == {"kind":"image"}
+                    subprocess.run(["wl-copy", "--type", "text/uri-list"], input=b"file:///tmp/a%20b.png\r\nfile:///tmp/it%27s.png\r\n", env=env, check=True, timeout=3)
+                    assert client.invoke("terminal_clipboard") == {"kind":"text", "text":"'/tmp/a b.png' '/tmp/it'\\''s.png'"}
+                    mark("Native clipboard distinguishes images and copied files, preserving spaces and quotes")
+
+            command(first, "printf '\\033[2J\\033[H\\033]8;;https://example.invalid/devcenter-input-test\\007OPEN_TEST\\033]8;;\\007\\nBEFORE_RELOAD\\n'")
+            wait_for(lambda: "OPEN_TEST" in client.screen(first), "OSC 8 link fixture")
+            rect = client.js("const r=document.querySelector('#tab-panel-'+arguments[0]+' canvas').getBoundingClientRect();return {x:r.x+20,y:r.y+8}", first)
+            client.request("POST", "/actions", {"actions": [
+                {"type":"key", "id":"keyboard", "actions":[{"type":"keyDown", "value":"\ue009"}]},
+                {"type":"pointer", "id":"links", "parameters":{"pointerType":"mouse"}, "actions":[
+                    {"type":"pointerMove", "origin":"viewport", "x":round(rect['x']), "y":round(rect['y'])},
+                    {"type":"pointerDown", "button":0}, {"type":"pointerUp", "button":0}]}
+            ]})
+            client.request("POST", "/actions", {"actions":[{"type":"key", "id":"keyboard", "actions":[{"type":"keyUp", "value":"\ue009"}]}]})
+            wait_for(lambda: link_log.exists() and "https://example.invalid/devcenter-input-test" in link_log.read_text(), "native OSC 8 Ctrl-click activation")
+            mark("Ctrl-click on an OSC 8 terminal link opens the native registered URI handler")
 
             unicode_tab = new_tab("Unicode")
             wait_for(lambda: "Split UTF-8: café λ 日本語 🙂" in client.screen(unicode_tab), "split UTF-8 fixture")
@@ -420,7 +460,7 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--driver", default="WebKitWebDriver")
-    parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/terminal-workspace-prototype"))
+    parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/devcenter-gui"))
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--skip-codex", action="store_true")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")

@@ -1,26 +1,29 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[cfg(not(target_os = "linux"))]
-compile_error!("This prototype currently supports Linux only");
+compile_error!("DevCenter currently supports Linux only");
 
 mod actions;
+mod branding;
+mod codex;
 mod containment;
 mod control;
 #[path = "control/dispatch.rs"]
 mod control_dispatch;
+mod desktop_input;
 mod instance;
 mod session;
 mod storage;
-mod workspace;
-use session::{Output, Status, TerminalSession};
+mod terminal_session;
+use session::{SessionRegistry, Snapshot, TabConfig};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use tauri::{ipc::Channel, Manager, State};
-use workspace::{Snapshot, TabConfig, WorkspaceRegistry};
+use terminal_session::{Output, Status, TerminalSession};
 
 #[derive(Default)]
-struct Sessions(Arc<Mutex<WorkspaceRegistry>>);
+struct AppRegistry(Arc<Mutex<SessionRegistry>>);
 
 struct Lifecycle {
     quitting: AtomicBool,
@@ -36,13 +39,13 @@ impl Default for Lifecycle {
 }
 
 fn with_session<T>(
-    state: &Sessions,
+    state: &AppRegistry,
     id: u64,
     operation: impl FnOnce(&mut TerminalSession) -> Result<T, String>,
 ) -> Result<T, String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     let session = guard
-        .sessions
+        .terminals
         .values_mut()
         .find(|s| s.id == id)
         .ok_or("Session is unavailable")?;
@@ -51,13 +54,13 @@ fn with_session<T>(
 
 #[tauri::command]
 async fn connect(
-    state: State<'_, Sessions>,
+    state: State<'_, AppRegistry>,
     tab_id: u64,
     cols: u16,
     rows: u16,
     output: Channel<Output>,
     start_if_stopped: bool,
-) -> Result<Option<session::Attachment>, String> {
+) -> Result<Option<terminal_session::Attachment>, String> {
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         registry.lock().map_err(|e| e.to_string())?.connect(
@@ -74,7 +77,7 @@ async fn connect(
 
 #[tauri::command]
 async fn start(
-    state: State<'_, Sessions>,
+    state: State<'_, AppRegistry>,
     tab_id: u64,
     cols: u16,
     rows: u16,
@@ -90,60 +93,36 @@ async fn start(
 }
 
 #[tauri::command]
-fn actions(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
-    workspace_id: u64,
-) -> Result<Vec<actions::Action>, String> {
+fn actions(state: State<AppRegistry>, session_id: u64) -> Result<Vec<actions::Action>, String> {
     let group = state
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .workspace_workgroup(workspace_id)?;
-    actions::load_workgroup(
-        &app.path().app_config_dir().map_err(|e| e.to_string())?,
-        group,
-    )
+        .session_project(session_id)?;
+    actions::load_project(&control::paths::config_directory()?, group)
 }
 
 #[tauri::command]
-fn workgroup_config(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
-    id: u64,
-) -> Result<String, String> {
-    state.0.lock().map_err(|e| e.to_string())?.workgroup(id)?;
-    let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    actions::load_workgroup(&directory, id)?;
-    Ok(actions::workgroup_path(&directory, id)
+fn project_config(state: State<AppRegistry>, id: u64) -> Result<String, String> {
+    state.0.lock().map_err(|e| e.to_string())?.project(id)?;
+    let directory = control::paths::config_directory()?;
+    actions::load_project(&directory, id)?;
+    Ok(actions::project_path(&directory, id)
         .to_string_lossy()
         .into())
 }
 
 #[tauri::command]
-fn workgroup_actions(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
-    id: u64,
-) -> Result<String, String> {
-    state.0.lock().map_err(|e| e.to_string())?.workgroup(id)?;
-    actions::read_workgroup_yaml(&app.path().app_config_dir().map_err(|e| e.to_string())?, id)
+fn project_actions(state: State<AppRegistry>, id: u64) -> Result<String, String> {
+    state.0.lock().map_err(|e| e.to_string())?.project(id)?;
+    actions::read_project_yaml(&control::paths::config_directory()?, id)
 }
 
 #[tauri::command]
-fn save_workgroup_actions(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
-    id: u64,
-    yaml: String,
-) -> Result<(), String> {
+fn save_project_actions(state: State<AppRegistry>, id: u64, yaml: String) -> Result<(), String> {
     let registry = state.0.lock().map_err(|e| e.to_string())?;
-    registry.workgroup(id)?;
-    actions::save_workgroup_yaml(
-        &app.path().app_config_dir().map_err(|e| e.to_string())?,
-        id,
-        &yaml,
-    )
+    registry.project(id)?;
+    actions::save_project_yaml(&control::paths::config_directory()?, id, &yaml)
 }
 
 #[tauri::command]
@@ -157,8 +136,8 @@ fn format_actions(config: actions::Config) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn create_workgroup(
-    state: State<Sessions>,
+fn create_project(
+    state: State<AppRegistry>,
     name: String,
     root_directory: String,
 ) -> Result<Snapshot, String> {
@@ -166,12 +145,12 @@ fn create_workgroup(
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .create_workgroup(name, root_directory)
+        .create_project(name, root_directory)
 }
 
 #[tauri::command]
-fn update_workgroup(
-    state: State<Sessions>,
+fn update_project(
+    state: State<AppRegistry>,
     id: u64,
     name: String,
     root_directory: String,
@@ -180,35 +159,30 @@ fn update_workgroup(
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .update_workgroup(id, name, root_directory)
+        .update_project(id, name, root_directory)
 }
 
 #[tauri::command]
-fn fold_workgroup(state: State<Sessions>, id: u64, collapsed: bool) -> Result<Snapshot, String> {
+fn fold_project(state: State<AppRegistry>, id: u64, collapsed: bool) -> Result<Snapshot, String> {
     state
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .fold_workgroup(id, collapsed)
+        .fold_project(id, collapsed)
 }
 
 #[tauri::command]
-fn close_workgroup(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .close_workgroup(id)
+fn close_project(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
+    state.0.lock().map_err(|e| e.to_string())?.close_project(id)
 }
 
 #[tauri::command]
 fn create_tab(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
-    workspace_id: u64,
+    state: State<AppRegistry>,
+    session_id: u64,
     action_id: String,
 ) -> Result<Snapshot, String> {
-    let template = actions(app, state.clone(), workspace_id)?
+    let template = actions(state.clone(), session_id)?
         .into_iter()
         .find(|t| t.id == action_id)
         .ok_or("Action is unavailable")?;
@@ -216,7 +190,7 @@ fn create_tab(
         return Err("External actions cannot open a tab".into());
     }
     state.0.lock().map_err(|e| e.to_string())?.create_typed_tab(
-        workspace_id,
+        session_id,
         template.name,
         template.config,
     )
@@ -225,17 +199,17 @@ fn create_tab(
 #[tauri::command]
 async fn run_external_action(
     app: tauri::AppHandle,
-    state: State<'_, Sessions>,
-    workspace_id: u64,
+    state: State<'_, AppRegistry>,
+    session_id: u64,
     action_id: String,
 ) -> Result<u32, String> {
-    let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let directory = control::paths::config_directory()?;
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let prepared = registry
             .lock()
             .map_err(|e| e.to_string())?
-            .prepare_external(workspace_id, &action_id, &directory)?;
+            .prepare_external(session_id, &action_id, &directory)?;
         actions::external::launch(
             prepared,
             Arc::new(move |exit| {
@@ -249,12 +223,12 @@ async fn run_external_action(
 }
 
 #[tauri::command]
-fn select_tab(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+fn select_tab(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
     state.0.lock().map_err(|e| e.to_string())?.select_tab(id)
 }
 
 #[tauri::command]
-fn rename_tab(state: State<Sessions>, id: u64, name: String) -> Result<Snapshot, String> {
+fn rename_tab(state: State<AppRegistry>, id: u64, name: String) -> Result<Snapshot, String> {
     state
         .0
         .lock()
@@ -263,7 +237,11 @@ fn rename_tab(state: State<Sessions>, id: u64, name: String) -> Result<Snapshot,
 }
 
 #[tauri::command]
-fn configure_tab(state: State<Sessions>, id: u64, config: TabConfig) -> Result<Snapshot, String> {
+fn configure_tab(
+    state: State<AppRegistry>,
+    id: u64,
+    config: TabConfig,
+) -> Result<Snapshot, String> {
     state
         .0
         .lock()
@@ -272,7 +250,7 @@ fn configure_tab(state: State<Sessions>, id: u64, config: TabConfig) -> Result<S
 }
 
 #[tauri::command]
-fn reorder_tab(state: State<Sessions>, id: u64, position: usize) -> Result<Snapshot, String> {
+fn reorder_tab(state: State<AppRegistry>, id: u64, position: usize) -> Result<Snapshot, String> {
     state
         .0
         .lock()
@@ -282,7 +260,7 @@ fn reorder_tab(state: State<Sessions>, id: u64, position: usize) -> Result<Snaps
 
 #[tauri::command]
 async fn close_tab(
-    state: State<'_, Sessions>,
+    state: State<'_, AppRegistry>,
     id: u64,
     confirmed: bool,
 ) -> Result<Snapshot, String> {
@@ -298,7 +276,7 @@ async fn close_tab(
 }
 
 #[tauri::command]
-async fn input(state: State<'_, Sessions>, id: u64, bytes: Vec<u8>) -> Result<(), String> {
+async fn input(state: State<'_, AppRegistry>, id: u64, bytes: Vec<u8>) -> Result<(), String> {
     let result = with_session(&state, id, |s| s.queue_input(bytes))?;
     // A blocked PTY writer must never hold the session lock or WebView thread:
     // ACK, resize and confirmed close still need to make progress.
@@ -308,80 +286,87 @@ async fn input(state: State<'_, Sessions>, id: u64, bytes: Vec<u8>) -> Result<()
 }
 
 #[tauri::command]
-fn acknowledge(state: State<Sessions>, id: u64, seq: u64) -> Result<(), String> {
+fn acknowledge(state: State<AppRegistry>, id: u64, seq: u64) -> Result<(), String> {
     with_session(&state, id, |s| s.acknowledge(seq))
 }
 
 #[tauri::command]
-fn resize(state: State<Sessions>, id: u64, cols: u16, rows: u16) -> Result<(), String> {
+fn resize(state: State<AppRegistry>, id: u64, cols: u16, rows: u16) -> Result<(), String> {
     with_session(&state, id, |s| s.resize(cols, rows))
 }
 
 #[tauri::command]
-fn status(state: State<Sessions>, id: u64) -> Result<Status, String> {
+fn status(state: State<AppRegistry>, id: u64) -> Result<Status, String> {
     state.0.lock().map_err(|e| e.to_string())?.status(id)
 }
 
 #[tauri::command]
-fn open_tab(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+fn open_tab(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
     state.0.lock().map_err(|e| e.to_string())?.open_tab(id)
 }
 
 #[tauri::command]
-async fn close_session(state: State<'_, Sessions>, id: u64, confirmed: bool) -> Result<(), String> {
+async fn close_terminal_session(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    confirmed: bool,
+) -> Result<(), String> {
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let mut guard = registry.lock().map_err(|e| e.to_string())?;
-        guard.close_session(id, confirmed)
+        guard.close_terminal_session(id, confirmed)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn workspaces(state: State<Sessions>) -> Result<Snapshot, String> {
+fn sessions(state: State<AppRegistry>) -> Result<Snapshot, String> {
     Ok(state.0.lock().map_err(|e| e.to_string())?.snapshot())
 }
 
 #[tauri::command]
-fn create_workspace(
-    app: tauri::AppHandle,
-    state: State<Sessions>,
+fn create_session(
+    state: State<AppRegistry>,
     name: String,
     directory: String,
-    workgroup_id: Option<u64>,
+    project_id: Option<u64>,
 ) -> Result<Snapshot, String> {
-    let directory_config = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let directory_config = control::paths::config_directory()?;
     state
         .0
         .lock()
         .map_err(|e| e.to_string())?
-        .create_from_first_action(workgroup_id, name, directory, &directory_config)
+        .create_from_first_action(project_id, name, directory, &directory_config)
 }
 
 #[tauri::command]
-fn update_workspace(
-    state: State<Sessions>,
+fn update_session(
+    state: State<AppRegistry>,
     id: u64,
     name: String,
     directory: String,
-    workgroup_id: Option<u64>,
+    project_id: Option<u64>,
 ) -> Result<Snapshot, String> {
     let mut registry = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(group) = workgroup_id {
-        registry.update_in_workgroup(id, group, name, directory)
+    if let Some(group) = project_id {
+        registry.update_in_project(id, group, name, directory)
     } else {
         registry.update(id, name, directory)
     }
 }
 
 #[tauri::command]
-fn select_workspace(state: State<Sessions>, id: u64) -> Result<Snapshot, String> {
+fn select_session(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
     state.0.lock().map_err(|e| e.to_string())?.select(id)
 }
 
 #[tauri::command]
-fn reorder_workspace(state: State<Sessions>, id: u64, position: usize) -> Result<Snapshot, String> {
+fn reorder_session(
+    state: State<AppRegistry>,
+    id: u64,
+    position: usize,
+) -> Result<Snapshot, String> {
     state
         .0
         .lock()
@@ -390,8 +375,21 @@ fn reorder_workspace(state: State<Sessions>, id: u64, position: usize) -> Result
 }
 
 #[tauri::command]
-async fn close_workspace(
-    state: State<'_, Sessions>,
+fn reorder_project(
+    state: State<AppRegistry>,
+    id: u64,
+    position: usize,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .reorder_project(id, position)
+}
+
+#[tauri::command]
+async fn close_session(
+    state: State<'_, AppRegistry>,
     id: u64,
     confirmed: bool,
 ) -> Result<Snapshot, String> {
@@ -407,7 +405,7 @@ async fn close_workspace(
 }
 
 #[tauri::command]
-async fn shutdown(state: State<'_, Sessions>, confirmed: bool) -> Result<(), String> {
+async fn shutdown(state: State<'_, AppRegistry>, confirmed: bool) -> Result<(), String> {
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         registry
@@ -422,24 +420,24 @@ async fn shutdown(state: State<'_, Sessions>, confirmed: bool) -> Result<(), Str
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ApplicationStatus {
-    running_sessions: usize,
+    running_terminals: usize,
     visible: bool,
 }
 
 #[tauri::command]
 fn application_status(
     app: tauri::AppHandle,
-    state: State<Sessions>,
+    state: State<AppRegistry>,
 ) -> Result<ApplicationStatus, String> {
     let mut registry = state.0.lock().map_err(|e| e.to_string())?;
-    let mut running_sessions = 0;
-    for session in registry.sessions.values_mut() {
+    let mut running_terminals = 0;
+    for session in registry.terminals.values_mut() {
         if matches!(session.status()?, Status::Running) {
-            running_sessions += 1;
+            running_terminals += 1;
         }
     }
     Ok(ApplicationStatus {
-        running_sessions,
+        running_terminals,
         visible: app
             .get_webview_window("main")
             .is_some_and(|window| window.is_visible().unwrap_or(false)),
@@ -449,7 +447,7 @@ fn application_status(
 #[tauri::command]
 async fn quit(
     app: tauri::AppHandle,
-    state: State<'_, Sessions>,
+    state: State<'_, AppRegistry>,
     lifecycle: State<'_, Lifecycle>,
     confirmed: bool,
 ) -> Result<(), String> {
@@ -476,6 +474,9 @@ fn defaults() -> Result<(String, String), String> {
 }
 
 fn main() {
+    if codex::run_if_requested() {
+        return;
+    }
     if containment::run_helper_if_requested() {
         return;
     }
@@ -487,11 +488,22 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let context = tauri::generate_context!();
-    let directory = instance::data_directory(&context.config().identifier)?;
+    let directory = instance::data_directory(control::paths::APPLICATION_ID)?;
     let socket = instance::socket_path(&directory)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--help"] {
-        println!("Terminal Workspace\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable");
+        println!("DevCenter\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --migrate       Migrate config/data and database schema without opening a window");
+        return Ok(());
+    }
+    if args == ["--migrate"] {
+        branding::migrate(&directory, &control::paths::config_directory()?)?;
+        let _store = storage::MetadataStore::open(&directory)?;
+        actions::migrate_projects(&control::paths::config_directory()?)?;
+        println!(
+            "DevCenter config: {}\nDevCenter database: {}",
+            control::paths::config_directory()?.display(),
+            directory.join("workspaces.sqlite3").display()
+        );
         return Ok(());
     }
     if !args.is_empty() && args != ["--show"] {
@@ -503,7 +515,8 @@ fn run() -> Result<(), String> {
     if args == ["--show"] {
         return Err("Application unavailable; --show never starts it".into());
     }
-    let registry = match WorkspaceRegistry::open(&directory) {
+    branding::migrate(&directory, &control::paths::config_directory()?)?;
+    let registry = match SessionRegistry::open(&directory) {
         Ok(registry) => registry,
         Err(error) => {
             // A simultaneous launch may own the lock before its socket is ready.
@@ -516,17 +529,18 @@ fn run() -> Result<(), String> {
             return Err(error);
         }
     };
+    actions::migrate_projects(&control::paths::config_directory()?)?;
     tauri::Builder::default()
-        .manage(Sessions(Arc::new(Mutex::new(registry))))
+        .manage(AppRegistry(Arc::new(Mutex::new(registry))))
         .manage(Lifecycle::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
-            app.state::<Sessions>()
+            app.state::<AppRegistry>()
                 .0
                 .lock()
                 .map_err(|e| std::io::Error::other(e.to_string()))?
-                .set_actions_directory(app.path().app_config_dir()?);
+                .set_actions_directory(control::paths::config_directory()?);
             app.manage(
                 instance::Instance::start(socket, app.handle().clone())
                     .map_err(std::io::Error::other)?,
@@ -545,15 +559,15 @@ fn run() -> Result<(), String> {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            create_workgroup,
-            update_workgroup,
-            fold_workgroup,
-            close_workgroup,
-            workgroup_config,
-            workgroup_actions,
+            create_project,
+            update_project,
+            fold_project,
+            close_project,
+            project_config,
+            project_actions,
             parse_actions,
             format_actions,
-            save_workgroup_actions,
+            save_project_actions,
             application_status,
             quit,
             start,
@@ -562,14 +576,17 @@ fn run() -> Result<(), String> {
             acknowledge,
             resize,
             status,
-            close_session,
+            close_terminal_session,
             defaults,
-            workspaces,
-            create_workspace,
-            update_workspace,
-            select_workspace,
-            reorder_workspace,
-            close_workspace,
+            sessions,
+            create_session,
+            update_session,
+            select_session,
+            reorder_session,
+            reorder_project,
+            desktop_input::terminal_clipboard,
+            desktop_input::open_terminal_link,
+            close_session,
             create_tab,
             run_external_action,
             actions,
@@ -591,7 +608,7 @@ fn run() -> Result<(), String> {
             }
             if let tauri::RunEvent::Exit = event {
                 app.state::<instance::Instance>().stop();
-                if let Ok(mut session) = app.state::<Sessions>().0.lock() {
+                if let Ok(mut session) = app.state::<AppRegistry>().0.lock() {
                     let _ = session.shutdown(true);
                 }
             }
