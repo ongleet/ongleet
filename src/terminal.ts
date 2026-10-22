@@ -43,11 +43,13 @@ export class TerminalFrontend {
   private visibilityChanged = () => this.setVisible(this.visible);
 
   setVisible(visible: boolean) {
+    const becameVisible = visible && !this.visible;
     this.visible = visible;
     if (!visible || document.hidden) { this.term?.blur(); return; }
     if (!this.replaying) this.fitVisible?.();
     const term = this.term;
     if (term?.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
+    if (becameVisible) term?.focus();
   }
 
   async start(startIfStopped = true) {

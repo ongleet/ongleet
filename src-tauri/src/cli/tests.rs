@@ -98,3 +98,36 @@ fn oversized_response_returns_a_bounded_structured_error() {
     assert!(!response.ok);
     assert_eq!(response.error.unwrap().code, "response_too_large");
 }
+
+#[test]
+fn scoped_help_needs_no_target_or_required_options() {
+    for values in [
+        vec!["workspace", "--help"],
+        vec!["workspace", "create", "--help"],
+        vec!["--json", "workspace", "close", "-h"],
+        vec!["app", "quit", "--help"],
+    ] {
+        let Invocation::Help(text) = parse(args(&values)).unwrap() else {
+            panic!("Help must never execute a request: {values:?}");
+        };
+        assert!(text.contains("AUTOMATION CONTRACT"));
+    }
+    let Invocation::Help(text) = parse(args(&["workspace", "create", "--help"])).unwrap() else {
+        panic!("Expected help");
+    };
+    assert!(text.contains("workspace create --workgroup ID --name NAME"));
+    assert!(text.contains("poll workspace list"));
+    assert!(!text.contains("workspace rename ID"));
+    for values in [
+        vec!["unknown", "--help"],
+        vec!["workspace", "unknown", "--help"],
+        vec!["app", "quit", "--help", "--confirm"],
+    ] {
+        assert!(parse(args(&values)).is_err(), "{values:?}");
+    }
+    // A literal name is not a help request.
+    assert!(matches!(
+        parse(args(&["workspace", "rename", "1", "--name", "-h"])).unwrap(),
+        Invocation::Request(Command::WorkspaceRename { name, .. }) if name == "-h"
+    ));
+}

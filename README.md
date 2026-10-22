@@ -126,7 +126,7 @@ External applications are deliberately independent of managed terminal sessions.
 
 Build the frontend with `mise exec -- npm run build`, then both standalone executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. App-launched terminals automatically prepend the application executable directory to PATH, so `terminal-workspace` is available there when built alongside the GUI. This does not change your personal PATH or shell configuration. Explicit workgroup/action PATH overrides take precedence, and shell startup files may replace PATH. Existing terminals retain their environment; open a new tab after restarting the updated app.
 
-The CLI is `src-tauri/target/debug/terminal-workspace`; use `--help` for every command. Outside app terminals, until packaging installs it on PATH, substitute that path for `terminal-workspace` in these examples:
+The CLI is `src-tauri/target/debug/terminal-workspace`. Use `--help` for the full command reference and automation contract, `workspace --help` for a resource, or `workspace create --help` for a specific command (`-h` also works). Help runs without connecting to the application. It documents command effects, JSON responses, ID discovery, exit codes, confirmation and timeout/retry behavior for scripts and AI agents. Outside app terminals, until packaging installs it on PATH, substitute that path for `terminal-workspace` in these examples:
 
 ```bash
 terminal-workspace workgroup list

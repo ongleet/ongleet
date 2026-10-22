@@ -150,7 +150,7 @@ function WorkspacePane({ workspace, visible, statuses, disabled, reportStatus, m
     if (target === null) return;
     event.preventDefault();
     const id = openTabs[target].id;
-    void mutate('select_tab', { id }).then(selected => { if (selected) document.getElementById(`tab-${id}`)?.focus(); });
+    void mutate('select_tab', { id });
   }
   return <section className="workspace-pane" hidden={!visible} aria-label={workspace.name}>
     <div className="tab-bar">

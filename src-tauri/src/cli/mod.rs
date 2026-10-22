@@ -9,40 +9,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-const HELP: &str = "terminal-workspace [--json] <resource> <command> [options]
-
-workspace list
-workspace create --workgroup ID --name NAME [--directory PATH]
-workspace rename ID --name NAME
-workspace directory ID --directory PATH
-workspace move ID --workgroup ID
-workspace reorder ID --position INDEX    (zero-based within its workgroup)
-workspace select ID
-workspace close ID [--confirm]           (required for running processes)
-
-workgroup list
-workgroup create --name NAME --root PATH
-workgroup rename ID --name NAME
-workgroup directory ID --directory PATH
-workgroup fold ID
-workgroup unfold ID
-workgroup close ID                       (empty groups only)
-
-app show
-app status
-app quit [--confirm]
-app start [--executable PATH]            (explicit start only)
-
-Results are JSON on stdout; errors are JSON on stderr. IDs are stable positive
-integers. Relative directories resolve from this invocation's directory.
-The CLI communicates with the running app and never accesses SQLite.
-Exit codes: 0 success; 2 usage; 3 unavailable; 4 missing ID; 5 confirmation;
-6 operation failed; 7 permission; 8 protocol/size/timeout.
-";
+mod help;
 
 #[derive(Debug)]
 pub enum Invocation {
-    Help,
+    Help(String),
     Request(Command),
     Start(Option<PathBuf>),
 }
@@ -76,7 +47,20 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         args.remove(0);
     }
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
-        return Ok(Invocation::Help);
+        return Ok(Invocation::Help(help::render(&[])?));
+    }
+    // Only recognize help in the command prefix: option values may literally be "-h".
+    if let Some(index) = args
+        .iter()
+        .take(3)
+        .position(|arg| arg == "--help" || arg == "-h")
+    {
+        if index != args.len() - 1 {
+            return Err(invalid(
+                "Help must follow the resource or command, without extra arguments",
+            ));
+        }
+        return Ok(Invocation::Help(help::render(&args[..index])?));
     }
     if args.len() < 2 {
         return Err(invalid("Expected a resource and command; use --help"));
@@ -222,7 +206,7 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
         .map_err(|e| RpcError::new("unavailable", e))?;
     let socket = paths::socket_path(&data).map_err(|e| RpcError::new("permission_denied", e))?;
     match invocation {
-        Invocation::Help => unreachable!(),
+        Invocation::Help(_) => unreachable!(),
         Invocation::Request(command) => client::call(&socket, command),
         Invocation::Start(executable) => {
             match client::call(&socket, Command::Status) {
@@ -284,8 +268,8 @@ pub fn run() -> i32 {
         Ok(value) => value,
         Err(error) => return print_error(error),
     };
-    if matches!(invocation, Invocation::Help) {
-        print!("{HELP}");
+    if let Invocation::Help(text) = invocation {
+        print!("{text}");
         return 0;
     }
     match execute(invocation) {
