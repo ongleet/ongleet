@@ -602,14 +602,93 @@ dialog[aria-label='Project editor'] > [role='status'] {
   flex: 1;
   min-width: 100px;
 }
+.files-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.files-panel select {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  align-self: center;
+  font: inherit;
+  font-size: 12px;
+  color: inherit;
+  background: #121923;
+  border: 1px solid #45546a;
+  border-radius: 5px;
+  padding: 3px 4px;
+}
+.files-panel > .plugin-toolbar {
+  flex-shrink: 0;
+}
+.files-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.files-load-more {
+  min-height: 1px;
+}
 .file-list {
   list-style: none;
   padding: 0;
+  margin: 0 0 16px;
 }
-.file-list button {
+.file-list-heading {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px 8px 42px;
+  border-bottom: 1px solid #303a48;
+  color: #9cabbf;
+  font-size: 12px;
+}
+.file-list-heading > :last-child {
+  width: 100px;
+}
+.file-list .file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-align: left;
   width: 100%;
-  margin-bottom: 3px;
+  min-height: 34px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.file-list .file-row:hover:not(:disabled) {
+  background: #1e2835;
+}
+.file-list .file-row:focus-visible {
+  background: #283b3e;
+  outline-offset: -2px;
+}
+.file-icon {
+  flex-shrink: 0;
+  color: #9cabbf;
+}
+.folder-icon {
+  color: #dbbc7b;
+  fill: #dbbc7b1a;
+}
+.file-name {
+  overflow-wrap: anywhere;
+}
+.file-symlink {
+  color: #9cabbf;
+}
+.file-kind {
+  flex-shrink: 0;
+  width: 100px;
+  margin-left: auto;
+  color: #9cabbf;
+  font-size: 12px;
+}
+.file-list-empty {
+  padding: 12px;
 }
 .plugin-json {
   width: 100%;

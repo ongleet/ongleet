@@ -82,6 +82,8 @@ pub async fn list_plugin_files(
     id: u64,
     folder: Option<String>,
     offset: usize,
+    order: Option<plugins::files::SortOrder>,
+    show_hidden: Option<bool>,
 ) -> Result<plugins::files::Listing, String> {
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -92,7 +94,12 @@ pub async fn list_plugin_files(
                 .or_else(|| tab.config["folder"].as_str().map(String::from))
                 .ok_or("File browser folder is unavailable")?
         };
-        let listing = plugins::files::list(&folder, offset)?;
+        let listing = plugins::files::list(
+            &folder,
+            offset,
+            order.unwrap_or_default(),
+            show_hidden.unwrap_or(false),
+        )?;
         let mut guard = registry.lock().map_err(|e| e.to_string())?;
         let current = guard.plugin_tab(id, "files")?;
         if offset == 0 && current.config["folder"].as_str() != Some(&listing.folder) {
