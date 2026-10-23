@@ -417,9 +417,21 @@ def run(args):
             if args.cli:
                 assert cli('app','status',code=3)['code'] == 'unavailable'
                 assert not Path(path).exists()
+            history_file = data / "terminal-history" / str(session["id"]) / f"{tab}.txt"
+            assert f"PID={stream_pid}" in history_file.read_text()
+            assert history_file.stat().st_mode & 0o777 == 0o600
             new_pid = connect()
-            wait_for(lambda: "TICK=" in client.screen(tab), "formerly running command restarted")
-            new_stream = next(int(line.split("=",1)[1].split()[0]) for line in client.screen(tab).splitlines() if line.startswith("PID="))
+            wait_for(lambda: len([line for line in client.screen(tab).splitlines() if line.startswith("PID=")]) >= 2, "saved history and fresh command output")
+            restored_screen = client.screen(tab)
+            assert f"PID={stream_pid}" in restored_screen
+            assert "Previous terminal history" in restored_screen
+            new_stream = [int(line.split("=",1)[1].split()[0]) for line in restored_screen.splitlines() if line.startswith("PID=")][-1]
+            runtime_id = client.state(tab)["sessionId"]
+            client.request("POST", "/refresh", {})
+            wait_for(lambda: client.state(tab) and not client.state(tab)["replaying"], "history reload reattachment")
+            assert client.state(tab)["sessionId"] == runtime_id
+            assert client.screen(tab).count("Previous terminal history") == 1
+            mark("Saved text survives Quit/restart with a distinct fresh process; reload preserves history without duplicating it")
             assert new_stream != stream_pid
             assert client.invoke("sessions")["sessions"][0]["id"] == session["id"]
             if args.cli:

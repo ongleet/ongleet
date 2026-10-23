@@ -3,6 +3,7 @@ use crate::terminal_session::{Status, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+mod history;
 mod projects;
 mod tabs;
 mod terminals;

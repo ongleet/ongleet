@@ -7,6 +7,7 @@
 - Use mise for Node and Rust dependencies and commands. Ubuntu system libraries are installed through the system package manager.
 - Read `README.md`, `docs/STACK.md`, and `docs/VALIDATION.md` before changing terminal architecture. Keep findings and limitations accurate; distinguish observed behavior from assumptions.
 - Keep version one small. Report architectural blockers before building features on an unvalidated foundation.
+- Read `MEMORY.ignore.md` at the start of each task when it exists. Maintain this local memory file with concise dated entries for meaningful actions, changes, decisions, verification results, and remaining limitations. Update it after completing work; avoid command transcripts, redundant details, and secrets.
 
 ## Scope and implementation order
 

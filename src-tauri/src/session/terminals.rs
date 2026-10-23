@@ -108,7 +108,12 @@ impl SessionRegistry {
         };
         self.next_terminal_id += 1;
         let id = self.next_terminal_id;
-        let session = match TerminalSession::spawn(id, launch, output) {
+        let previous_history = if self.data_directory.is_some() {
+            self.terminal_history(tab_id)?
+        } else {
+            String::new()
+        };
+        let mut session = match TerminalSession::spawn(id, launch, output) {
             Ok(session) => session,
             Err(error) => {
                 self.tab_session_mut(tab_id)?
@@ -121,6 +126,7 @@ impl SessionRegistry {
                 return Err(error);
             }
         };
+        session.previous_history = previous_history;
         self.terminals.insert(tab_id, session);
         self.tab_session_mut(tab_id)?
             .tabs

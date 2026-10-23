@@ -87,7 +87,15 @@ The journal has a 4 MiB accounting budget per session; replay temporarily holds 
 
 ## Persistence and command restart
 
-At the user's request, only tabs that were running when the app last closed automatically launch again. These are **new processes**, not recovered live sessions; previous screens and output history are not restored. Tabs explicitly stopped/closed and processes observed to have exited do not auto-start. Stopped open tabs restore as stopped. A crash uses the last committed running set. Startup waits for connected terminal frontends; failed launches report errors without an automatic retry loop.
+At the user's request, only tabs that were running when the app last closed automatically launch again. These are **new processes**, not recovered live sessions; previous terminal text is restored as history, without restoring process or emulator state. Tabs explicitly stopped/closed and processes observed to have exited do not auto-start. Stopped open tabs restore as stopped. A crash uses the last committed running set. Startup waits for connected terminal frontends; failed launches report errors without an automatic retry loop.
+
+### Persistent terminal history
+
+Every terminal tab automatically saves a plain-text snapshot of its current Ghostty buffer, including available scrollback. No wrapper or shell configuration is required. After Quit, reboot or a crash, the saved text appears above a `Previous terminal history; new process below` separator. Eligible tabs then launch a fresh process; stopped tabs display their saved history without launching. Live WebView reloads retain the original history prefix and replay the current process without duplicating that prefix.
+
+Snapshots retain up to 2,000 lines and approximately 60,000 UTF-16 code units (at most 240 KiB UTF-8). They are updated at most once per second while output arrives, after observed EOF, and just before the GUI Quit action. A crash, abrupt shutdown or CLI Quit can lose recent output since the last snapshot. This is a snapshot of retained terminal text, not a complete command log: cleared/discarded output is unavailable, and full-screen programs save their active screen. Colors, terminal modes, selection and process state are not saved. New programs may clear the restored display using their normal terminal controls.
+
+Files live under `terminal-history/<session-id>/<tab-id>.txt` in application data, keyed by stable IDs, with mode 0600 and atomic replacement. They contain displayed terminal text, which can include sensitive output. Files are bounded per tab and remain after closure, like Codex conversation mappings. No terminal output is added to SQLite. Previously existing tabs begin recording after this version runs; earlier output cannot be recovered from disk.
 
 ### Codex conversation restoration
 
@@ -107,7 +115,7 @@ Schema version 3 renames workgroups to **projects** and workspaces to **sessions
 
 To migrate without launching terminals, quit DevCenter and run `devcenter-gui --migrate`. Migration refuses an active metadata writer. Database migrations are transactional and failures never reset metadata.
 
-The database is `workspaces.sqlite3` in DevCenter's application data directory, normally `$XDG_DATA_HOME/devcenter/` or `~/.local/share/devcenter/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output. New tabs persist a copy of their YAML launch configuration.
+The database is `workspaces.sqlite3` in DevCenter's application data directory, normally `$XDG_DATA_HOME/devcenter/` or `~/.local/share/devcenter/`. Versioned migrations are in `src-tauri/migrations/`. Definitions (including their kind/configuration) and open tabs are stored separately. Only explicit environment overrides are saved, never the inherited environment or terminal output in SQLite. Terminal text snapshots are stored separately as described above. New tabs persist a copy of their YAML launch configuration.
 
 DevCenter stores configuration in `$XDG_CONFIG_HOME/devcenter/` (normally `~/.config/devcenter/`) and data in `$XDG_DATA_HOME/devcenter/` (normally `~/.local/share/devcenter/`). On first startup it moves the previous `io.local.terminal-stack-prototype` directories to these paths, preserving project YAML, database sidecars, IDs and Codex conversation mappings. Quit the previous application first. Migration refuses a live legacy writer or an existing destination rather than merging or overwriting files. You can run `devcenter-gui --migrate` to migrate without opening a window. It is safe to repeat after a successful move.
 

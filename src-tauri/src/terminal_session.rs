@@ -140,6 +140,7 @@ struct Resources {
 
 pub struct TerminalSession {
     pub id: u64,
+    pub previous_history: String,
     initial_cols: u16,
     initial_rows: u16,
     resources: Arc<(Mutex<Resources>, Condvar)>,
@@ -389,6 +390,7 @@ impl TerminalSession {
         });
         Ok(Self {
             id,
+            previous_history: String::new(),
             initial_cols: launch.cols,
             initial_rows: launch.rows,
             resources,

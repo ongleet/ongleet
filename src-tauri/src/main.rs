@@ -76,6 +76,37 @@ async fn connect(
 }
 
 #[tauri::command]
+async fn terminal_history(state: State<'_, AppRegistry>, tab_id: u64) -> Result<String, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .terminal_history(tab_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn save_terminal_history(
+    state: State<'_, AppRegistry>,
+    tab_id: u64,
+    id: u64,
+    text: String,
+) -> Result<(), String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .save_terminal_history(tab_id, id, text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn start(
     state: State<'_, AppRegistry>,
     tab_id: u64,
@@ -572,6 +603,8 @@ fn run() -> Result<(), String> {
             quit,
             start,
             connect,
+            terminal_history,
+            save_terminal_history,
             input,
             acknowledge,
             resize,

@@ -269,6 +269,7 @@ function App() {
       const status = await invoke<{ runningTerminals: number }>('application_status');
       const confirmed = status.runningTerminals > 0;
       if (confirmed && !await confirm(`Quit and force-stop ${status.runningTerminals} running terminal session(s) and their child processes?`)) return;
+      await TerminalFrontend.saveAllHistory();
       await invoke('quit', { confirmed });
     } catch (error) { report(error); }
     finally { markBusy(false); }

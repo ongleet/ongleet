@@ -14,6 +14,12 @@ export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: numb
 type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'size'; seq: number; cols: number; rows: number } | { type: 'ready'; seq: number } | { type: 'eof' } | { type: 'error'; message: string };
 
 export class TerminalFrontend {
+  private static instances = new Set<TerminalFrontend>();
+
+  static async saveAllHistory() {
+    await Promise.all([...this.instances].map(terminal => terminal.saveHistory()));
+  }
+
   private term?: Terminal;
   private observer?: ResizeObserver;
   private subscriptions: { dispose(): void }[] = [];
@@ -25,10 +31,14 @@ export class TerminalFrontend {
   private visible = true;
   private fitVisible?: () => void;
   private replaying = false;
+  private historyTimer?: ReturnType<typeof setTimeout>;
+  private lastHistorySave = 0;
+  private historySave?: Promise<void>;
   private disposed = false;
   private unregisterValidation?: () => void;
 
   constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {
+    TerminalFrontend.instances.add(this);
     document.addEventListener('visibilitychange', this.visibilityChanged);
     if (import.meta.env.MODE === 'native-validation') {
       void import('./native-validation').then(({ registerTerminal }) => {
@@ -144,6 +154,8 @@ export class TerminalFrontend {
       }
       return false;
     });
+    const history = await invoke<string>('terminal_history', { tabId: this.tabId }).catch(error => { this.error(error); return ''; });
+    if (this.disposed || this.term !== term) return;
     const output = new Channel<Output>();
     let started: Promise<number | undefined>;
     output.onmessage = event => {
@@ -154,6 +166,7 @@ export class TerminalFrontend {
           // Preserve byte boundaries all the way into Ghostty's stateful VT
           // parser. Never decode each PTY chunk as an independent UTF-8 string.
           terminalLinks.write(event.bytes);
+          if (!this.replaying) this.scheduleHistory();
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.
           await invoke('acknowledge', { id, seq: event.seq });
@@ -164,12 +177,20 @@ export class TerminalFrontend {
           this.replaying = false;
           fitVisible();
           await invoke('acknowledge', { id, seq: event.seq });
+        } else if (event.type === 'eof') {
+          await this.saveHistory();
         } else if (event.type === 'error') this.error(event.message);
       })().catch(this.error);
     };
     type Attachment = { id: number; cols: number; rows: number; replay: boolean };
     started = invoke<Attachment | null>('connect', { tabId: this.tabId, cols: term.cols, rows: term.rows, output, startIfStopped }).then(connection => {
-      if (!connection || this.disposed || this.term !== term) return undefined;
+      if (this.disposed || this.term !== term) return undefined;
+      if (history) {
+        // Render saved text as text: never replay control sequences from disk.
+        const safe = history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
+        term.write(new TextEncoder().encode(safe.replace(/\n/g, '\r\n') + '\r\n--- Previous terminal history; new process below ---\r\n'));
+      }
+      if (!connection) return undefined;
       this.replaying = connection.replay;
       if (connection.replay) term.resize(connection.cols, connection.rows);
       // Publish the ID before waiting output handlers resume.
@@ -189,6 +210,33 @@ export class TerminalFrontend {
       this.disposeEmulator();
       throw error;
     }
+  }
+
+  private scheduleHistory() {
+    if (this.historyTimer !== undefined) return;
+    this.historyTimer = setTimeout(() => {
+      void this.saveHistory().catch(this.error).finally(() => { this.historyTimer = undefined; });
+    }, Math.max(0, 1000 - (Date.now() - this.lastHistorySave)));
+  }
+
+  async saveHistory() {
+    // Keep disk writes ordered and retain at most one snapshot in flight.
+    while (this.historySave) await this.historySave.catch(() => {});
+    const term = this.term;
+    const id = this.id;
+    if (!term || id === undefined || this.replaying || this.disposed) return;
+    this.lastHistorySave = Date.now();
+    const buffer = term.buffer.active;
+    const lines: string[] = [];
+    let budget = 60000; // At most 240 KiB UTF-8, below the native 256 KiB limit.
+    for (let row = buffer.length - 1; row >= 0 && lines.length < SCROLLBACK_LINES && budget > 0; row--) {
+      const line = (buffer.getLine(row)?.translateToString(true) ?? '').slice(-budget).replace(/^[\uDC00-\uDFFF]/, '');
+      lines.push(line);
+      budget -= line.length + 1;
+    }
+    const text = lines.reverse().join('\n').trimEnd();
+    this.historySave = invoke<void>('save_terminal_history', { tabId: this.tabId, id, text });
+    try { await this.historySave; } finally { this.historySave = undefined; }
   }
 
   private poll(id: number) {
@@ -262,6 +310,8 @@ export class TerminalFrontend {
   }
 
   private disposeEmulator() {
+    clearTimeout(this.historyTimer);
+    this.historyTimer = undefined;
     this.observer?.disconnect();
     this.subscriptions.splice(0).forEach(s => s.dispose());
     this.term?.dispose();
@@ -271,6 +321,7 @@ export class TerminalFrontend {
   }
 
   dispose() {
+    TerminalFrontend.instances.delete(this);
     this.disposed = true;
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.unregisterValidation?.();
