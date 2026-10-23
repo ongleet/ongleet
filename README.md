@@ -293,3 +293,7 @@ The development WebView loads terminal WASM lazily when a terminal frontend conn
 The repeatable [native validation procedure](docs/VALIDATION.md#reproduce-the-native-checks) runs an isolated bundled Tauri application through WebKitGTK WebDriver, using temporary metadata instead of your saved sessions. It covers reload/reconnection, hidden output, native clipboard shortcuts, actual PTY resizing, repeated tab creation and unsent Codex prompt editing. A special frontend build exposes bounded diagnostics only for that test mode; normal builds contain no validation bridge.
 
 The browser mouse adapter now forwards reports to terminal applications; the isolated Wayland curses check passes. Native pointer selection/copy, image/file clipboard detection and OSC 8 link activation also pass on this host. Actual Codex image attachment and remaining manual/X11 checks are still open; the full terminal validation gate is not complete. Closed-tab cell reuse was reproduced and the app now resets new emulators after their initial fit before attaching output. No terminal engine was replaced.
+
+## Frontend plugin SDK
+
+Terminal, Files and Pull request use the scoped JavaScript SDK backed by reusable Rust core services. Bundled JSON manifests drive frontend registration, configuration validation and CLI discovery. The SDK example demonstrates filesystem, literal subprocess arguments and versioned storage without a Rust provider. See [plugin development](docs/PLUGINS.md) for the API, persistence/migration contract and adding capabilities.

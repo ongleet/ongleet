@@ -1,0 +1,19 @@
+{
+  "id": "sdk-example",
+  "label": "SDK example",
+  "configVersion": 1,
+  "sdkVersion": 1,
+  "entrypoint": "entrypoint.tsx",
+  "description": "Small frontend-only example using filesystem, process and storage services.",
+  "capabilities": ["fs", "process", "storage"],
+  "defaults": {},
+  "contextDefaults": { "folder": "session.directory" },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "folder": { "type": ["string", "null"], "absolutePath": true, "maxBytes": 8192 }
+    }
+  },
+  "examples": [{}]
+}

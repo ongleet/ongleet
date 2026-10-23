@@ -1,0 +1,21 @@
+{
+  "configVersion": 1,
+  "description": "Read-only GitHub PR status, using authenticated gh and the session's explicit PR association.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "examples": [{}],
+  "notes": [
+    "Repository and PR number belong to the session association, not tab configuration.",
+    "Set the association in the Pull request UI; CLI association editing is not implemented."
+  ],
+  "id": "pull-request",
+  "label": "Pull request",
+  "sdkVersion": 1,
+  "defaults": {},
+  "capabilities": ["process", "desktop", "storage"],
+  "runtime": null,
+  "entrypoint": "entrypoint.tsx"
+}

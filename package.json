@@ -7,14 +7,15 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/check-plugin-boundaries.mjs && tsc --noEmit && vite build",
     "tauri": "tauri",
     "check:host": "bash scripts/check-host.sh",
     "check:wasm": "node scripts/check-wasm.mjs",
     "check:terminal-reuse": "node scripts/check-terminal-reuse.mjs",
     "check:rendering": "node scripts/check-rendering.mjs",
     "check:terminal-input": "node scripts/check-terminal-input.mjs",
-    "check:engine-loader": "node scripts/check-engine-loader.mjs"
+    "check:engine-loader": "node scripts/check-engine-loader.mjs",
+    "check:plugins": "node scripts/check-plugin-boundaries.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

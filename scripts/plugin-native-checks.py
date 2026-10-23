@@ -34,6 +34,16 @@ print(json.dumps({'title':'Plugin native fixture','url':'https://github.com/exam
     assert 'devcenter-file-validation.desktop' in subprocess.run(['gio','mime','text/plain'], env=env, capture_output=True, text=True, check=True).stdout
 
 
+def sdk(client, tab, service, method, *args):
+    result = client.request('POST', '/execute/async', {
+        'script': "const done=arguments[arguments.length-1]; Promise.resolve().then(()=>window.__sdkValidation.call(...arguments[0])).then(value=>done({value}),error=>done({error:{code:error.code,message:String(error)}}));",
+        'args': [[tab, service, method, list(args)]],
+    })
+    if 'error' in result:
+        raise RuntimeError(json.dumps(result['error']))
+    return result.get('value')
+
+
 def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, mark, cli=None):
     folder = directory / 'browser-fixture'
     folder.mkdir()
@@ -42,6 +52,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     path = directory / 'config/devcenter/projects/1/actions.yaml'
     settings = json.loads(path.read_text())
     settings['actions'] += [
+        {'id':'sdk','name':'SDK example','kind':'sdk-example','config':{}},
         {'id':'files','name':'Files','kind':'files','config':{}},
         {'id':'pr','name':'Pull request','kind':'pull-request','config':{}},
     ]
@@ -57,7 +68,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     client.click(f"//section[@id='tab-panel-{files}']//button[contains(.,'browser-link')]", 'xpath')
     wait_for(lambda: client.js("return document.querySelector(arguments[0]).value===arguments[1]", f'#tab-panel-{files} input[aria-label="Folder"]', str(folder)), 'symlink folder navigation')
     try:
-        client.invoke('list_plugin_files', {'id':files,'folder':str(folder / 'missing'),'offset':0})
+        sdk(client, files, 'fs', 'list', {'folder':str(folder / 'missing'),'offset':0,'order':'nameAscending','showHidden':False,'query':''})
     except RuntimeError as error:
         assert 'Cannot browse' in str(error)
     else:
@@ -69,15 +80,17 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     client.click('.editor-toolbar button[popovertarget]')
     client.click("//div[contains(@class,'editor-menu')]//button[normalize-space()='← Files']", 'xpath')
     # The native external opener remains available for non-text files.
-    client.invoke('open_plugin_file', {'id': files, 'path': str(folder / 'unchanged.txt')})
+    sdk(client, files, 'desktop', 'openFile', str(folder / 'unchanged.txt'))
     wait_for(lambda: (directory / 'opened-file').exists(), 'associated file application')
     assert (directory / 'opened-file').read_text() == str(folder / 'unchanged.txt')
     assert (folder / 'unchanged.txt').read_text() == 'read-only fixture'
     assert client.state(terminal)['sessionId'] and pid_alive(stream_pid)
     mark('Files plugin follows directory symlinks, opens files through a private associated application, retains navigation, rejects missing paths and preserves sibling PTY')
+    sdk_contract_checks(client, directory, session['id'], wait_for, pid_alive, mark)
     result = client.invoke('create_tab', {'sessionId':session['id'],'actionId':'pr'})
     pr = next(s for s in result['sessions'] if s['id'] == session['id'])['selectedTabId']
-    client.invoke('associate_pull_request', {'id':pr,'target':'https://github.com/example/repo/pull/42','number':None})
+    wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', pr), 'PR SDK attachment')
+    sdk(client, pr, 'storage', 'replace', 'session', 0, 1, {'repository':'example/repo','number':42})
     client.request('POST', '/refresh', {})
     wait_for(lambda: client.js("return document.querySelector(arguments[0])?.innerText.includes('Plugin native fixture')", f'#tab-panel-{pr}'), 'GitHub fixture status')
     calls = [json.loads(line) for line in (directory / 'gh-calls.jsonl').read_text().splitlines()]
@@ -90,7 +103,9 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
         assert len((directory / 'gh-calls.jsonl').read_text().splitlines()) == hidden_count
         time.sleep(0.25)
     client.click(f'#tab-{pr}')
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > hidden_count, 'visible PR 60-second polling', timeout=70)
+    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > hidden_count, 'visible PR refresh', timeout=70)
+    visible_count = len((directory / 'gh-calls.jsonl').read_text().splitlines())
+    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > visible_count, 'visible PR 60-second polling', timeout=70)
     wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'periodic refresh completion')
     calls = [json.loads(line) for line in (directory / 'gh-calls.jsonl').read_text().splitlines()]
     mark('PR polling pauses while hidden and refreshes through the real 60-second WebKitGTK timer when visible')
@@ -103,11 +118,25 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > len(calls) + 1, 'pending gh child')
     pending_pid = json.loads((directory / 'gh-calls.jsonl').read_text().splitlines()[-1])['pid']
     try:
-        client.invoke('refresh_pull_request', {'id':pr})
+        sdk(client, pr, 'process', 'run', {'executable':'gh','args':['pr','view','42','--repo','example/repo']})
     except RuntimeError as error:
         assert 'already running' in str(error)
     else:
         raise AssertionError('Overlapping PR refresh accepted')
+    # Replacing the shared namespace must join old work before notifying tabs.
+    (directory / 'gh-mode').write_text('ok')
+    current = sdk(client, pr, 'storage', 'read', 'session')
+    sdk(client, pr, 'storage', 'replace', 'session', current['revision'], 1, {'repository':'example/changed','number':43})
+    assert not pid_alive(pending_pid), 'Association change returned before old child cleanup'
+    wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'changed association refresh')
+    current = sdk(client, pr, 'storage', 'read', 'session')
+    sdk(client, pr, 'storage', 'replace', 'session', current['revision'], 1, {'repository':'example/repo','number':42})
+    wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'restored association refresh')
+    (directory / 'gh-mode').write_text('wait')
+    previous = len((directory / 'gh-calls.jsonl').read_text().splitlines())
+    client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Refresh']", 'xpath')
+    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > previous, 'pending child after association change')
+    pending_pid = json.loads((directory / 'gh-calls.jsonl').read_text().splitlines()[-1])['pid']
     client.invoke('close_tab', {'id':pr,'confirmed':False})
     wait_for(lambda: not pid_alive(pending_pid), 'PR child cancelled on close')
     client.request('POST', '/refresh', {})
@@ -146,3 +175,65 @@ def after_quit(directory, pending_pid, pid_alive, mark):
     assert not pid_alive(pending_pid), 'Quit left a live gh subprocess'
     (directory / 'gh-mode').write_text('ok')
     mark('Quit waits for pending PR subprocess cleanup before exiting')
+
+
+def sdk_contract_checks(client, directory, session_id, wait_for, pid_alive, mark):
+    result = client.invoke('create_tab', {'sessionId':session_id,'actionId':'sdk'})
+    tab = next(s for s in result['sessions'] if s['id'] == session_id)['selectedTabId']
+    client.request('POST','/refresh',{})
+    wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', tab), 'example SDK attachment')
+    client.click(f'#tab-panel-{tab} button')
+    wait_for(lambda: client.js("return document.querySelector(arguments[0])?.innerText.includes('saved run 1')", f'#tab-panel-{tab}'), 'frontend-only fs/process/storage example')
+    current = sdk(client, tab, 'storage', 'read', 'tab')
+    assert current['value'] == {'runs':1}
+    try: sdk(client, tab, 'storage', 'replace', 'tab', 0, 1, {'runs':999})
+    except RuntimeError as error: assert 'revision_conflict' in str(error)
+    else: raise AssertionError('Stale namespace update accepted')
+    assert sdk(client, tab, 'storage', 'read', 'tab')['value'] == {'runs':1}
+    for options, expected in [
+        ({'executable':'/usr/bin/python3','args':['-c','import time; time.sleep(60)'],'timeoutMs':80}, 'timeout'),
+        ({'executable':'/usr/bin/python3','args':['-c',"import sys; sys.stderr.write('x'*600000)"]}, 'limit_exceeded'),
+    ]:
+        try: sdk(client, tab, 'process', 'run', options)
+        except RuntimeError as error: assert expected in str(error), str(error)
+        else: raise AssertionError('Process bound ignored')
+    client.request('POST', '/execute/async', {
+        'script': "const done=arguments[arguments.length-1]; window.__sdkEvents=0; window.__sdkValidation.call(arguments[0], 'storage', 'subscribe', [()=>window.__sdkEvents++]).then(unsubscribe=>{window.__sdkUnsubscribe=unsubscribe;done(true)},error=>done(String(error)));",
+        'args':[tab],
+    })
+    sdk(client, tab, 'storage', 'configure', {})
+    wait_for(lambda: client.js('return window.__sdkEvents>0'), 'SDK change notification')
+    client.js('window.__sdkUnsubscribe(); window.__sdkEvents=0; return true')
+    sdk(client, tab, 'storage', 'configure', {})
+    assert client.request('POST', '/execute/async', {'script':'const done=arguments[arguments.length-1]; setTimeout(()=>done(window.__sdkEvents),200)', 'args':[]}) == 0, 'Disposed subscription still receives changes'
+    pid_file = directory / 'sdk-child'
+    options = {'executable':'/usr/bin/python3','args':['-c', 'import os,pathlib,time; pathlib.Path('+repr(str(pid_file))+').write_text(str(os.getpid())); time.sleep(60)']}
+    def launch():
+        pid_file.unlink(missing_ok=True)
+        client.js("window.__sdkJob = window.__sdkValidation.call(arguments[0], 'process', 'run', [arguments[1]]).then(value=>({value}),error=>({code:error.code,message:String(error)})); return true", tab, options)
+        wait_for(lambda: pid_file.exists() and pid_file.read_text(), 'SDK child started')
+        return int(pid_file.read_text())
+    pid = launch()
+    try: sdk(client, tab, 'process', 'run', {'executable':'/usr/bin/true'})
+    except RuntimeError as error: assert 'already running' in str(error)
+    else: raise AssertionError('Overlapping native process accepted')
+    sdk(client, tab, 'process', 'cancel')
+    assert not pid_alive(pid), 'Cancellation returned before child cleanup'
+    result = client.request('POST', '/execute/async', {'script':'const done=arguments[arguments.length-1]; window.__sdkJob.then(done)', 'args':[]})
+    assert result['code'] == 'cancelled', result
+    pid = launch()
+    client.request('POST','/refresh',{})
+    wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', tab), 'SDK reload reattached')
+    wait_for(lambda: not pid_alive(pid), 'reload cancels old attachment process')
+    assert sdk(client, tab, 'storage', 'read', 'tab')['value'] == {'runs':1}
+    pid = launch()
+    client.invoke('archive_tab', {'id':tab,'confirmed':False})
+    wait_for(lambda: not pid_alive(pid), 'archive joins SDK child')
+    archive = client.invoke('archives')['entries'][0]['id']
+    client.request('POST','/refresh',{})
+    client.invoke('restore_archive', {'id':archive})
+    client.request('POST','/refresh',{})
+    wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', tab), 'restored SDK attachment')
+    assert sdk(client, tab, 'storage', 'read', 'tab')['value'] == {'runs':1}
+    client.invoke('close_tab', {'id':tab,'confirmed':False})
+    mark('Frontend-only SDK example crosses fs/process/storage boundary; structured conflicts/timeouts/flood errors, overlap rejection, cancellation, reload cleanup and archive restoration pass')

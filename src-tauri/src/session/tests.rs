@@ -890,7 +890,7 @@ fn plugin_tabs_restore_mixed_openings_and_unavailable_configuration_without_star
         .associate_pull_request(
             pr,
             Some(
-                crate::plugins::pull_request::Association::parse(
+                crate::core::pull_request_compat::Association::parse(
                     "https://github.com/example/repository/pull/42",
                     None,
                 )
@@ -1029,29 +1029,127 @@ fn files_location_and_editor_restore_together_and_back_clears_only_the_editor() 
         .unwrap();
     let tab = registry.next_tab_id;
     registry
-        .remember_files_editor(tab, Some(file.to_str().unwrap().into()))
+        .patch_plugin_config(
+            tab,
+            serde_json::json!({"editorFile":file.to_str().unwrap()}),
+        )
         .unwrap();
     // A listing update must not erase the remembered editor.
     registry
-        .remember_files_folder(tab, workspace.path())
+        .patch_plugin_config(tab, serde_json::json!({"folder":workspace.path()}))
         .unwrap();
     assert!(registry
-        .remember_files_editor(tab, Some("relative.txt".into()))
+        .patch_plugin_config(tab, serde_json::json!({"editorFile":"relative.txt"}))
         .is_err());
     drop(registry);
     let mut restored = SessionRegistry::open(&data.0).unwrap();
-    let config = restored.plugin_tab(tab, "files").unwrap().config.clone();
+    let config = restored.open_plugin_tab(tab).unwrap().config.clone();
     assert_eq!(config["folder"], workspace.path());
     assert_eq!(config["editorFile"], file.to_str().unwrap());
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
         "unchanged saved text"
     );
-    restored.remember_files_editor(tab, None).unwrap();
+    restored
+        .patch_plugin_config(tab, serde_json::json!({"editorFile":null}))
+        .unwrap();
     drop(restored);
     let restored = SessionRegistry::open(&data.0).unwrap();
-    let config = &restored.plugin_tab(tab, "files").unwrap().config;
+    let config = &restored.open_plugin_tab(tab).unwrap().config;
     assert_eq!(config["folder"], workspace.path());
     assert!(config["editorFile"].is_null());
     assert!(restored.terminals.is_empty());
+}
+
+#[test]
+fn plugin_namespaces_conflict_bound_owners_and_survive_archive_restart() {
+    let data = Directory::new();
+    let workspace = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry.create("SDK".into(), workspace.path()).unwrap();
+    let session = registry.sessions[0].id;
+    registry
+        .create_plugin_tab(
+            session,
+            "Files".into(),
+            "files".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let tab = registry.next_tab_id;
+    let first = registry
+        .replace_plugin_data(
+            session,
+            None,
+            "files",
+            0,
+            1,
+            serde_json::json!({"shared":"original"}),
+        )
+        .unwrap();
+    assert_eq!(first.revision, 1);
+    assert!(registry
+        .replace_plugin_data(
+            session,
+            None,
+            "files",
+            0,
+            1,
+            serde_json::json!({"shared":"stale"})
+        )
+        .unwrap_err()
+        .contains("revision_conflict"));
+    registry
+        .replace_plugin_data(
+            session,
+            Some(tab),
+            "unknown-plugin",
+            0,
+            3,
+            serde_json::json!({"opaque":[1,2,3]}),
+        )
+        .unwrap();
+    registry
+        .replace_plugin_data(
+            session,
+            None,
+            "large",
+            0,
+            1,
+            serde_json::json!("x".repeat(40_000)),
+        )
+        .unwrap();
+    assert!(registry
+        .replace_plugin_data(
+            session,
+            None,
+            "other",
+            0,
+            1,
+            serde_json::json!("x".repeat(30_000))
+        )
+        .is_err());
+    assert!(!registry.sessions[0].plugin_data.contains_key("other"));
+    registry.close_tab(tab, true).unwrap();
+    registry.open_tab(tab).unwrap();
+    registry.delete_tab(tab, true).unwrap();
+    let archive = registry.archives.last().unwrap().id;
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry.restore_archive(archive).unwrap();
+    assert_eq!(
+        registry.sessions[0].plugin_data["files"].value["shared"],
+        "original"
+    );
+    let tab = registry.sessions[0]
+        .tabs
+        .iter()
+        .find(|t| t.id == tab)
+        .unwrap();
+    assert_eq!(tab.plugin_data["unknown-plugin"].version, 3);
+    assert_eq!(
+        tab.plugin_data["unknown-plugin"].value,
+        serde_json::json!({"opaque":[1,2,3]})
+    );
 }

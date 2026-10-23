@@ -73,7 +73,7 @@ impl SessionRegistry {
             .ok_or("Session is unavailable")?
             .base_directory;
         let config = crate::plugins::initialize(&kind, config, directory)?;
-        let auto_start = kind == "terminal";
+        let auto_start = crate::plugins::has_runtime(&kind);
         let session = self
             .sessions
             .iter_mut()
@@ -92,6 +92,7 @@ impl SessionRegistry {
         }
         self.next_tab_id += 1;
         session.tabs.push(PluginTab {
+            plugin_data: Default::default(),
             kind,
             config_version,
             is_open: true,
@@ -124,26 +125,18 @@ impl SessionRegistry {
         self.persist()
     }
 
-    pub fn remember_files_folder(&mut self, id: u64, folder: String) -> Result<Snapshot, String> {
-        let mut config = self.plugin_tab(id, "files")?.config.clone();
-        if config["folder"].as_str() == Some(folder.as_str()) {
-            return Ok(self.snapshot());
-        }
-        config["folder"] = serde_json::Value::String(folder);
-        self.configure_plugin_tab(id, config)
-    }
-
-    pub fn remember_files_editor(
+    pub fn patch_plugin_config(
         &mut self,
         id: u64,
-        file: Option<String>,
+        patch: serde_json::Value,
     ) -> Result<Snapshot, String> {
-        let mut config = self.plugin_tab(id, "files")?.config.clone();
-        let value = serde_json::to_value(file).map_err(|e| e.to_string())?;
-        if config["editorFile"] == value {
-            return Ok(self.snapshot());
+        let mut config = self.open_plugin_tab(id)?.config.clone();
+        for (key, value) in patch
+            .as_object()
+            .ok_or("Configuration patch must be an object")?
+        {
+            config[key] = value.clone();
         }
-        config["editorFile"] = value;
         self.configure_plugin_tab(id, config)
     }
 
@@ -203,7 +196,7 @@ impl SessionRegistry {
         crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
         if !tab.is_open {
             tab.is_open = true;
-            tab.resume_on_start = tab.kind == "terminal";
+            tab.resume_on_start = crate::plugins::has_runtime(&tab.kind);
         }
         session.selected_tab_id = Some(id);
         self.persist()
@@ -243,6 +236,7 @@ impl SessionRegistry {
         if let Some(session) = self.terminals.get(&id) {
             self.terminate_session(session.id, confirmed)?;
         }
+        self.sdk_attachments.remove(&id);
         let session = self.tab_session_mut(id)?;
         let index = session.tabs.iter().position(|t| t.id == id).unwrap();
         session.tabs[index].is_open = false;
@@ -259,16 +253,20 @@ impl SessionRegistry {
 }
 
 impl SessionRegistry {
-    pub fn plugin_tab(&self, id: u64, kind: &str) -> Result<&super::PluginTab, String> {
+    pub fn runtime_tab(&self, id: u64) -> Result<&PluginTab, String> {
+        let tab = self.open_plugin_tab(id)?;
+        if !crate::plugins::has_runtime(&tab.kind) {
+            return Err("Tab has no PTY runtime".into());
+        }
+        Ok(tab)
+    }
+    pub fn open_plugin_tab(&self, id: u64) -> Result<&PluginTab, String> {
         let tab = self
             .sessions
             .iter()
             .flat_map(|s| &s.tabs)
             .find(|t| t.id == id && t.is_open)
             .ok_or("Open tab is unavailable")?;
-        if tab.kind != kind {
-            return Err(format!("Tab does not use the {kind} plugin"));
-        }
         crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
         Ok(tab)
     }

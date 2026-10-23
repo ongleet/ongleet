@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { useSdk, type TextDocument } from '../../sdk';
+export type { TextDocument } from '../../sdk';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
   EditorView,
@@ -21,13 +21,6 @@ import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
 import { useEditorWrap } from './editor-settings';
 import { fileEditors } from './editor-guards';
 
-export type TextDocument = {
-  path: string;
-  text: string;
-  revision: string;
-  lineEnding: string;
-  bom: boolean;
-};
 export function TextEditor({
   id,
   document,
@@ -39,6 +32,8 @@ export function TextEditor({
   visible: boolean;
   back: () => Promise<void>;
 }) {
+  const sdk = useSdk();
+  const { readText, writeText } = sdk.desktop;
   const wrapCompartment = useRef(new Compartment());
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView>(null);
@@ -70,8 +65,7 @@ export function TextEditor({
     publish(dirty, true);
     setError('');
     try {
-      const saved = await invoke<TextDocument>('save_plugin_text', {
-        id,
+      const saved = await sdk.fs.saveText({
         path: baseline.current.path,
         text,
         revision: baseline.current.revision,
@@ -227,10 +221,7 @@ export function TextEditor({
     setError('');
     const beforeReload = view.current?.state.doc;
     try {
-      const loaded = await invoke<TextDocument | null>('read_plugin_text', {
-        id,
-        path: baseline.current.path,
-      });
+      const loaded = await sdk.fs.readText(baseline.current.path);
       if (!loaded) throw new Error('File is no longer supported text.');
       if (view.current?.state.doc !== beforeReload)
         throw new Error('Content changed while reloading; your edits have been kept.');

@@ -9,7 +9,8 @@ mod containment;
 mod control;
 #[path = "control/dispatch.rs"]
 mod control_dispatch;
-mod desktop_input;
+mod core;
+use crate::core::desktop as desktop_input;
 mod instance;
 mod plugins;
 mod session;
@@ -20,8 +21,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use tauri::{ipc::Channel, Manager, State};
-use terminal_session::{Output, Status, TerminalSession};
+use tauri::{Manager, State};
+use terminal_session::Status;
 
 #[derive(Default)]
 struct AppRegistry(Arc<Mutex<SessionRegistry>>);
@@ -37,91 +38,6 @@ impl Default for Lifecycle {
             visible: AtomicBool::new(true),
         }
     }
-}
-
-fn with_session<T>(
-    state: &AppRegistry,
-    id: u64,
-    operation: impl FnOnce(&mut TerminalSession) -> Result<T, String>,
-) -> Result<T, String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    let session = guard
-        .terminals
-        .values_mut()
-        .find(|s| s.id == id)
-        .ok_or("Session is unavailable")?;
-    operation(session)
-}
-
-#[tauri::command]
-async fn connect(
-    state: State<'_, AppRegistry>,
-    tab_id: u64,
-    cols: u16,
-    rows: u16,
-    output: Channel<Output>,
-    start_if_stopped: bool,
-) -> Result<Option<terminal_session::Attachment>, String> {
-    let registry = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        registry.lock().map_err(|e| e.to_string())?.connect(
-            tab_id,
-            cols,
-            rows,
-            output,
-            start_if_stopped,
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn terminal_history(state: State<'_, AppRegistry>, tab_id: u64) -> Result<String, String> {
-    let registry = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        registry
-            .lock()
-            .map_err(|e| e.to_string())?
-            .terminal_history(tab_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn save_terminal_history(
-    state: State<'_, AppRegistry>,
-    tab_id: u64,
-    id: u64,
-    text: String,
-) -> Result<(), String> {
-    let registry = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        registry
-            .lock()
-            .map_err(|e| e.to_string())?
-            .save_terminal_history(tab_id, id, text)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn start(
-    state: State<'_, AppRegistry>,
-    tab_id: u64,
-    cols: u16,
-    rows: u16,
-    output: Channel<Output>,
-) -> Result<u64, String> {
-    let registry = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut guard = registry.lock().map_err(|e| e.to_string())?;
-        guard.start(tab_id, cols, rows, output)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -314,48 +230,8 @@ async fn close_tab(
 }
 
 #[tauri::command]
-async fn input(state: State<'_, AppRegistry>, id: u64, bytes: Vec<u8>) -> Result<(), String> {
-    let result = with_session(&state, id, |s| s.queue_input(bytes))?;
-    // A blocked PTY writer must never hold the session lock or WebView thread:
-    // ACK, resize and confirmed close still need to make progress.
-    tauri::async_runtime::spawn_blocking(move || result.recv().map_err(|e| e.to_string())?)
-        .await
-        .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-fn acknowledge(state: State<AppRegistry>, id: u64, seq: u64) -> Result<(), String> {
-    with_session(&state, id, |s| s.acknowledge(seq))
-}
-
-#[tauri::command]
-fn resize(state: State<AppRegistry>, id: u64, cols: u16, rows: u16) -> Result<(), String> {
-    with_session(&state, id, |s| s.resize(cols, rows))
-}
-
-#[tauri::command]
-fn status(state: State<AppRegistry>, id: u64) -> Result<Status, String> {
-    state.0.lock().map_err(|e| e.to_string())?.status(id)
-}
-
-#[tauri::command]
 fn open_tab(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
     state.0.lock().map_err(|e| e.to_string())?.open_tab(id)
-}
-
-#[tauri::command]
-async fn close_terminal_session(
-    state: State<'_, AppRegistry>,
-    id: u64,
-    confirmed: bool,
-) -> Result<(), String> {
-    let registry = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut guard = registry.lock().map_err(|e| e.to_string())?;
-        guard.close_terminal_session(id, confirmed)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -677,15 +553,6 @@ fn run() -> Result<(), String> {
             save_project_actions,
             application_status,
             quit,
-            start,
-            connect,
-            terminal_history,
-            save_terminal_history,
-            input,
-            acknowledge,
-            resize,
-            status,
-            close_terminal_session,
             defaults,
             sessions,
             create_session,
@@ -696,13 +563,11 @@ fn run() -> Result<(), String> {
             desktop_input::terminal_clipboard,
             desktop_input::open_terminal_link,
             close_session,
-            plugins::commands::associate_pull_request,
-            plugins::commands::refresh_pull_request,
-            plugins::commands::list_plugin_files,
-            plugins::commands::open_plugin_file,
-            plugins::commands::read_plugin_text,
-            plugins::commands::remember_plugin_editor,
-            plugins::commands::save_plugin_text,
+            core::commands::sdk_attach,
+            core::commands::sdk_detach,
+            core::commands::sdk_request,
+            core::commands::sdk_pty,
+            core::commands::sdk_pty_connect,
             create_tab,
             run_external_action,
             actions,

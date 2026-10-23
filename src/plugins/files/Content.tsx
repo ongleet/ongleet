@@ -1,14 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useSdk, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
 import type { PluginContentProps } from '../types';
-type Listing = {
-  folder: string;
-  parent: string | null;
-  entries: { name: string; path: string; directory: boolean; symlink: boolean }[];
-  nextOffset: number | null;
-};
 export function FilesContent({ tab, visible }: PluginContentProps) {
+  const sdk = useSdk();
   const config = tab.config as { folder?: string; editorFile?: string | null } | null;
   const configuredFolder = config?.folder;
   const [restoringEditor, setRestoringEditor] = useState(!!config?.editorFile);
@@ -21,7 +16,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   const [busy, setBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [search, setSearch] = useState('');
-  const [order, setOrder] = useState('nameAscending');
+  const [order, setOrder] = useState<SortOrder>('nameAscending');
   const generation = useRef(0);
   const pending = useRef(false);
   const content = useRef<HTMLDivElement>(null);
@@ -38,15 +33,15 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     setBusy(true);
     setError('');
     try {
-      const result = await invoke<Listing>('list_plugin_files', {
-        id: tab.id,
-        folder: folder ?? null,
+      const result = await sdk.fs.list({
+        folder: folder ?? listing?.folder ?? configuredFolder ?? path,
         offset,
         order: sortOrder,
         showHidden: includeHidden,
         query: search,
       });
       if (request === generation.current) {
+        if (offset === 0) await sdk.storage.configure({ folder: result.folder });
         setListing((previous) => {
           if (offset === 0 || previous?.folder !== result.folder) return result;
           const existing = new Set(previous.entries.map((entry) => entry.path));
@@ -87,7 +82,8 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     if (!file) return;
     let cancelled = false;
     setRestoringEditor(true);
-    void invoke<TextDocument | null>('read_plugin_text', { id: tab.id, path: file })
+    void sdk.fs
+      .readText(file)
       .then((document) => {
         if (cancelled) return;
         if (!document) throw new Error('Saved file is no longer supported UTF-8 text.');
@@ -105,7 +101,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     // Restore once per opening; metadata refreshes must not replace a live editor.
   }, [tab.id]);
   async function leaveEditor() {
-    await invoke('remember_plugin_editor', { id: tab.id, file: null });
+    await sdk.storage.configure({ editorFile: null });
     setRestoreError('');
     setEditing(undefined);
   }
@@ -157,14 +153,14 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     setBusy(true);
     setError('');
     try {
-      const document = await invoke<TextDocument | null>('read_plugin_text', { id: tab.id, path });
+      const document = await sdk.fs.readText(path);
       if (request !== generation.current) return;
       if (document) {
-        await invoke('remember_plugin_editor', { id: tab.id, file: document.path });
+        await sdk.storage.configure({ editorFile: document.path });
         if (request !== generation.current) return;
         setRestoreError('');
         setEditing(document);
-      } else await invoke('open_plugin_file', { id: tab.id, path });
+      } else await sdk.desktop.openFile(path);
     } catch (error) {
       if (request === generation.current) setError(String(error));
     } finally {
@@ -257,8 +253,8 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
             value={order}
             disabled={busy || restoringEditor}
             onChange={(event) => {
-              setOrder(event.target.value);
-              void browse(listing?.folder, 0, event.target.value);
+              setOrder(event.target.value as SortOrder);
+              void browse(listing?.folder, 0, event.target.value as SortOrder);
             }}
           >
             <option value="nameAscending">Name A–Z</option>

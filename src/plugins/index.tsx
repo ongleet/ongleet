@@ -1,15 +1,12 @@
-import type { ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
+import { createSdk } from '../sdk/transport';
+import { SdkContext, type PluginSdk } from '../sdk';
 import type { PluginContentProps } from './types';
-import { PullRequestContent, PullRequestConfigurationEditor } from './pull-request/Content';
-import { FilesContent } from './files/Content';
-import { FilesConfigurationEditor } from './files/ConfigurationEditor';
 import {
   TerminalConfigurationEditor,
   launchDraft,
   launchConfig,
 } from './terminal/ConfigurationEditor';
-import { TerminalContent } from './terminal/Content';
-import { TerminalFrontend } from './terminal/frontend';
 
 export type ConfigurationEditorProps = { value: string; onChange: (value: string) => void };
 export type TabPlugin = {
@@ -23,43 +20,31 @@ export type TabPlugin = {
   fromDraft: (draft: string) => unknown;
   beforeQuit?: () => Promise<void>;
 };
-export const plugins: TabPlugin[] = [
-  {
-    id: 'terminal',
-    label: 'Terminal',
-    configVersion: 1,
-    Content: TerminalContent,
-    ConfigurationEditor: TerminalConfigurationEditor,
-    toDraft: launchDraft,
-    fromDraft: launchConfig,
-    beforeQuit: () => TerminalFrontend.saveAllHistory(),
+const manifests = import.meta.glob<{
+  default: {
+    id: string;
+    label: string;
+    configVersion: number;
+    sdkVersion: number;
+    entrypoint: string;
+  };
+}>('./*/manifest.json', { eager: true });
+const entrypoints = import.meta.glob<{
+  default: Omit<TabPlugin, 'id' | 'label' | 'configVersion'>;
+}>('./*/entrypoint.tsx', { eager: true });
+export const plugins: TabPlugin[] = Object.entries(manifests).flatMap(
+  ([path, { default: manifest }]) => {
+    const entrypoint = entrypoints[path.replace('manifest.json', manifest.entrypoint)];
+    return manifest.sdkVersion === 1 && entrypoint ? [{ ...manifest, ...entrypoint.default }] : [];
   },
-  {
-    id: 'files',
-    label: 'Files',
-    configVersion: 1,
-    Content: FilesContent,
-    ConfigurationEditor: FilesConfigurationEditor,
-    toDraft: JSON.stringify,
-    fromDraft: JSON.parse,
-  },
-  {
-    id: 'pull-request',
-    label: 'Pull request',
-    configVersion: 1,
-    Content: PullRequestContent,
-    ConfigurationEditor: PullRequestConfigurationEditor,
-    toDraft: JSON.stringify,
-    fromDraft: JSON.parse,
-  },
-];
+);
 export async function flushPlugins() {
   await Promise.all(plugins.map((plugin) => plugin.beforeQuit?.()));
 }
 export function TabHost(props: PluginContentProps) {
   const plugin = plugins.find((plugin) => plugin.id === props.tab.kind);
   if (plugin && plugin.configVersion === props.tab.configVersion)
-    return <plugin.Content {...props} />;
+    return <AttachedPlugin key={props.tab.id} plugin={plugin} props={props} />;
   return (
     <section
       role="tabpanel"
@@ -84,4 +69,36 @@ export const commandEditor = {
 };
 export function actionEditor(kind: string) {
   return kind === 'command' ? commandEditor : plugins.find((plugin) => plugin.id === kind);
+}
+
+function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: PluginContentProps }) {
+  const [sdk, setSdk] = useState<PluginSdk>();
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const instance = createSdk(props.tab.id);
+    let active = true;
+    let unregister: (() => void) | undefined;
+    if (import.meta.env.MODE === 'native-validation')
+      void import('../native-validation').then(({ registerSdk }) => {
+        if (active) unregister = registerSdk(props.tab.id, instance);
+      });
+    void instance.ready
+      .then(() => {
+        if (active) setSdk(instance);
+      })
+      .catch((error) => {
+        if (active) setError(String(error));
+      });
+    return () => {
+      active = false;
+      unregister?.();
+      void instance.dispose().catch(console.error);
+    };
+  }, [props.tab.id]);
+  if (!sdk) return error ? <p role="alert">{error}</p> : null;
+  return (
+    <SdkContext.Provider value={sdk}>
+      <plugin.Content {...props} />
+    </SdkContext.Provider>
+  );
 }

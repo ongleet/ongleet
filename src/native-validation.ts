@@ -1,3 +1,4 @@
+import type { PluginSdk } from './sdk';
 // Imported only by the explicit native-validation Vite build. The normal
 // application bundle exposes no testing bridge or terminal handles.
 type Probe = {
@@ -44,5 +45,30 @@ Object.assign(window, {
     state: (id: number) => terminals.get(id)?.state(),
     snapshot: (id: number) => terminals.get(id)?.snapshot(),
     selectAll: (id: number) => terminals.get(id)?.selectAll(),
+  },
+});
+
+const sdks = new Map<number, PluginSdk>();
+export function registerSdk(id: number, sdk: PluginSdk) {
+  sdks.set(id, sdk);
+  return () => {
+    if (sdks.get(id) === sdk) sdks.delete(id);
+  };
+}
+Object.assign(window, {
+  __sdkValidation: {
+    ready: (id: number) => sdks.has(id),
+    call: (
+      id: number,
+      service: 'fs' | 'storage' | 'process' | 'pty' | 'desktop',
+      method: string,
+      args: unknown[],
+    ) => {
+      const sdk = sdks.get(id);
+      if (!sdk) throw new Error('SDK attachment unavailable');
+      const operation = (sdk[service] as Record<string, (...args: never[]) => unknown>)[method];
+      if (typeof operation !== 'function') throw new Error('Unknown SDK operation');
+      return operation(...(args as never[]));
+    },
   },
 });

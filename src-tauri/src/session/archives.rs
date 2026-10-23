@@ -103,7 +103,9 @@ impl SessionRegistry {
                             .tabs()
                             .iter()
                             .filter(|tab| {
-                                tab.kind == "terminal" && tab.is_open && tab.resume_on_start
+                                crate::plugins::has_runtime(&tab.kind)
+                                    && tab.is_open
+                                    && tab.resume_on_start
                             })
                             .count(),
                     }
@@ -114,7 +116,7 @@ impl SessionRegistry {
 
     pub(super) fn capture_restart_flags(&mut self, tabs: &mut [PluginTab]) {
         for tab in tabs {
-            if tab.kind == "terminal" {
+            if crate::plugins::has_runtime(&tab.kind) {
                 tab.resume_on_start = tab.is_open
                     && self
                         .terminals
@@ -125,7 +127,7 @@ impl SessionRegistry {
     }
     pub(super) fn prepare_archive(&self, item: ArchivedItem) -> Result<Archive, String> {
         Ok(Archive {
-            version: 1,
+            version: 2,
             id: self
                 .next_archive_id
                 .checked_add(1)
@@ -350,3 +352,29 @@ impl SessionRegistry {
 #[cfg(test)]
 #[path = "archives_tests.rs"]
 mod tests;
+
+impl Archive {
+    /// Decode schema-one archives without changing IDs, selection or opaque data.
+    pub fn upgrade_plugin_data(&mut self) {
+        let session = match &mut self.item {
+            ArchivedItem::Session { session, .. } | ArchivedItem::Tab { session, .. } => session,
+        };
+        if self.version == 1 {
+            if let Some(association) = &session.pull_request {
+                session
+                    .plugin_data
+                    .entry("pull-request".into())
+                    .or_insert_with(|| super::Namespace {
+                        version: 1,
+                        revision: 1,
+                        value: serde_json::to_value(association).expect("association"),
+                    });
+            }
+        }
+        session.pull_request = session
+            .plugin_data
+            .get("pull-request")
+            .and_then(|n| serde_json::from_value(n.value.clone()).ok());
+        self.version = 2;
+    }
+}

@@ -78,7 +78,7 @@ fn parse_config_policy(text: &str, allow_unavailable: bool) -> Result<Config, St
         }
         if template.kind != "command" {
             crate::plugins::validate(&template.kind, template.config_version, &template.config)?;
-            if template.kind != "terminal" {
+            if !crate::plugins::has_runtime(&template.kind) {
                 continue;
             }
         }

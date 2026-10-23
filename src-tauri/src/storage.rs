@@ -73,7 +73,7 @@ impl MetadataStore {
         let version: u32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 6 {
+        if version > 7 {
             return Err(format!(
                 "Unsupported session database schema version {version}; the database was not reset"
             ));
@@ -174,6 +174,15 @@ impl MetadataStore {
                 .map_err(|e| format!("Archive migration failed: {e}"))?;
             transaction.commit().map_err(|e| e.to_string())?;
         }
+        if version < 7 {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            transaction
+                .execute_batch(include_str!("../migrations/007_plugin_data.sql"))
+                .map_err(|e| format!("Plugin data migration failed: {e}"))?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             connection,
             _lock: lock,
@@ -197,7 +206,7 @@ impl MetadataStore {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json FROM sessions ORDER BY display_order")?;
+            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json,plugin_data_json FROM sessions ORDER BY display_order")?;
             let mut sessions = statement
                 .query_map([], |row| {
                     let association: Option<String> = row.get(6)?;
@@ -212,6 +221,7 @@ impl MetadataStore {
                             )
                         })?;
                     Ok(Session {
+                        plugin_data: read_json(row, 7)?,
                         pull_request,
                         project_id: read_id(row, 5)?,
                         id: read_id(row, 0)?,
@@ -224,7 +234,11 @@ impl MetadataStore {
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             for session in &mut sessions {
-                let mut statement = self.connection.prepare("SELECT d.id,d.name,d.kind,d.config_json,d.display_order,o.definition_id IS NOT NULL,COALESCE(o.resume_on_start,0) FROM tab_definitions d LEFT JOIN open_tabs o ON o.definition_id=d.id WHERE d.session_id=? ORDER BY d.display_order")?;
+                session.pull_request = session
+                    .plugin_data
+                    .get("pull-request")
+                    .and_then(|n| serde_json::from_value(n.value.clone()).ok());
+                let mut statement = self.connection.prepare("SELECT d.id,d.name,d.kind,d.config_json,d.display_order,o.definition_id IS NOT NULL,COALESCE(o.resume_on_start,0),d.plugin_data_json FROM tab_definitions d LEFT JOIN open_tabs o ON o.definition_id=d.id WHERE d.session_id=? ORDER BY d.display_order")?;
                 session.tabs = statement
                     .query_map([sql_id(session.id)?], |row| {
                         let json: String = row.get(3)?;
@@ -236,6 +250,7 @@ impl MetadataStore {
                             )
                         })?;
                         Ok(PluginTab {
+                            plugin_data: read_json(row, 7)?,
                             config_version: stored.version,
                             id: read_id(row, 0)?,
                             name: row.get(1)?,
@@ -260,17 +275,21 @@ impl MetadataStore {
                 .query_map([], |row| {
                     let id = read_id(row, 0)?;
                     let payload: String = row.get(1)?;
-                    let archive: crate::session::archives::Archive = serde_json::from_str(&payload)
-                        .map_err(|e| {
+                    let mut archive: crate::session::archives::Archive =
+                        serde_json::from_str(&payload).map_err(|e| {
                             rusqlite::Error::FromSqlConversionFailure(
                                 1,
                                 rusqlite::types::Type::Text,
                                 Box::new(e),
                             )
                         })?;
-                    if archive.id != id || id > archive_sequence || archive.version != 1 {
+                    if archive.id != id
+                        || id > archive_sequence
+                        || !matches!(archive.version, 1 | 2)
+                    {
                         return Err(rusqlite::Error::InvalidQuery);
                     }
+                    archive.upgrade_plugin_data();
                     Ok(archive)
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -314,7 +333,7 @@ impl MetadataStore {
             }
             for session in &metadata.snapshot.sessions {
                 transaction.execute(
-                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                     params![
                         sql_id(session.id)?,
                         session.name,
@@ -327,7 +346,8 @@ impl MetadataStore {
                             .as_ref()
                             .map(serde_json::to_string)
                             .transpose()
-                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                        json_sql(&session.plugin_data)?
                     ],
                 )?;
                 for tab in &session.tabs {
@@ -337,14 +357,15 @@ impl MetadataStore {
                     })
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     transaction.execute(
-                        "INSERT INTO tab_definitions VALUES (?1,?2,?3,?4,?5,?6)",
+                        "INSERT INTO tab_definitions VALUES (?1,?2,?3,?4,?5,?6,?7)",
                         params![
                             sql_id(tab.id)?,
                             sql_id(session.id)?,
                             tab.name,
                             tab.kind,
                             config,
-                            sql_order(tab.display_order)?
+                            sql_order(tab.display_order)?,
+                            json_sql(&tab.plugin_data)?
                         ],
                     )?;
                     if tab.is_open {
@@ -421,3 +442,16 @@ fn optional_id(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option
 
 #[cfg(test)]
 mod tests;
+
+fn json_sql(value: &impl serde::Serialize) -> rusqlite::Result<String> {
+    serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+}
+fn read_json<T: serde::de::DeserializeOwned>(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<T> {
+    let text: String = row.get(index)?;
+    serde_json::from_str(&text).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(e))
+    })
+}

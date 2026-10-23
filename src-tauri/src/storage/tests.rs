@@ -56,7 +56,7 @@ fn version_two_rename_preserves_metadata_and_reopens() {
             .connection
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        6
+        7
     );
     assert_eq!(
         store
@@ -241,7 +241,7 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
                 .connection
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            6
+            7
         );
         store.save(&metadata).unwrap();
         drop(store);
@@ -285,5 +285,43 @@ fn archive_migration_failure_rolls_back_and_keeps_existing_metadata() {
         1
     );
     drop(db);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn schema_six_pr_namespace_migration_and_schema_one_archives_preserve_opaque_data() {
+    let directory =
+        std::env::temp_dir().join(format!("metadata-sdk-migration-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let store = MetadataStore::open(&directory).unwrap();
+    store.connection.execute_batch("ALTER TABLE sessions DROP COLUMN plugin_data_json; ALTER TABLE tab_definitions DROP COLUMN plugin_data_json; INSERT INTO sessions VALUES (11,'Legacy','/missing',0,NULL,1,'{\"repository\":\"example/repo\",\"number\":42}'); UPDATE app_state SET session_sequence=11; PRAGMA user_version=6;").unwrap();
+    drop(store);
+    let store = MetadataStore::open(&directory).unwrap();
+    let metadata = store.load().unwrap();
+    let session = &metadata.snapshot.sessions[0];
+    assert_eq!(session.id, 11);
+    assert_eq!(session.pull_request.as_ref().unwrap().number, 42);
+    assert_eq!(session.plugin_data["pull-request"].revision, 1);
+    assert_eq!(
+        session.plugin_data["pull-request"].value,
+        serde_json::json!({"repository":"example/repo","number":42})
+    );
+    let mut legacy = serde_json::to_value(session).unwrap();
+    legacy.as_object_mut().unwrap().remove("pluginData");
+    let mut archive: crate::session::archives::Archive = serde_json::from_value(serde_json::json!({
+        "version":1,"id":19,"archivedAt":1,"purging":false,
+        "item":{"kind":"session","session":legacy,"project":{"id":1,"name":"Default","rootDirectory":"/missing","displayOrder":0,"collapsed":false}}
+    })).unwrap();
+    archive.upgrade_plugin_data();
+    let crate::session::archives::ArchivedItem::Session { session: saved, .. } = &archive.item
+    else {
+        panic!("session archive")
+    };
+    assert_eq!(
+        saved.plugin_data["pull-request"].value,
+        session.plugin_data["pull-request"].value
+    );
+    assert_eq!(archive.version, 2);
+    drop(store);
     std::fs::remove_dir_all(directory).unwrap();
 }

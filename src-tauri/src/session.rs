@@ -4,17 +4,27 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod archives;
+pub type PluginData = std::collections::BTreeMap<String, Namespace>;
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Namespace {
+    pub version: u32,
+    pub revision: u64,
+    pub value: serde_json::Value,
+}
+
 mod history;
 mod projects;
 mod tabs;
-#[path = "plugins/terminal/lifecycle.rs"]
+#[path = "core/pty/lifecycle.rs"]
 mod terminals;
 pub use projects::Project;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
-    pub pull_request: Option<crate::plugins::pull_request::Association>,
+    #[serde(default)]
+    pub plugin_data: PluginData,
+    pub pull_request: Option<crate::core::pull_request_compat::Association>,
     pub project_id: u64,
     pub id: u64,
     pub name: String,
@@ -24,11 +34,13 @@ pub struct Session {
     pub selected_tab_id: Option<u64>,
 }
 
-pub use crate::plugins::terminal::TabConfig;
+pub use crate::core::pty::TabConfig;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginTab {
+    #[serde(default)]
+    pub plugin_data: PluginData,
     pub config_version: u32,
     pub kind: String,
     pub is_open: bool,
@@ -66,6 +78,7 @@ pub struct SessionRegistry {
     next_tab_id: u64,
     // Keyed by tab ID, never by navigation selection or session position.
     pub terminals: HashMap<u64, TerminalSession>,
+    pub sdk_attachments: HashMap<u64, String>,
     pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
 }
 
@@ -93,6 +106,7 @@ impl SessionRegistry {
             actions_directory: None,
             next_terminal_id: 0,
             terminals: HashMap::new(),
+            sdk_attachments: HashMap::new(),
             plugin_jobs: HashMap::new(),
         };
         registry.run_archive_maintenance();
@@ -149,18 +163,10 @@ impl SessionRegistry {
         // Validate the YAML before changing metadata. Each opening owns its copy.
         let action = crate::actions::load_project(config_directory, group)?
             .into_iter()
-            .find(|action| action.kind == "terminal")
+            .find(|action| crate::plugins::has_runtime(&action.kind))
             .ok_or("Project needs a terminal action to initialize a session")?;
         crate::plugins::validate(&action.kind, action.config_version, &action.config)?;
-        self.insert_session(
-            group,
-            name,
-            directory,
-            Some((
-                action.name,
-                serde_json::from_value(action.config).map_err(|e| e.to_string())?,
-            )),
-        )
+        self.insert_session(group, name, directory, Some(action))
     }
 
     // Legacy stopped fixtures for restoration and explicit-start integration tests.
@@ -189,7 +195,7 @@ impl SessionRegistry {
         project_id: u64,
         name: String,
         directory: String,
-        initial_action: Option<(String, TabConfig)>,
+        initial_action: Option<crate::actions::Action>,
     ) -> Result<Snapshot, String> {
         let name = valid_name(name)?;
         let root = self.project(project_id)?.root_directory.clone();
@@ -201,6 +207,7 @@ impl SessionRegistry {
         validate_directory(&directory)?;
         self.next_id += 1;
         self.sessions.push(Session {
+            plugin_data: Default::default(),
             pull_request: None,
             project_id,
             id: self.next_id,
@@ -216,7 +223,17 @@ impl SessionRegistry {
             .unwrap()
             .collapsed = false;
         self.selected_id = Some(self.next_id);
-        self.insert_tab(self.next_id, initial_action)
+        if let Some(action) = initial_action {
+            self.create_plugin_tab(
+                self.next_id,
+                action.name,
+                action.kind,
+                action.config_version,
+                action.config,
+            )
+        } else {
+            self.insert_tab(self.next_id, None)
+        }
     }
 
     pub fn update_in_project(
@@ -307,6 +324,9 @@ impl SessionRegistry {
         }
         let plugin_tabs: Vec<_> = self.sessions[index].tabs.iter().map(|t| t.id).collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
+        for id in &plugin_tabs {
+            self.sdk_attachments.remove(id);
+        }
         self.sessions.remove(index);
         self.record_archive(archive);
         self.normalize_order();
@@ -360,19 +380,20 @@ impl PluginTab {
 }
 
 impl SessionRegistry {
+    #[cfg(test)]
     pub fn associate_pull_request(
         &mut self,
         tab_id: u64,
-        association: Option<crate::plugins::pull_request::Association>,
+        association: Option<crate::core::pull_request_compat::Association>,
     ) -> Result<Snapshot, String> {
-        self.plugin_tab(tab_id, "pull-request")?;
+        self.open_plugin_tab(tab_id)?;
         let session_id = self.tab_session_mut(tab_id)?.id;
         self.associate_session_pull_request(session_id, association)
     }
     pub fn associate_session_pull_request(
         &mut self,
         session_id: u64,
-        association: Option<crate::plugins::pull_request::Association>,
+        association: Option<crate::core::pull_request_compat::Association>,
     ) -> Result<Snapshot, String> {
         if let Some(association) = &association {
             association.validate()?;
@@ -387,12 +408,22 @@ impl SessionRegistry {
             .map(|t| t.id)
             .collect();
         self.cancel_plugin_jobs(&tabs)?;
-        self.sessions
+        let data = &mut self
+            .sessions
             .iter_mut()
             .find(|s| s.id == session_id)
             .unwrap()
-            .pull_request = association;
-        self.persist()
+            .plugin_data;
+        let revision = data.get("pull-request").map_or(0, |n| n.revision);
+        self.replace_plugin_data(
+            session_id,
+            None,
+            "pull-request",
+            revision,
+            1,
+            serde_json::to_value(association).map_err(|e| e.to_string())?,
+        )?;
+        Ok(self.snapshot())
     }
     pub fn cancel_plugin_work(&mut self, tab: u64) -> Result<(), String> {
         self.cancel_plugin_jobs(&[tab])
@@ -433,5 +464,63 @@ impl Drop for SessionRegistry {
                 .cancel
                 .store(true, std::sync::atomic::Ordering::Release);
         }
+    }
+}
+
+impl SessionRegistry {
+    pub fn replace_plugin_data(
+        &mut self,
+        session_id: u64,
+        tab_id: Option<u64>,
+        plugin: &str,
+        expected: u64,
+        version: u32,
+        value: serde_json::Value,
+    ) -> Result<Namespace, String> {
+        if version == 0 {
+            return Err("Invalid namespace version".into());
+        }
+        let session = self
+            .sessions
+            .iter_mut()
+            .find(|s| s.id == session_id)
+            .ok_or("Session is unavailable")?;
+        let data = if let Some(id) = tab_id {
+            &mut session
+                .tabs
+                .iter_mut()
+                .find(|t| t.id == id && t.is_open)
+                .ok_or("Open tab is unavailable")?
+                .plugin_data
+        } else {
+            &mut session.plugin_data
+        };
+        if data.get(plugin).map_or(0, |n| n.revision) != expected {
+            return Err("revision_conflict: Plugin data changed; reload before saving".into());
+        }
+        let namespace = Namespace {
+            version,
+            revision: expected.checked_add(1).ok_or("Revision overflow")?,
+            value,
+        };
+        let mut replacement = data.clone();
+        replacement.insert(plugin.into(), namespace.clone());
+        if serde_json::to_vec(&replacement)
+            .map_err(|e| e.to_string())?
+            .len()
+            > 65_536
+        {
+            return Err("Plugin data exceeds owner's 64 KiB limit".into());
+        }
+        *data = replacement;
+        if tab_id.is_none() {
+            // Legacy response field is derived, never the source of truth.
+            session.pull_request = session
+                .plugin_data
+                .get("pull-request")
+                .and_then(|n| serde_json::from_value(n.value.clone()).ok());
+        }
+        self.persist()?;
+        Ok(namespace)
     }
 }

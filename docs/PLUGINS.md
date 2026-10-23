@@ -1,0 +1,27 @@
+# Bundled frontend plugins and SDK
+
+Plugins are trusted bundled React/TypeScript, HTML and CSS. Rust owns PTYs, containment, metadata and native services. The application host creates one SDK attachment per open tab; hiding a tab retains that attachment. Closing, archiving, reloading or quitting cancels and waits for its subprocess jobs. Reload reattaches PTYs without restarting them.
+
+Add a directory under `src/plugins/` with `manifest.json` and `entrypoint.tsx`. Vite discovers the entrypoint and manifest; the Rust build discovers the same manifest without executing JavaScript. No Rust provider or registration edit is needed. Keep IDs and configuration versions stable. Unsupported plugins retain their opaque configuration and data.
+
+A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (currently `entrypoint.tsx`), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`. Declare `contextDefaults: {"folder":"session.directory"}` for a folder initialized from the session directory. PTY plugins declare `runtime: "pty"`; core launch validation still applies. Configuration and runtime compatibility are separate from plugin data versions.
+
+The entrypoint exports `Content`, `ConfigurationEditor`, `toDraft`, `fromDraft` and optionally `beforeQuit`. Content receives its tab/session and visibility through host props. Call `useSdk()` from `src/sdk`; pass that SDK to retained non-React controllers. Importing Tauri packages or SDK transport internals from plugins is rejected by `npm run check:plugins`.
+
+The bundled [SDK example](../src/plugins/sdk-example/entrypoint.tsx) lists a directory, runs an executable with literal arguments and increments a persisted tab counter. Add an action with `kind: sdk-example` and `config: {}` to try it. The example needs no plugin-specific Rust code.
+
+The public services are:
+
+- `fs.list`, `fs.readText`, `fs.saveText`: bounded scans/text and revision-checked atomic saves. Unsupported text returns `null`, allowing a plugin to choose an external opener. Plugin configuration updates are explicit.
+- `process.run`, `process.cancel`: literal executable/arguments, explicit environment overrides, optional absolute cwd, exit code/stdout/stderr. One active job per tab, 32 globally; callers may lower the 20-second timeout and 512 KiB per-stream output ceilings. Requests are bounded to 64 KiB. Cancellation completes after child cleanup. Detached external application actions remain separate.
+- `pty.connect`, `acknowledge`, `input`, `resize`, `status`, `history`, `saveHistory`, `close`: native ownership and raw bytes with replay and backpressure. Always acknowledge after the terminal engine consumes output. Receipt alone never ACKs. Native adapters validate tab, frontend attachment and runtime ownership.
+- `storage.read`, `replace`, `configure`, `subscribe`: versioned session/tab JSON namespaces scoped to the calling plugin ID, explicit configuration patches and change notifications. A missing namespace has revision zero. Replacement supplies the expected revision and an application-defined data version; conflicts require reloading and merging. Combined namespace data per session or tab is limited to 64 KiB, including envelopes. The host disposes subscriptions on detachment; callers may unsubscribe sooner. Mutable data stays separate from action configuration.
+- `desktop.readText`, `writeText`, `clipboard`, `selectPath`, `openFile`, `openUrl`: native clipboard, file selection and external opening. Terminal clipboard distinguishes images from text for Codex paste behavior.
+
+Errors are `SdkError` objects with readable messages and stable `code` values: `revision_conflict`, `busy`, `cancelled`, `timeout`, `limit_exceeded`, `unavailable`, `capability_unavailable`, or `operation_failed`. Feature-specific parsing, arguments, polling and messages belong in JavaScript. A failed refresh can retain its last successful result.
+
+For a new native capability, implement a reusable service under `src-tauri/src/core/`, add a typed native adapter and public SDK method, and validate ownership/capability/limits there. Extend manifest capabilities and test the actual native serialization and disposal path. Do not expose raw invocation, native command names, shell interpolation or another Rust plugin provider.
+
+Schema 7 adds session/tab namespace JSON and transactionally migrates the legacy PR association into the `pull-request` session namespace. CLI PR input validation and `pullRequest` response fields remain compatibility adapters. Archive version 2 includes namespaces; the version-1 decoder migrates legacy associations while retaining IDs, selections and opaque plugin data. Archives retain their existing 30-day policy.
+
+Run `mise exec -- npm run check:plugins`, the frontend build and Rust suite. Native validation mode also exposes an SDK probe bridge used by the mixed-plugin harness; production bundles omit it. See [native validation](VALIDATION.md) for isolated WebKitGTK commands and remaining manual acceptance.

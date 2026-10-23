@@ -1,0 +1,144 @@
+// Private native boundary. Plugins import only the SDK public entrypoint.
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { open } from '@tauri-apps/plugin-dialog';
+import {
+  SdkError,
+  type Attachment,
+  type Listing,
+  type Namespace,
+  type ProcessRequest,
+  type ProcessResult,
+  type ProcessStatus,
+  type PtyOutput,
+  type Scope,
+  type SortOrder,
+  type TextDocument,
+} from './types';
+function sdkError(error: unknown): SdkError {
+  const structured = error as { code?: string; message?: string };
+  return error instanceof SdkError
+    ? error
+    : new SdkError(structured?.code ?? 'operation_failed', structured?.message ?? String(error));
+}
+async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    throw sdkError(error);
+  }
+}
+export function createSdk(id: number) {
+  const attachment = crypto.randomUUID();
+  let disposed = false;
+  const ready = call<void>('sdk_attach', { id, attachment });
+  const subscriptions = new Set<UnlistenFn>();
+  const channels = new Set<Channel<PtyOutput>>();
+  async function request<T>(operation: string, fields: Record<string, unknown> = {}): Promise<T> {
+    await ready;
+    if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+    return call<T>('sdk_request', { id, attachment, request: { operation, ...fields } });
+  }
+  async function native<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+    await ready;
+    if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+    return call<T>(command, args);
+  }
+  async function pty<T>(operation: string, fields: Record<string, unknown> = {}): Promise<T> {
+    return native<T>('sdk_pty', { id, attachment, request: { operation, ...fields } });
+  }
+  async function desktop<T>(operation: () => Promise<T>): Promise<T> {
+    await ready;
+    if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+    try {
+      return await operation();
+    } catch (error) {
+      throw sdkError(error);
+    }
+  }
+  return {
+    ready,
+    fs: {
+      list: (options: {
+        folder: string;
+        offset: number;
+        order: SortOrder;
+        showHidden: boolean;
+        query: string;
+      }) => request<Listing>('list', options),
+      readText: (path: string) => request<TextDocument | null>('readText', { path }),
+      saveText: (options: { path: string; text: string; revision: string }) =>
+        request<TextDocument>('saveText', options),
+    },
+    storage: {
+      subscribe: async (changed: () => void) => {
+        await ready;
+        if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+        let active = true;
+        const unlisten = await listen('session-changed', () => {
+          if (active && !disposed) changed();
+        }).catch((error) => {
+          throw sdkError(error);
+        });
+        const dispose = () => {
+          active = false;
+          subscriptions.delete(dispose);
+          unlisten();
+        };
+        if (disposed) dispose();
+        else subscriptions.add(dispose);
+        return dispose;
+      },
+      configure: (patch: Record<string, unknown>) => request<void>('configure', { patch }),
+      read: <T = unknown>(scope: Scope) => request<Namespace<T> | null>('readData', { scope }),
+      replace: <T>(scope: Scope, revision: number, version: number, value: T) =>
+        request<Namespace<T>>('replaceData', { scope, revision, version, value }),
+    },
+    process: {
+      run: (options: ProcessRequest) => request<ProcessResult>('process', { request: options }),
+      cancel: () => request<void>('cancel'),
+    },
+    desktop: {
+      readText: () => desktop(readText),
+      writeText: (text: string) => desktop(() => writeText(text)),
+      clipboard: () =>
+        native<{ kind: 'text'; text: string } | { kind: 'image' }>('terminal_clipboard'),
+      selectPath: (directory = false) => desktop(() => open({ directory, multiple: false })),
+      openUrl: (uri: string) => native<void>('open_terminal_link', { uri }),
+      openFile: (path: string) => request<void>('openFile', { path }),
+    },
+    pty: {
+      connect: async (
+        options: { cols: number; rows: number; startIfStopped: boolean },
+        receive: (output: PtyOutput) => void,
+      ) => {
+        for (const channel of channels) channel.onmessage = () => {};
+        channels.clear();
+        const output = new Channel<PtyOutput>();
+        channels.add(output);
+        output.onmessage = (event) => {
+          if (!disposed) receive(event);
+        };
+        return native<Attachment | null>('sdk_pty_connect', { id, attachment, ...options, output });
+      },
+      acknowledge: (runtimeId: number, seq: number) => pty<void>('acknowledge', { runtimeId, seq }),
+      input: (runtimeId: number, bytes: number[]) => pty<void>('input', { runtimeId, bytes }),
+      resize: (runtimeId: number, cols: number, rows: number) =>
+        pty<void>('resize', { runtimeId, cols, rows }),
+      status: (runtimeId: number) => pty<ProcessStatus>('status', { runtimeId }),
+      history: () => pty<string>('history'),
+      saveHistory: (runtimeId: number, text: string) =>
+        pty<void>('saveHistory', { runtimeId, text }),
+      close: (runtimeId: number) => pty<void>('close', { runtimeId }),
+    },
+    dispose: async () => {
+      disposed = true;
+      for (const unsubscribe of [...subscriptions]) unsubscribe();
+      for (const channel of channels) channel.onmessage = () => {};
+      channels.clear();
+      await ready;
+      await call<void>('sdk_detach', { id, attachment });
+    },
+  };
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useSdk } from '../../sdk';
+import { parseAssociation, fetchPullRequest } from './github';
 import type { PluginContentProps } from '../types';
 import type { ConfigurationEditorProps } from '..';
 type PullRequest = {
@@ -25,6 +26,7 @@ export function PullRequestConfigurationEditor(_props: ConfigurationEditorProps)
   );
 }
 export function PullRequestContent({ tab, session, visible }: PluginContentProps) {
+  const sdk = useSdk();
   const [documentVisible, setDocumentVisible] = useState(!document.hidden);
   useEffect(() => {
     const changed = () => setDocumentVisible(!document.hidden);
@@ -48,7 +50,7 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
     setBusy(true);
     setError('');
     try {
-      const result = await invoke<PullRequest>('refresh_pull_request', { id: tab.id });
+      const result = (await fetchPullRequest(sdk, session.pullRequest)) as PullRequest;
       if (request === generation.current) {
         setData(result);
         setLastRefresh(new Date().toLocaleString());
@@ -74,25 +76,24 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
     pending.current = false;
     setBusy(false);
     ++generation.current;
-    if (session.pullRequest) refreshRef.current();
-    // Rust cancels and joins native work on association changes and closure.
+    if (session.pullRequest && visible && !document.hidden) refreshRef.current();
+    // Namespace replacement and host disposal cancel native work.
     return () => {
       ++generation.current;
     };
   }, [tab.id, associationKey]);
   useEffect(() => {
     if (!visible || !documentVisible) return;
+    refreshRef.current();
     const timer = setInterval(() => refreshRef.current(), 60_000);
     return () => clearInterval(timer);
   }, [visible, documentVisible]);
   async function associate() {
     setError('');
     try {
-      await invoke('associate_pull_request', {
-        id: tab.id,
-        target,
-        number: number ? Number(number) : null,
-      });
+      const association = parseAssociation(target, number ? Number(number) : undefined);
+      const current = await sdk.storage.read('session');
+      await sdk.storage.replace('session', current?.revision ?? 0, 1, association);
     } catch (error) {
       setError(String(error));
     }
@@ -150,9 +151,7 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
           </p>
           <button
             onClick={() =>
-              void invoke('open_terminal_link', { uri: data.url }).catch((error) =>
-                setError(String(error)),
-              )
+              void sdk.desktop.openUrl(data.url).catch((error) => setError(String(error)))
             }
           >
             Open pull request

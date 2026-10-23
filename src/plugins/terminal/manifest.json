@@ -1,0 +1,73 @@
+{
+  "configVersion": 1,
+  "description": "A contained PTY process. Inherits the normal process environment; stores explicit overrides only.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "cwdOverride": {
+        "type": ["string", "null"],
+        "description": "Absolute working directory. Omitted/null uses the session directory."
+      },
+      "executable": {
+        "type": ["string", "null"],
+        "description": "Executable path or PATH name. Omitted/null uses the user shell."
+      },
+      "args": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Literal argument array; no shell expansion."
+      },
+      "env": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "default": {},
+        "description": "Explicit environment overrides."
+      },
+      "shellCommand": {
+        "type": ["string", "null"],
+        "description": "Explicit shell syntax; cannot be combined with executable or nonempty args."
+      }
+    }
+  },
+  "examples": [
+    {
+      "executable": "/bin/bash",
+      "args": [],
+      "env": {}
+    },
+    {
+      "executable": "/usr/bin/python3",
+      "args": ["-c", "print('hello')"],
+      "env": {}
+    },
+    {
+      "shellCommand": "printf '%s\n' hello",
+      "env": {}
+    }
+  ],
+  "notes": [
+    "Commands and arguments cannot contain NUL bytes. Explicit executable and shellCommand must be nonempty.",
+    "cwdOverride must be absolute; the launch directory must exist.",
+    "Environment keys must be nonempty and contain neither '=' nor NUL; values cannot contain NUL.",
+    "Configuration changes affect future launches; running processes retain their launch settings."
+  ],
+  "id": "terminal",
+  "label": "Terminal",
+  "sdkVersion": 1,
+  "defaults": {
+    "cwdOverride": null,
+    "executable": null,
+    "args": [],
+    "env": {},
+    "shellCommand": null
+  },
+  "capabilities": ["pty", "desktop", "storage"],
+  "runtime": "pty",
+  "entrypoint": "entrypoint.tsx"
+}

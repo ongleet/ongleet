@@ -1,0 +1,44 @@
+{
+  "configVersion": 1,
+  "description": "File browser with a plain-text editor.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "folder": {
+        "type": ["string", "null"],
+        "description": "Absolute path, at most 8192 bytes, no NUL. Defaults to session directory on creation; successful navigation remembers the current folder.",
+        "absolutePath": true,
+        "maxBytes": 8192
+      },
+      "editorFile": {
+        "type": ["string", "null"],
+        "description": "Absolute UTF-8 text file to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores saved file contents, not unsaved edits.",
+        "absolutePath": true,
+        "maxBytes": 8192
+      }
+    }
+  },
+  "examples": [
+    {},
+    {
+      "folder": "/tmp"
+    }
+  ],
+  "notes": [
+    "Browsing requires an accessible directory. Configuration does not create directories."
+  ],
+  "id": "files",
+  "label": "Files",
+  "sdkVersion": 1,
+  "defaults": {
+    "folder": null,
+    "editorFile": null
+  },
+  "capabilities": ["fs", "desktop", "storage"],
+  "runtime": null,
+  "contextDefaults": {
+    "folder": "session.directory"
+  },
+  "entrypoint": "entrypoint.tsx"
+}

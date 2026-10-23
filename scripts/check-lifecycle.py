@@ -121,8 +121,8 @@ def run(args):
         except FileNotFoundError: return False
     def quit_app(pid, ui=False):
         if ui:
-            wait_for(lambda: client.js("return !document.querySelector('footer button').disabled"), "Quit enabled")
-            client.click("footer button")
+            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit enabled")
+            client.click("footer > button:last-of-type")
             wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "Quit warning")
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
         else:
@@ -350,7 +350,7 @@ def run(args):
         assert all(list(path.iterdir()) == [path/'keep'] and (path/'keep').read_text() == 'unchanged' for path in [root,other])
         with ThreadPoolExecutor(max_workers=4) as pool:
             assert all(pool.map(lambda _: cli('app','status')['pid'] > 0, range(8)))
-        for payload, error in [(b'x' * 17000,'message_too_large'),(b'{"version":99,"command":"status"}','protocol_error'),(b'{"version":2,"command":"session_list","extra":true}','invalid_request')]:
+        for payload, error in [(b'x' * (128 * 1024 + 1),'message_too_large'),(b'{"version":99,"command":"status"}','protocol_error'),(b'{"version":2,"command":"session_list","extra":true}','invalid_request')]:
             with socket.socket(socket.AF_UNIX) as peer:
                 peer.connect(path_for_cli)
                 peer.sendall(payload); peer.shutdown(socket.SHUT_WR)
@@ -391,11 +391,11 @@ def run(args):
             except RuntimeError as error: assert "confirmation" in str(error)
             else: raise AssertionError("Unconfirmed Quit accepted")
             mark("Backend rejects Quit while a process runs without explicit confirmation")
-            wait_for(lambda: client.js("return !document.querySelector('footer button').disabled"), "Quit enabled")
-            client.click("footer button")
+            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit enabled")
+            client.click("footer > button:last-of-type")
             wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "Quit warning")
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", "xpath")
-            wait_for(lambda: client.js("return !document.querySelector('footer button').disabled"), "Quit cancellation")
+            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit cancellation")
             assert pid_alive(stream_pid) and client.invoke("application_status")["runningTerminals"] == 1
             mark("Cancelling the Quit confirmation keeps the live session intact")
             close_window(pid)
@@ -439,7 +439,7 @@ def run(args):
             new_stream = [int(line.split("=",1)[1].split()[0]) for line in restored_screen.splitlines() if line.startswith("PID=")][-1]
             runtime_id = client.state(tab)["sessionId"]
             client.request("POST", "/refresh", {})
-            wait_for(lambda: client.state(tab) and not client.state(tab)["replaying"], "history reload reattachment")
+            wait_for(lambda: client.state(tab) and client.state(tab).get("sessionId") and not client.state(tab)["replaying"], "history reload reattachment")
             assert client.state(tab)["sessionId"] == runtime_id
             assert client.screen(tab).count("Previous terminal history") == 1
             mark("Saved text survives Quit/restart with a distinct fresh process; reload preserves history without duplicating it")

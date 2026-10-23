@@ -413,7 +413,7 @@ fn session_configuration_and_pr_association_persist_without_opening_tabs() {
     registry
         .update_in_project(id, other, "Updated".into(), other_root.path())
         .unwrap();
-    let association = crate::plugins::pull_request::Association::parse(
+    let association = crate::core::pull_request_compat::Association::parse(
         "https://github.com/owner/repository/pull/42",
         None,
     )

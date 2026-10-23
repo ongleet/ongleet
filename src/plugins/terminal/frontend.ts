@@ -1,5 +1,4 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
-import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import type { PluginSdk, PtyOutput as Output, ProcessStatus } from '../../sdk';
 import {
   FitAddon,
   Ghostty,
@@ -17,14 +16,7 @@ import { TerminalLinks } from '../../terminal-links';
 
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
-export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: number };
-type Output =
-  | { type: 'data'; seq: number; bytes: number[] }
-  | { type: 'size'; seq: number; cols: number; rows: number }
-  | { type: 'ready'; seq: number }
-  | { type: 'eof' }
-  | { type: 'error'; message: string };
-
+export type { ProcessStatus } from '../../sdk';
 export class TerminalFrontend {
   private static instances = new Set<TerminalFrontend>();
 
@@ -54,6 +46,7 @@ export class TerminalFrontend {
     private tabId: number,
     private changed: (status: ProcessStatus | null) => void,
     private error: (error: unknown) => void,
+    private sdk: PluginSdk,
   ) {
     TerminalFrontend.instances.add(this);
     document.addEventListener('visibilitychange', this.visibilityChanged);
@@ -173,7 +166,7 @@ export class TerminalFrontend {
         .getLinkAt(col, row)
         .then((link) => {
           if (link && this.term === term && !this.disposed)
-            return invoke('open_terminal_link', { uri: link.text });
+            return this.sdk.desktop.openUrl(link.text);
         })
         .catch(this.error);
     };
@@ -210,7 +203,7 @@ export class TerminalFrontend {
     this.subscriptions.push(
       term.onResize(({ cols, rows }) => {
         if (this.id !== undefined && !this.replaying)
-          void invoke('resize', { id: this.id, cols, rows }).catch(this.error);
+          void this.sdk.pty.resize(this.id!, cols, rows).catch(this.error);
       }),
     );
     // ghostty-web's custom handler returns true when it handled the event.
@@ -233,16 +226,13 @@ export class TerminalFrontend {
       await waitForConnection(this.tabId);
       if (this.disposed || this.term !== term) return;
     }
-    const history = await invoke<string>('terminal_history', { tabId: this.tabId }).catch(
-      (error) => {
-        this.error(error);
-        return '';
-      },
-    );
+    const history = await this.sdk.pty.history().catch((error) => {
+      this.error(error);
+      return '';
+    });
     if (this.disposed || this.term !== term) return;
-    const output = new Channel<Output>();
     let started: Promise<number | undefined>;
-    output.onmessage = (event) => {
+    const receive = (event: Output) => {
       void (async () => {
         const id = await started;
         if (id === undefined || this.id !== id || this.term !== term || this.disposed) return;
@@ -253,49 +243,51 @@ export class TerminalFrontend {
           if (!this.replaying) this.scheduleHistory();
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.
-          await invoke('acknowledge', { id, seq: event.seq });
+          await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'size') {
           term.resize(event.cols, event.rows);
-          await invoke('acknowledge', { id, seq: event.seq });
+          await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'ready') {
           this.replaying = false;
           fitVisible();
-          await invoke('acknowledge', { id, seq: event.seq });
+          await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'eof') {
           await this.saveHistory();
         } else if (event.type === 'error') this.error(event.message);
       })().catch(this.error);
     };
-    type Attachment = { id: number; cols: number; rows: number; replay: boolean };
-    started = invoke<Attachment | null>('connect', {
-      tabId: this.tabId,
-      cols: term.cols,
-      rows: term.rows,
-      output,
-      startIfStopped,
-    }).then((connection) => {
-      if (this.disposed || this.term !== term) return undefined;
-      if (history) {
-        // Render saved text as text: never replay control sequences from disk.
-        const safe = history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
-        term.write(
-          new TextEncoder().encode(
-            safe.replace(/\n/g, '\r\n') +
-              '\r\n--- Previous terminal history; new process below ---\r\n',
-          ),
-        );
-      }
-      if (!connection) return undefined;
-      this.replaying = connection.replay;
-      if (connection.replay) term.resize(connection.cols, connection.rows);
-      // Publish the ID before waiting output handlers resume.
-      this.id = connection.id;
-      return connection.id;
-    });
+    started = this.sdk.pty
+      .connect(
+        {
+          cols: term.cols,
+          rows: term.rows,
+          startIfStopped,
+        },
+        receive,
+      )
+      .then((connection) => {
+        if (this.disposed || this.term !== term) return undefined;
+        if (history) {
+          // Render saved text as text: never replay control sequences from disk.
+          const safe = history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
+          term.write(
+            new TextEncoder().encode(
+              safe.replace(/\n/g, '\r\n') +
+                '\r\n--- Previous terminal history; new process below ---\r\n',
+            ),
+          );
+        }
+        if (!connection) return undefined;
+        this.replaying = connection.replay;
+        if (connection.replay) term.resize(connection.cols, connection.rows);
+        // Publish the ID before waiting output handlers resume.
+        this.id = connection.id;
+        return connection.id;
+      });
     try {
       await started;
       if (this.disposed || this.id === undefined) return;
-      const status = await invoke<ProcessStatus>('status', { id: this.id });
+      const status = await this.sdk.pty.status(this.id);
       if (this.disposed || this.term !== term) return;
       this.changed(status);
       fitVisible();
@@ -343,7 +335,7 @@ export class TerminalFrontend {
       budget -= line.length + 1;
     }
     const text = lines.reverse().join('\n').trimEnd();
-    this.historySave = invoke<void>('save_terminal_history', { tabId: this.tabId, id, text });
+    this.historySave = this.sdk.pty.saveHistory(id, text);
     try {
       await this.historySave;
     } finally {
@@ -353,7 +345,8 @@ export class TerminalFrontend {
 
   private poll(id: number) {
     this.timer = setTimeout(() => {
-      void invoke<ProcessStatus>('status', { id })
+      void this.sdk.pty
+        .status(id)
         .then((status) => {
           if (this.id !== id) return;
           this.changed(status);
@@ -386,7 +379,7 @@ export class TerminalFrontend {
       .then(async () => {
         if (this.id !== id) return;
         for (let i = 0; i < bytes.length; i += 8192) {
-          await invoke('input', { id, bytes: Array.from(bytes.subarray(i, i + 8192)) });
+          await this.sdk.pty.input(id, Array.from(bytes.subarray(i, i + 8192)));
         }
       })
       .catch(this.error)
@@ -397,7 +390,7 @@ export class TerminalFrontend {
 
   async copy() {
     const text = this.term?.getSelection();
-    if (text) await writeText(text);
+    if (text) await this.sdk.desktop.writeText(text);
   }
 
   async paste() {
@@ -406,9 +399,7 @@ export class TerminalFrontend {
     if (!term || id === undefined || this.replaying || this.pasting) return;
     this.pasting = true;
     try {
-      const result = await invoke<{ kind: 'text'; text: string } | { kind: 'image' }>(
-        'terminal_clipboard',
-      );
+      const result = await this.sdk.desktop.clipboard();
       if (this.term !== term || this.id !== id || this.replaying || this.disposed) return;
       if (result.kind === 'image') this.send('\x16');
       else term.paste(result.text);
@@ -432,7 +423,7 @@ export class TerminalFrontend {
 
   async close() {
     if (this.id === undefined) return;
-    await invoke('close_terminal_session', { id: this.id, confirmed: true });
+    await this.sdk.pty.close(this.id);
     this.id = undefined;
     clearTimeout(this.timer);
     this.changed(null);

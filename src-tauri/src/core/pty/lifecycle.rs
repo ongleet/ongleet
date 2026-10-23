@@ -11,7 +11,7 @@ impl SessionRegistry {
         output: Channel<Output>,
         start_if_stopped: bool,
     ) -> Result<Option<Attachment>, String> {
-        self.plugin_tab(tab_id, "terminal")?;
+        self.runtime_tab(tab_id)?;
         if let Some(session) = self.terminals.get(&tab_id) {
             return session.attach(output).map(Some);
         }
@@ -52,7 +52,7 @@ impl SessionRegistry {
             return Err("Open this tab definition before starting it".into());
         }
         let tab = session.tabs.iter().find(|t| t.id == tab_id).unwrap();
-        if tab.kind != "terminal" {
+        if !crate::plugins::has_runtime(&tab.kind) {
             return Err("This tab is not a terminal".into());
         }
         crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
@@ -221,6 +221,7 @@ impl SessionRegistry {
         }
         let plugin_tabs: Vec<_> = self.plugin_jobs.keys().copied().collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
+        self.sdk_attachments.clear();
         // Persist the last running set before killing processes for app exit.
         // Explicit Stop and tab close clear the flag through their own paths.
         let mut exited = Vec::new();

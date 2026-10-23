@@ -1,3 +1,4 @@
+import { useSdk } from '../../sdk';
 import { useEffect, useRef, useState } from 'react';
 import { TerminalFrontend, type ProcessStatus } from './frontend';
 import type { PluginTab } from '../types';
@@ -14,6 +15,7 @@ export function TerminalContent({
   reportStatus: (id: number, status: ProcessStatus | null) => void;
   markRestoring: (delta: number) => void;
 }) {
+  const sdk = useSdk();
   const host = useRef<HTMLDivElement>(null);
   const frontend = useRef<TerminalFrontend | null>(null);
   const [error, setError] = useState('');
@@ -29,6 +31,7 @@ export function TerminalContent({
         reportStatus(tab.id, status);
       },
       report,
+      sdk,
     );
     frontend.current = terminal;
     // Reconnect live/exited sessions after a WebView reload. Only eligible

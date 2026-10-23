@@ -3,34 +3,6 @@ pub mod editor;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
-pub struct Config {
-    pub folder: Option<String>,
-    pub editor_file: Option<String>,
-}
-impl Config {
-    pub fn validate(&self) -> Result<(), String> {
-        for (name, path) in [("folder", &self.folder), ("editor file", &self.editor_file)] {
-            if path
-                .as_ref()
-                .is_some_and(|p| p.len() > 8192 || p.contains('\0') || !Path::new(p).is_absolute())
-            {
-                return Err(format!(
-                    "File browser {name} must be an absolute path (up to 8192 bytes)"
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-pub fn initialize(config: serde_json::Value, directory: &str) -> Result<serde_json::Value, String> {
-    let mut config: Config = serde_json::from_value(config).map_err(|e| e.to_string())?;
-    if config.folder.is_none() {
-        config.folder = Some(directory.into());
-    }
-    serde_json::to_value(config).map_err(|e| e.to_string())
-}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
@@ -74,11 +46,9 @@ pub fn list(
     if query.len() > 8192 {
         return Err("Search exceeds 8192-byte limit".into());
     }
-    Config {
-        folder: Some(folder.into()),
-        ..Default::default()
+    if folder.len() > 8192 || folder.contains('\0') || !Path::new(folder).is_absolute() {
+        return Err("Expected an absolute folder path (up to 8192 bytes)".into());
     }
-    .validate()?;
     if offset > 1_000_000 {
         return Err("Directory page offset exceeds limit".into());
     }

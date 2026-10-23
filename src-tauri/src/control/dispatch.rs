@@ -34,7 +34,7 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
             }
             serde_json::to_value(status).map_err(|e| failed(e.to_string()))?
         } else {
-            json!({"state": if tab.kind != "terminal" { "open" } else if tab.resume_on_start { "starting" } else { "stopped" }})
+            json!({"state": if !crate::plugins::has_runtime(&tab.kind) { "open" } else if tab.resume_on_start { "starting" } else { "stopped" }})
         };
         tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status}));
     }
@@ -192,7 +192,7 @@ pub fn handle(
                 None
             } else {
                 Some(
-                    crate::plugins::pull_request::Association::parse(target.trim(), number)
+                    crate::core::pull_request_compat::Association::parse(target.trim(), number)
                         .map_err(|e| RpcError::new("invalid_argument", e))?,
                 )
             };
