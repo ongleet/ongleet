@@ -1,7 +1,7 @@
 use super::{valid_name, validate_directory, SessionRegistry, Snapshot};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: u64,

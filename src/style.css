@@ -816,3 +816,40 @@ dialog[aria-label='Project editor'] > [role='status'] {
   font-size: 12px;
   color: #9cabbf;
 }
+
+.archives-dialog {
+  width: min(1000px, 95vw);
+  max-height: 85dvh;
+  overflow: auto;
+}
+.archives-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.archives-heading h2 {
+  margin: 0;
+}
+.archives-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+.archives-table th,
+.archives-table td {
+  padding: 10px 8px;
+  text-align: left;
+  border-bottom: 1px solid #303a48;
+  overflow-wrap: anywhere;
+}
+.archives-table small {
+  display: block;
+  color: #9cabbf;
+  margin-top: 4px;
+}
+.archive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

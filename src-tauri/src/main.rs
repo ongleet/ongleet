@@ -359,6 +359,70 @@ async fn close_terminal_session(
 }
 
 #[tauri::command]
+fn archives(state: State<AppRegistry>) -> Result<session::archives::ArchiveList, String> {
+    Ok(state.0.lock().map_err(|e| e.to_string())?.archives())
+}
+#[tauri::command]
+async fn archive_tab(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    confirmed: bool,
+) -> Result<Snapshot, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .delete_tab(id, confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn restore_archive(state: State<'_, AppRegistry>, id: u64) -> Result<Snapshot, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .restore_archive(id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn purge_archive(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    confirmed: bool,
+) -> Result<Snapshot, String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .purge_archive(id, confirmed)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn prune_archives(state: State<'_, AppRegistry>, confirmed: bool) -> Result<usize, String> {
+    if !confirmed {
+        return Err("Explicit confirmation is required to prune archives".into());
+    }
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .purge_expired_archives(session::archives::now()?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn sessions(state: State<AppRegistry>) -> Result<Snapshot, String> {
     Ok(state.0.lock().map_err(|e| e.to_string())?.snapshot())
 }
@@ -597,6 +661,11 @@ fn run() -> Result<(), String> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            archives,
+            archive_tab,
+            restore_archive,
+            purge_archive,
+            prune_archives,
             create_project,
             update_project,
             fold_project,

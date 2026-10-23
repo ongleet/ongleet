@@ -60,7 +60,7 @@ def run(args):
             'webkitgtk:browserOptions': {'binary': str(Path(args.application).resolve())}
         }}}, session=False)
         client.session = result['sessionId']
-        native.wait_for(lambda: client.js("return !!document.querySelector('.files-browser')"), 'restored Files tab')
+        native.wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), 'restored application')
 
     with (directory / 'driver.log').open('w') as log:
         driver = subprocess.Popen([args.driver, '--host=127.0.0.1', f'--port={port}'], env=env,
@@ -184,6 +184,68 @@ def run(args):
             client.click("//button[normalize-space()='Keep browsing']", 'xpath')
             native.wait_for(lambda: client.js("return !document.querySelector('.files-browser [role=alert]')"), 'missing-file recovery')
             mark('missing restored file reports an error without recreation and allows browsing')
+            # Closing a GUI tab now archives its definition, retaining the editor path.
+            second.write_text('Archive saved contents\n')
+            client.click('.files-refresh')
+            client.click("//button[.//span[text()='resume.txt']]", 'xpath')
+            native.wait_for(lambda: client.js("return !!document.querySelector('.cm-content')"), 'editor for archive')
+            client.click("button[aria-label='Close Files']")
+            native.wait_for(lambda: not any(t['id'] == tab for row in client.invoke('sessions')['sessions'] for t in row['tabs']), 'tab archived')
+            archives = client.invoke('archives')['entries']
+            assert len(archives) == 1 and archives[0]['kind'] == 'tab'
+            archive_id = archives[0]['id']
+            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Restore']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=Archives]').innerText.includes('No archives.')"), 'archive restored')
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Close']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Archive saved contents')"), 'restored editor')
+            assert second.read_text() == 'Archive saved contents\n'
+            mark('GUI tab archive restores its stable ID, folder and open editor without changing files')
+            client.click("[aria-label='Actions for Editor test']")
+            client.click("//button[normalize-space()='Archive session']", 'xpath')
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", 'xpath')
+            native.wait_for(lambda: not client.invoke('sessions')['sessions'], 'session archived')
+            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Restore']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=Archives]').innerText.includes('No archives.')"), 'session restored')
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Close']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Archive saved contents')"), 'session editor restored')
+            assert client.invoke('sessions')['sessions'][0]['id'] == session['id']
+            mark('GUI session archive and restore retains the original session and plugin state')
+            # Permanent deletion is separately confirmed and never deletes working files.
+            client.click("button[aria-label='Close Files']")
+            native.wait_for(lambda: client.invoke('archives')['entries'], 'second tab archive')
+            newest = client.invoke('archives')['entries'][0]['id']
+            assert newest > archive_id
+            if args.cli:
+                def cli(*arguments):
+                    result = subprocess.run([str(Path(args.cli).resolve()), '--json', *arguments], env=env, text=True, capture_output=True, timeout=10)
+                    return result, json.loads(result.stdout if result.returncode == 0 else result.stderr)
+                result, response = cli('archive', 'list')
+                assert result.returncode == 0 and response['data']['entries'][0]['id'] == newest
+                result, response = cli('archive', 'purge', str(newest))
+                assert result.returncode == 5 and response['error']['code'] == 'confirmation_required'
+                result, response = cli('archive', 'restore', '999999999')
+                assert result.returncode == 4 and response['error']['code'] == 'not_found'
+                mark('real private socket CLI lists archives and rejects unconfirmed or missing targets')
+            try:
+                client.invoke('purge_archive', {'id': newest, 'confirmed': False})
+            except RuntimeError as error:
+                assert 'confirmation' in str(error).lower()
+            else:
+                raise AssertionError('Unconfirmed archive purge was accepted')
+            restart()
+            assert client.invoke('archives')['entries'][0]['id'] == newest
+            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Delete permanently']", 'xpath')
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", 'xpath')
+            assert client.invoke('archives')['entries'][0]['id'] == newest
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Delete permanently']", 'xpath')
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", 'xpath')
+            native.wait_for(lambda: not client.invoke('archives')['entries'], 'permanent archive deletion')
+            assert second.read_text() == 'Archive saved contents\n'
+            client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Close']", 'xpath')
+            mark('archives survive restart, require confirmation for permanent deletion and preserve working files')
             (directory / 'success.png').write_bytes(base64.b64decode(client.request('GET', '/screenshot')))
         except Exception as error:
             report['error'] = str(error)
@@ -227,4 +289,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--driver', required=True)
     parser.add_argument('--application', required=True)
+    parser.add_argument('--cli')
     run(parser.parse_args())

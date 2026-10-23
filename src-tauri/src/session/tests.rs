@@ -390,6 +390,16 @@ fn sibling_ptys_survive_tab_changes_and_session_close_preflights_all_sessions() 
     registry.close(session, true).unwrap();
     assert!(registry.terminals.is_empty());
     assert!(registry.sessions.is_empty());
+    // Archival preserves observed running flags, without resurrecting PTYs in Rust.
+    let tab_archive = registry.archives[0].id;
+    let session_archive = registry.archives[1].id;
+    registry.restore_archive(session_archive).unwrap();
+    registry.restore_archive(tab_archive).unwrap();
+    assert!(registry.sessions[0]
+        .tabs
+        .iter()
+        .all(|tab| tab.resume_on_start));
+    assert!(registry.terminals.is_empty());
     assert!(directory.0.is_dir());
 }
 

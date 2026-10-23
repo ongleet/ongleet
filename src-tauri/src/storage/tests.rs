@@ -56,7 +56,7 @@ fn version_two_rename_preserves_metadata_and_reopens() {
             .connection
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        5
+        6
     );
     assert_eq!(
         store
@@ -241,7 +241,7 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
                 .connection
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            5
+            6
         );
         store.save(&metadata).unwrap();
         drop(store);
@@ -253,4 +253,37 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
         drop(reopened);
         std::fs::remove_dir_all(directory).unwrap();
     }
+}
+
+#[test]
+fn archive_migration_failure_rolls_back_and_keeps_existing_metadata() {
+    let directory =
+        std::env::temp_dir().join(format!("metadata-archive-migration-{}", std::process::id()));
+    let store = MetadataStore::open(&directory).unwrap();
+    store.connection.execute_batch("DROP TABLE archives; DROP TABLE archive_state; CREATE TABLE archives(conflicting_column TEXT); PRAGMA user_version=5;").unwrap();
+    drop(store);
+    assert!(MetadataStore::open(&directory).is_err());
+    let db = Connection::open(directory.join("workspaces.sqlite3")).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM pragma_table_info('archive_state')",
+            [],
+            |row| row.get::<_, u32>(0)
+        )
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM app_state", [], |row| row
+            .get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    drop(db);
+    std::fs::remove_dir_all(directory).unwrap();
 }

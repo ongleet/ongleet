@@ -86,7 +86,7 @@ fn parse_with_context(
         (resource, verb),
         (
             "tab",
-            "select" | "rename" | "reorder" | "open" | "close" | "delete" | "configure"
+            "select" | "rename" | "reorder" | "open" | "close" | "delete" | "archive" | "configure"
         ) | (
             "session",
             "rename"
@@ -95,6 +95,7 @@ fn parse_with_context(
                 | "reorder"
                 | "select"
                 | "close"
+                | "archive"
                 | "config"
                 | "configure"
                 | "pull-request"
@@ -103,6 +104,7 @@ fn parse_with_context(
             "rename" | "directory" | "fold" | "unfold" | "close" | "config" | "configure"
         )
     );
+    let needs_id = needs_id || matches!((resource, verb), ("archive", "restore" | "purge"));
     let mut offset = 2;
     let id = if needs_id {
         let id = positive(args.get(2).ok_or_else(|| invalid("Missing target ID"))?)?;
@@ -144,11 +146,14 @@ fn parse_with_context(
     if confirmed
         && !matches!(
             (resource, verb),
-            ("session", "close") | ("tab", "close" | "delete") | ("app", "quit")
+            ("session", "close" | "archive")
+                | ("tab", "close" | "delete" | "archive")
+                | ("archive", "purge" | "prune")
+                | ("app", "quit")
         )
     {
         return Err(invalid(
-            "--confirm applies only to tab close/delete, session close or app quit",
+            "--confirm applies only to tab close/delete/archive, session close/archive, archive purge/prune or app quit",
         ));
     }
     let context = match (resource, verb) {
@@ -235,7 +240,11 @@ fn parse_with_context(
                 .map_err(|_| invalid("Position must be a nonnegative integer"))?,
         },
         ("session", "select") => Command::SessionSelect { id },
-        ("session", "close") => Command::SessionClose { id, confirmed },
+        ("archive", "list") => Command::ArchiveList,
+        ("archive", "restore") => Command::ArchiveRestore { id },
+        ("archive", "purge") => Command::ArchivePurge { id, confirmed },
+        ("archive", "prune") => Command::ArchivePrune { confirmed },
+        ("session", "close" | "archive") => Command::SessionClose { id, confirmed },
         ("tab", "types") => Command::TabTypes,
         ("tab", "actions") => Command::TabActions {
             session_id: positive(&take("--session")?)?,
@@ -268,7 +277,7 @@ fn parse_with_context(
         },
         ("tab", "open") => Command::TabOpen { id },
         ("tab", "close") => Command::TabClose { id, confirmed },
-        ("tab", "delete") => Command::TabDelete { id, confirmed },
+        ("tab", "delete" | "archive") => Command::TabDelete { id, confirmed },
         ("tab", "configure") => Command::TabConfigure {
             id,
             config: serde_json::from_str(&take("--config")?)

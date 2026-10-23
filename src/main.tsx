@@ -8,6 +8,7 @@ import { allowEditorClose, fileEditors } from './plugins/files/editor-guards';
 import { TabHost, flushPlugins, plugins } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
+import { ArchivesDialog } from './ArchivesDialog';
 import { ProjectEditor } from './ProjectEditor';
 import './style.css';
 
@@ -409,7 +410,7 @@ function SessionPane({
                 disabled={disabled}
                 tabIndex={tab.id === active?.id ? 0 : -1}
                 aria-label={`Close ${tab.name}`}
-                title="Close tab"
+                title="Close and archive tab for 30 days"
                 onClick={() => closeTab(tab)}
               >
                 ×
@@ -449,6 +450,7 @@ function SessionPane({
 }
 
 function App() {
+  const [showArchives, setShowArchives] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     message: string;
     resolve: (value: boolean) => void;
@@ -648,7 +650,7 @@ function App() {
           const hasSessions = session.tabs.some((tab) => statuses[tab.id]?.state === 'running');
           if (
             !(await confirm(
-              `Delete session “${session.name}” and its saved tab definitions?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`,
+              `Archive session “${session.name}” and its saved tab definitions for 30 days?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`,
             ))
           )
             return;
@@ -700,10 +702,12 @@ function App() {
               const confirmed = statuses[tab.id]?.state === 'running';
               if (
                 confirmed &&
-                !(await confirm(`Close “${tab.name}” and terminate its session and jobs?`))
+                !(await confirm(
+                  `Archive “${tab.name}” for 30 days and terminate its session and jobs?`,
+                ))
               )
                 return;
-              void mutate('close_tab', { id: tab.id, confirmed }).then((closed) => {
+              void mutate('archive_tab', { id: tab.id, confirmed }).then((closed) => {
                 if (closed)
                   setStatuses((previous) => {
                     const next = { ...previous };
@@ -716,11 +720,21 @@ function App() {
         ))}
         <footer>
           <span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span>
+          <button disabled={!ready || disabled} onClick={() => setShowArchives(true)}>
+            Archives
+          </button>
           <button disabled={!ready || disabled || restoring > 0} onClick={() => void quit()}>
             Quit
           </button>
         </footer>
       </div>
+      {showArchives && (
+        <ArchivesDialog
+          dismiss={() => setShowArchives(false)}
+          changed={refresh}
+          confirm={confirm}
+        />
+      )}
       {confirmation && (
         <ConfirmationDialog
           message={confirmation.message}

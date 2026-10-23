@@ -40,6 +40,19 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
+    ArchiveList,
+    ArchiveRestore {
+        id: u64,
+    },
+    ArchivePurge {
+        id: u64,
+        #[serde(default)]
+        confirmed: bool,
+    },
+    ArchivePrune {
+        #[serde(default)]
+        confirmed: bool,
+    },
     SessionList,
     SessionConfig {
         id: u64,

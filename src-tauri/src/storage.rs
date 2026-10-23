@@ -16,6 +16,8 @@ use std::{
 
 #[derive(Clone)]
 pub struct Metadata {
+    pub archives: Vec<crate::session::archives::Archive>,
+    pub archive_sequence: u64,
     pub project_sequence: u64,
     pub snapshot: Snapshot,
     pub session_sequence: u64,
@@ -71,7 +73,7 @@ impl MetadataStore {
         let version: u32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 5 {
+        if version > 6 {
             return Err(format!(
                 "Unsupported session database schema version {version}; the database was not reset"
             ));
@@ -163,6 +165,15 @@ impl MetadataStore {
             .map_err(|e| format!("Session PR migration failed: {e}"))?;
             transaction.commit().map_err(|e| e.to_string())?;
         }
+        if version < 6 {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            transaction
+                .execute_batch(include_str!("../migrations/006_archives.sql"))
+                .map_err(|e| format!("Archive migration failed: {e}"))?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             connection,
             _lock: lock,
@@ -237,7 +248,35 @@ impl MetadataStore {
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
             }
+            let archive_sequence = self.connection.query_row(
+                "SELECT sequence FROM archive_state WHERE singleton=1",
+                [],
+                |row| read_id(row, 0),
+            )?;
+            let mut statement = self
+                .connection
+                .prepare("SELECT id,payload_json FROM archives ORDER BY id")?;
+            let archives = statement
+                .query_map([], |row| {
+                    let id = read_id(row, 0)?;
+                    let payload: String = row.get(1)?;
+                    let archive: crate::session::archives::Archive = serde_json::from_str(&payload)
+                        .map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                1,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })?;
+                    if archive.id != id || id > archive_sequence || archive.version != 1 {
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                    Ok(archive)
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(Metadata {
+                archives,
+                archive_sequence,
                 project_sequence,
                 snapshot: Snapshot {
                     projects,
@@ -317,6 +356,19 @@ impl MetadataStore {
                 }
             }
             transaction.execute("UPDATE app_state SET selected_session_id=?1,session_sequence=?2,tab_sequence=?3,project_sequence=?4 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.session_sequence)?,sql_id(metadata.tab_sequence)?,sql_id(metadata.project_sequence)?])?;
+            transaction.execute("DELETE FROM archives", [])?;
+            for archive in &metadata.archives {
+                let json = serde_json::to_string(archive)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                transaction.execute(
+                    "INSERT INTO archives VALUES (?1,?2)",
+                    params![sql_id(archive.id)?, json],
+                )?;
+            }
+            transaction.execute(
+                "UPDATE archive_state SET sequence=?1 WHERE singleton=1",
+                [sql_id(metadata.archive_sequence)?],
+            )?;
             transaction.commit()
         })();
         result.map_err(|e| format!("Cannot save session metadata: {e}"))

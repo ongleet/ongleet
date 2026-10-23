@@ -298,7 +298,7 @@ fn help_is_progressive_and_keeps_automation_details_in_their_own_topic() {
     assert!(create.lines().count() <= 20);
 
     let delete = help(&["tab", "delete", "--help"]);
-    assert!(delete.contains("Permanently remove"));
+    assert!(delete.contains("Archive a tab definition for 30 days"));
     assert!(delete.contains("require --confirm"));
 
     let automation = help(&["automation", "--help"]);
@@ -417,4 +417,49 @@ fn configuration_commands_preserve_file_content_and_require_explicit_targets() {
     let encoded = serde_json::to_vec(&request).unwrap();
     assert!(encoded.len() < crate::control::protocol::REQUEST_LIMIT);
     assert!(serde_json::from_slice::<crate::control::protocol::Request>(&encoded).is_ok());
+}
+
+#[test]
+fn archive_commands_expose_recovery_and_require_confirmation_for_permanent_removal() {
+    assert!(matches!(
+        parse(args(&["session", "archive", "7", "--confirm"])).unwrap(),
+        Invocation::Request(Command::SessionClose {
+            id: 7,
+            confirmed: true
+        })
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "archive", "8"])).unwrap(),
+        Invocation::Request(Command::TabDelete {
+            id: 8,
+            confirmed: false
+        })
+    ));
+    assert!(matches!(
+        parse(args(&["archive", "list"])).unwrap(),
+        Invocation::Request(Command::ArchiveList)
+    ));
+    assert!(matches!(
+        parse(args(&["archive", "restore", "9"])).unwrap(),
+        Invocation::Request(Command::ArchiveRestore { id: 9 })
+    ));
+    assert!(matches!(
+        parse(args(&["archive", "purge", "9", "--confirm"])).unwrap(),
+        Invocation::Request(Command::ArchivePurge {
+            id: 9,
+            confirmed: true
+        })
+    ));
+    assert!(matches!(
+        parse(args(&["archive", "prune", "--confirm"])).unwrap(),
+        Invocation::Request(Command::ArchivePrune { confirmed: true })
+    ));
+    assert!(parse(args(&["archive", "purge"])).is_err());
+    assert!(parse(args(&["archive", "restore", "9", "--confirm"])).is_err());
+    assert!(parse(args(&["archive", "restore", "9", "--session", "10"])).is_err());
+    let Invocation::Help(help) = parse(args(&["archive", "purge", "--help"])).unwrap() else {
+        panic!()
+    };
+    assert!(help.contains("--confirm"));
+    assert!(help.contains("Working") || help.contains("working"));
 }

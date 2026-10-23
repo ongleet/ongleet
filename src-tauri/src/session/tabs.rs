@@ -210,7 +210,20 @@ impl SessionRegistry {
     }
 
     pub fn delete_tab(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+        self.run_archive_maintenance();
+        let mut parent = self.tab_session_mut(id)?.clone();
+        let mut tab = parent.tabs.iter().find(|tab| tab.id == id).unwrap().clone();
+        self.capture_restart_flags(std::slice::from_mut(&mut tab));
+        let project = self.project(parent.project_id)?.clone();
+        parent.tabs.clear();
+        parent.selected_tab_id = None;
+        let archive = self.prepare_archive(super::archives::ArchivedItem::Tab {
+            session: parent,
+            project,
+            tab,
+        })?;
         self.close_tab_state(id, confirmed)?;
+        self.record_archive(archive);
         let session = self.tab_session_mut(id)?;
         session.tabs.retain(|tab| tab.id != id);
         for (order, tab) in session.tabs.iter_mut().enumerate() {

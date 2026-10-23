@@ -1,8 +1,9 @@
 use crate::storage::{Metadata, MetadataStore};
 use crate::terminal_session::{Status, TerminalSession};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod archives;
 mod history;
 mod projects;
 mod tabs;
@@ -10,7 +11,7 @@ mod tabs;
 mod terminals;
 pub use projects::Project;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     pub pull_request: Option<crate::plugins::pull_request::Association>,
@@ -25,7 +26,7 @@ pub struct Session {
 
 pub use crate::plugins::terminal::TabConfig;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginTab {
     pub config_version: u32,
@@ -38,7 +39,7 @@ pub struct PluginTab {
     pub config: serde_json::Value,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub projects: Vec<Project>,
@@ -56,6 +57,9 @@ pub struct SessionRegistry {
     sessions: Vec<Session>,
     store: Option<MetadataStore>,
     last_saved: Option<Metadata>,
+    archives: Vec<archives::Archive>,
+    next_archive_id: u64,
+    archive_cleanup_error: Option<String>,
     selected_id: Option<u64>,
     next_id: u64,
     next_terminal_id: u64,
@@ -73,7 +77,7 @@ impl SessionRegistry {
     pub fn open(directory: &std::path::Path) -> Result<Self, String> {
         let store = MetadataStore::open(directory)?;
         let metadata = store.load()?;
-        Ok(Self {
+        let mut registry = Self {
             data_directory: Some(directory.to_path_buf()),
             projects: metadata.snapshot.projects.clone(),
             next_project_id: metadata.project_sequence,
@@ -82,17 +86,24 @@ impl SessionRegistry {
             next_id: metadata.session_sequence,
             next_tab_id: metadata.tab_sequence,
             store: Some(store),
+            archives: metadata.archives.clone(),
+            next_archive_id: metadata.archive_sequence,
+            archive_cleanup_error: None,
             last_saved: Some(metadata),
             actions_directory: None,
             next_terminal_id: 0,
             terminals: HashMap::new(),
             plugin_jobs: HashMap::new(),
-        })
+        };
+        registry.run_archive_maintenance();
+        Ok(registry)
     }
 
     fn persist(&mut self) -> Result<Snapshot, String> {
         let metadata = Metadata {
             snapshot: self.snapshot(),
+            archives: self.archives.clone(),
+            archive_sequence: self.next_archive_id,
             project_sequence: self.next_project_id,
             session_sequence: self.next_id,
             tab_sequence: self.next_tab_id,
@@ -106,6 +117,8 @@ impl SessionRegistry {
                     self.selected_id = previous.snapshot.selected_id;
                     self.next_id = previous.session_sequence;
                     self.next_tab_id = previous.tab_sequence;
+                    self.archives = previous.archives.clone();
+                    self.next_archive_id = previous.archive_sequence;
                 }
                 return Err(error);
             }
@@ -258,11 +271,19 @@ impl SessionRegistry {
     }
 
     pub fn close(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+        self.run_archive_maintenance();
         let index = self
             .sessions
             .iter()
             .position(|w| w.id == id)
             .ok_or("Session is unavailable")?;
+        let mut archived_session = self.sessions[index].clone();
+        self.capture_restart_flags(&mut archived_session.tabs);
+        let archived_project = self.project(archived_session.project_id)?.clone();
+        let archive = self.prepare_archive(archives::ArchivedItem::Session {
+            session: archived_session,
+            project: archived_project,
+        })?;
         let session_ids: Vec<_> = self.sessions[index]
             .tabs
             .iter()
@@ -287,6 +308,7 @@ impl SessionRegistry {
         let plugin_tabs: Vec<_> = self.sessions[index].tabs.iter().map(|t| t.id).collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
         self.sessions.remove(index);
+        self.record_archive(archive);
         self.normalize_order();
         if self.selected_id == Some(id) {
             self.selected_id = self

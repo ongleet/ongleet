@@ -574,7 +574,7 @@ export function SessionSidebar({
                 remove(menuSession);
               }}
             >
-              Delete session
+              Archive session
             </button>
           </div>,
           document.body,

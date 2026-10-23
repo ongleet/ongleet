@@ -81,6 +81,11 @@ pub fn handle(
     }) {
         return Err(RpcError::new("not_found", "Tab ID is unavailable"));
     }
+    if let Command::ArchiveRestore { id } | Command::ArchivePurge { id, .. } = &command {
+        if !registry.archive_exists(*id) {
+            return Err(RpcError::new("not_found", "Archive ID is unavailable"));
+        }
+    }
     let mut changed = false;
     let mut effect = Effect::None;
     let data = match command {
@@ -111,6 +116,38 @@ pub fn handle(
                 .store(true, std::sync::atomic::Ordering::Release);
             effect = Effect::Quit;
             json!({"quitting":true})
+        }
+        Command::ArchiveList => {
+            serde_json::to_value(registry.archives()).map_err(|error| failed(error.to_string()))?
+        }
+        Command::ArchiveRestore { id } => {
+            registry.restore_archive(id).map_err(failed)?;
+            changed = true;
+            json!({"id":id,"restored":true})
+        }
+        Command::ArchivePurge { id, confirmed } => {
+            if !confirmed {
+                return Err(RpcError::new(
+                    "confirmation_required",
+                    "Permanent archive deletion requires --confirm",
+                ));
+            }
+            registry.purge_archive(id, true).map_err(failed)?;
+            changed = true;
+            json!({"id":id,"purged":true})
+        }
+        Command::ArchivePrune { confirmed } => {
+            if !confirmed {
+                return Err(RpcError::new(
+                    "confirmation_required",
+                    "Archive pruning requires --confirm",
+                ));
+            }
+            let count = registry
+                .purge_expired_archives(crate::session::archives::now().map_err(failed)?)
+                .map_err(failed)?;
+            changed = true;
+            json!({"purged":count})
         }
         Command::SessionConfig { id } => {
             serde_json::to_value(session(&snapshot, id)?).map_err(|e| failed(e.to_string()))?

@@ -2,6 +2,12 @@ use super::{invalid, RpcError};
 
 // Keep usage and effects together so every command has useful scoped help.
 const COMMANDS: &[(&str, &str, &str)] = &[
+    ("archive", "list", "List archived sessions/tabs with archive IDs, expiry times and pending-cleanup errors. Retention is 30 days from archival, not from last use."),
+    ("archive", "restore ID", "Restore saved IDs, plugin configuration and opening state. Previously running terminals may launch fresh commands when a frontend connects. Restore an archived parent session before its separately archived tabs. Working directories/files are never created or restored."),
+    ("archive", "purge ID --confirm", "Permanently delete this archive and its DevCenter terminal history/Codex mappings. Requires --confirm. Never deletes working files or Codex's own conversations."),
+    ("archive", "prune --confirm", "Permanently purge archives aged at least 30 days and retry pending cleanup. Also runs automatically at startup and when archiving. Requires --confirm for explicit CLI invocation."),
+    ("session", "archive ID [--confirm]", "Archive this session and its tabs for 30 days. Stop running processes with --confirm. Equivalent to session close; working files remain untouched."),
+    ("tab", "archive ID [--confirm]", "Archive a tab definition for 30 days. Stop running processes with --confirm. Equivalent to tab delete; tab close only closes the opening."),
     ("tab", "types", "Describe built-in plugin types, configuration schemas, defaults, constraints and valid JSON examples."),
     ("tab", "actions [--session ID]", "List available tab actions for this session with action IDs, plugin kinds, versions and copied configuration. Excludes external commands and unavailable plugins."),
     ("tab", "list [--session ID]", "List all plugin tab definitions, copied configuration, openings, observed status and restart eligibility."),
@@ -11,7 +17,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("tab", "reorder ID --position INDEX", "Move an open tab to a zero-based position."),
     ("tab", "open ID", "Reopen a saved definition. Terminal tabs launch their saved command anew."),
     ("tab", "close ID [--confirm]", "Close a plugin tab, retaining its definition. Running terminals require --confirm."),
-    ("tab", "delete ID [--confirm]", "Permanently remove a tab definition and close its opening. Running terminals require --confirm. Session directories and retained history files are preserved."),
+    ("tab", "delete ID [--confirm]", "Archive a tab definition for 30 days and close its opening. Running terminals require --confirm. Restore with archive restore; expired archives and their DevCenter artifacts are purged. Working files remain untouched."),
     ("tab", "configure ID --config JSON", "Validate and replace plugin-specific configuration. Running terminals retain their original launch settings."),
     ("session", "config ID", "Read complete saved session metadata, including project, directory, linked pull request and tab definitions. Use tab list for observed runtime status."),
     ("session", "configure ID [--name NAME] [--directory PATH] [--project ID]", "Update one or more session properties in one metadata transaction. At least one option is required. Directories must exist; running terminals and saved tab configurations stay unchanged."),
@@ -23,7 +29,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("session", "move ID --project ID", "Move a session to another project, preserving its directory and live terminals."),
     ("session", "reorder ID --position INDEX", "Move a session to a zero-based position within its project's session list."),
     ("session", "select ID", "Select a session in the interface, preserving live terminals. Use app show separately to reveal a hidden window."),
-    ("session", "close ID [--confirm]", "Delete session and tab metadata. Running processes require --confirm and are immediately killed, including contained descendants. The session directory is never deleted. This is not a window-hide operation."),
+    ("session", "close ID [--confirm]", "Archive session and tab metadata for 30 days. Running processes require --confirm and are immediately killed, including contained descendants. The session directory is never deleted. This is not a window-hide operation."),
     ("project", "config ID", "Read project metadata and its complete actions YAML, including common env overrides. JSON output contains data.project and data.yaml. Existing malformed YAML can be read for repair."),
     ("project", "configure ID --file PATH", "Validate and atomically replace the project's complete actions YAML from a UTF-8 file (maximum 64 KiB). Includes actions and common env settings. Existing tab definitions and running processes keep their configuration; no action is executed. Use project rename/directory for project properties."),
     ("project", "list", "List projects with stable IDs, names, rootDirectory, displayOrder and collapsed state."),
@@ -88,7 +94,7 @@ EXIT CODES
 pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
     if scope.is_empty() {
         return Ok(String::from(
-            "devcenter [--json] <resource> <command> [options]\n\nRESOURCES\n  tab         Manage plugin tabs\n  session     Manage sessions\n  project     Manage projects\n  app         Control the application\n\nHELP\n  devcenter tab --help                 List tab commands\n  devcenter tab create --help          Command usage and effects\n  devcenter automation --help          JSON, errors and exit codes\n  -h is an alias for --help.\n",
+            "devcenter [--json] <resource> <command> [options]\n\nRESOURCES\n  tab         Manage plugin tabs\n  session     Manage sessions\n  project     Manage projects\n  app         Control the application\n  archive     Restore or purge archives\n\nHELP\n  devcenter tab --help                 List tab commands\n  devcenter tab create --help          Command usage and effects\n  devcenter automation --help          JSON, errors and exit codes\n  -h is an alias for --help.\n",
         ));
     }
     if scope == ["automation"] {
