@@ -382,3 +382,64 @@ fn external_actions_resolve_context_without_tabs_and_default_skips_commands() {
         .is_err());
     assert_eq!(registry.sessions.len(), 1);
 }
+
+#[test]
+fn session_configuration_and_pr_association_persist_without_opening_tabs() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let other_root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let project = registry.projects[0].id;
+    let id = registry
+        .create_in_project(project, "Original".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let before = serde_json::to_value(registry.snapshot()).unwrap();
+    assert!(registry
+        .update_in_project(
+            id,
+            project,
+            "Changed".into(),
+            root.0.join("missing").to_string_lossy().into()
+        )
+        .is_err());
+    assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), before);
+    let next = registry
+        .create_project("Other".into(), other_root.path())
+        .unwrap();
+    let other = next.projects.last().unwrap().id;
+    let tabs = serde_json::to_value(&registry.sessions[0].tabs).unwrap();
+    registry
+        .update_in_project(id, other, "Updated".into(), other_root.path())
+        .unwrap();
+    let association = crate::plugins::pull_request::Association::parse(
+        "https://github.com/owner/repository/pull/42",
+        None,
+    )
+    .unwrap();
+    registry
+        .associate_session_pull_request(id, Some(association))
+        .unwrap();
+    assert!(registry.terminals.is_empty());
+    assert_eq!(
+        serde_json::to_value(&registry.sessions[0].tabs).unwrap(),
+        tabs
+    );
+    drop(registry);
+    let mut restored = SessionRegistry::open(&data.0).unwrap();
+    let session = &restored.sessions[0];
+    assert_eq!(session.name, "Updated");
+    assert_eq!(session.project_id, other);
+    assert_eq!(session.base_directory, other_root.path());
+    assert_eq!(session.pull_request.as_ref().unwrap().number, 42);
+    assert!(restored
+        .associate_session_pull_request(u64::MAX, None)
+        .is_err());
+    restored.associate_session_pull_request(id, None).unwrap();
+    drop(restored);
+    assert!(SessionRegistry::open(&data.0).unwrap().sessions[0]
+        .pull_request
+        .is_none());
+    assert!(!root.0.join("missing").exists());
+}

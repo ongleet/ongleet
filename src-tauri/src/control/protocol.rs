@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const VERSION: u32 = 2;
-pub const REQUEST_LIMIT: usize = 16 * 1024;
+pub const REQUEST_LIMIT: usize = 128 * 1024;
 pub const RESPONSE_LIMIT: usize = 1024 * 1024;
 
 #[derive(Debug, Serialize)]
@@ -41,6 +41,20 @@ pub enum Command {
         confirmed: bool,
     },
     SessionList,
+    SessionConfig {
+        id: u64,
+    },
+    SessionConfigure {
+        id: u64,
+        name: Option<String>,
+        directory: Option<String>,
+        project_id: Option<u64>,
+    },
+    SessionPullRequest {
+        id: u64,
+        target: String,
+        number: Option<u64>,
+    },
     SessionCreate {
         project_id: u64,
         name: String,
@@ -115,6 +129,13 @@ pub enum Command {
         config: Value,
     },
     ProjectList,
+    ProjectConfig {
+        id: u64,
+    },
+    ProjectConfigure {
+        id: u64,
+        yaml: String,
+    },
     ProjectCreate {
         name: String,
         root: String,

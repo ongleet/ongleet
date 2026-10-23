@@ -89,10 +89,18 @@ fn parse_with_context(
             "select" | "rename" | "reorder" | "open" | "close" | "delete" | "configure"
         ) | (
             "session",
-            "rename" | "directory" | "move" | "reorder" | "select" | "close"
+            "rename"
+                | "directory"
+                | "move"
+                | "reorder"
+                | "select"
+                | "close"
+                | "config"
+                | "configure"
+                | "pull-request"
         ) | (
             "project",
-            "rename" | "directory" | "fold" | "unfold" | "close"
+            "rename" | "directory" | "fold" | "unfold" | "close" | "config" | "configure"
         )
     );
     let mut offset = 2;
@@ -167,6 +175,32 @@ fn parse_with_context(
             .ok_or_else(|| invalid(format!("Required option: {key}")))
     };
     let command = match (resource, verb) {
+        ("session", "config") => Command::SessionConfig { id },
+        ("session", "configure") => {
+            let name = options.remove("--name");
+            let directory = options.remove("--directory").map(absolute).transpose()?;
+            let project_id = options
+                .remove("--project")
+                .map(|v| positive(&v))
+                .transpose()?;
+            if name.is_none() && directory.is_none() && project_id.is_none() {
+                return Err(invalid("Supply --name, --directory or --project"));
+            }
+            Command::SessionConfigure {
+                id,
+                name,
+                directory,
+                project_id,
+            }
+        }
+        ("session", "pull-request") => Command::SessionPullRequest {
+            id,
+            target: take("--target")?,
+            number: options
+                .remove("--number")
+                .map(|v| positive(&v))
+                .transpose()?,
+        },
         ("session", "list") => Command::SessionList,
         ("session", "create") => {
             let project_id = positive(&take("--project")?)?;
@@ -240,6 +274,21 @@ fn parse_with_context(
             config: serde_json::from_str(&take("--config")?)
                 .map_err(|e| invalid(format!("Invalid JSON configuration: {e}")))?,
         },
+        ("project", "config") => Command::ProjectConfig { id },
+        ("project", "configure") => {
+            use std::io::Read;
+            let path = take("--file")?;
+            let mut yaml = String::new();
+            std::fs::File::open(&path)
+                .map_err(|e| invalid(format!("Cannot read {path}: {e}")))?
+                .take(64 * 1024 + 1)
+                .read_to_string(&mut yaml)
+                .map_err(|e| invalid(format!("Cannot read {path}: {e}")))?;
+            if yaml.len() > 64 * 1024 {
+                return Err(invalid("Configuration exceeds 64 KiB"));
+            }
+            Command::ProjectConfigure { id, yaml }
+        }
         ("project", "list") => Command::ProjectList,
         ("project", "create") => Command::ProjectCreate {
             name: take("--name")?,

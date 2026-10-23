@@ -67,7 +67,10 @@ pub fn call(path: &Path, command: Command) -> Result<Response, RpcError> {
     })
     .map_err(|e| RpcError::new("invalid_argument", e.to_string()))?;
     if bytes.len() > REQUEST_LIMIT {
-        return Err(RpcError::new("request_too_large", "Request exceeds 16 KiB"));
+        return Err(RpcError::new(
+            "request_too_large",
+            "Request exceeds 128 KiB",
+        ));
     }
     let mut stream = UnixStream::connect(path).map_err(|e| {
         RpcError::new(

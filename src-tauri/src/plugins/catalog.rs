@@ -49,7 +49,7 @@ pub fn catalog() -> Value {
         "configuration": {
             "mode": "replace",
             "description": "config is the plugin object itself, without a kind/configVersion wrapper. Unknown fields are rejected. Omitted fields use plugin defaults; this is not a patch.",
-            "limits": {"pluginConfigBytes": 65536, "socketRequestBytes": 16384},
+            "limits": {"pluginConfigBytes": 65536, "socketRequestBytes": crate::control::protocol::REQUEST_LIMIT},
             "notes": ["The complete encoded request must fit below the socket request limit.",
                 "tab create --config replaces the action configuration before the first launch, including its explicit environment overrides.",
                 "External command actions are not tab types and are excluded from tab actions."]

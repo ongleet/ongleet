@@ -195,6 +195,8 @@ fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+const DEVCENTER_INSTRUCTIONS: &str = "You are launched through dcodex, the DevCenter Codex wrapper. DevCenter is a Linux terminal application organized into projects, sessions and tabs. A DevCenter session may contain multiple terminal or other plugin tabs; it is distinct from your Codex conversation. Read DEVCENTER_SESSION_ID, DEVCENTER_PROJECT_ID and DEVCENTER_TAB_ID from the environment for your launch context when available; this context does not follow later project moves or GUI selection changes. The devcenter CLI can inspect and manage the running application: start with devcenter --help, then resource or command --help. Use --json for structured output. Inspect configuration with project config ID or session config ID; project configure ID --file PATH saves actions/env YAML, session configure ID updates properties, and session pull-request ID sets or clears the linked PR. Discover options with command --help. Tab list/actions/create default to the launch session, and session create defaults to the launch project; explicit --session/--project override these defaults. The CLI requires a running app and does not start it automatically. Use it only as needed for the user's task; closing your own tab or session or quitting the app can terminate your process. Wait for the user's task before taking action.";
+
 fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
     let command = format!("{} {RECORD_FLAG}", quote(hook));
     // JSON strings are also valid TOML basic strings for these ASCII commands.
@@ -206,6 +208,11 @@ fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
         "--dangerously-bypass-hook-trust".into(),
         "-c".into(),
         "features.hooks=true".into(),
+        "-c".into(),
+        format!(
+            "developer_instructions={}",
+            serde_json::to_string(DEVCENTER_INSTRUCTIONS).unwrap()
+        ),
     ];
     for event in ["SessionStart", "UserPromptSubmit"] {
         args.extend([

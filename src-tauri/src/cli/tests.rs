@@ -362,3 +362,59 @@ fn output_mode_applies_to_errors_without_changing_exit_codes() {
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"]["code"], "confirmation_required");
 }
+
+#[test]
+fn configuration_commands_preserve_file_content_and_require_explicit_targets() {
+    let path =
+        std::env::temp_dir().join(format!("devcenter-cli-config-{}.yaml", std::process::id()));
+    let yaml = "# Keep comments\nenv:\n  VALUE: 'literal $value'\nactions: []\n";
+    std::fs::write(&path, yaml).unwrap();
+    let path_arg = path.to_str().unwrap();
+    let parsed = parse(args(&["project", "configure", "9", "--file", path_arg])).unwrap();
+    assert!(
+        matches!(parsed, Invocation::Request(Command::ProjectConfigure { id: 9, yaml: text }) if text == yaml)
+    );
+    std::fs::write(&path, vec![b'x'; 65537]).unwrap();
+    assert!(parse(args(&["project", "configure", "9", "--file", path_arg])).is_err());
+    std::fs::remove_file(&path).unwrap();
+    assert!(parse(args(&["project", "configure", "9", "--file", path_arg])).is_err());
+    assert!(
+        matches!(parse(args(&["session", "configure", "12", "--name", "New name", "--project", "3"])).unwrap(),
+        Invocation::Request(Command::SessionConfigure { id: 12, name: Some(name), directory: None, project_id: Some(3) }) if name == "New name")
+    );
+    assert!(
+        matches!(parse(args(&["session", "pull-request", "12", "--target", "none"])).unwrap(),
+        Invocation::Request(Command::SessionPullRequest { id: 12, target, number: None }) if target == "none")
+    );
+    for values in [
+        vec!["session", "configure", "12"],
+        vec!["session", "configure", "12", "--project", "0"],
+        vec!["project", "configure", "9"],
+        vec![
+            "session",
+            "pull-request",
+            "12",
+            "--target",
+            "org/repo",
+            "--number",
+            "0",
+        ],
+        vec!["session", "config"],
+        vec!["project", "config"],
+    ] {
+        assert!(
+            super::parse_with_context(args(&values), Some("12"), Some("9")).is_err(),
+            "{values:?}"
+        );
+    }
+    let request = crate::control::protocol::Request {
+        version: crate::control::protocol::VERSION,
+        command: Command::ProjectConfigure {
+            id: 9,
+            yaml: "#\n".repeat(32768),
+        },
+    };
+    let encoded = serde_json::to_vec(&request).unwrap();
+    assert!(encoded.len() < crate::control::protocol::REQUEST_LIMIT);
+    assert!(serde_json::from_slice::<crate::control::protocol::Request>(&encoded).is_ok());
+}

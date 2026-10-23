@@ -39,7 +39,7 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
         tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status}));
     }
     Ok(
-        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"runningTerminals":running,"tabs":tabs}),
+        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"runningTerminals":running,"tabs":tabs}),
     )
 }
 
@@ -111,6 +111,59 @@ pub fn handle(
                 .store(true, std::sync::atomic::Ordering::Release);
             effect = Effect::Quit;
             json!({"quitting":true})
+        }
+        Command::SessionConfig { id } => {
+            serde_json::to_value(session(&snapshot, id)?).map_err(|e| failed(e.to_string()))?
+        }
+        Command::SessionConfigure {
+            id,
+            name,
+            directory,
+            project_id,
+        } => {
+            if name.is_none() && directory.is_none() && project_id.is_none() {
+                return Err(RpcError::new(
+                    "invalid_argument",
+                    "Supply a name, directory or project",
+                ));
+            }
+            let old = session(&snapshot, id)?;
+            let project_id = project_id.unwrap_or(old.project_id);
+            if !snapshot.projects.iter().any(|p| p.id == project_id) {
+                return Err(RpcError::new("not_found", "Project ID is unavailable"));
+            }
+            let next = registry
+                .update_in_project(
+                    id,
+                    project_id,
+                    name.unwrap_or(old.name),
+                    directory.unwrap_or(old.base_directory),
+                )
+                .map_err(failed)?;
+            changed = true;
+            serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
+        }
+        Command::SessionPullRequest { id, target, number } => {
+            session(&snapshot, id)?;
+            let association = if target == "none" {
+                if number.is_some() {
+                    return Err(RpcError::new(
+                        "invalid_argument",
+                        "--number cannot accompany --target none",
+                    ));
+                }
+                None
+            } else {
+                Some(
+                    crate::plugins::pull_request::Association::parse(target.trim(), number)
+                        .map_err(|e| RpcError::new("invalid_argument", e))?,
+                )
+            };
+            let next = registry
+                .associate_session_pull_request(id, association)
+                .map_err(failed)?;
+            changed = true;
+            serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
         }
         Command::SessionList => {
             let mut list = Vec::new();
@@ -296,6 +349,23 @@ pub fn handle(
             } else {
                 registry.close_tab(id, confirmed).map_err(failed)?;
             }
+            changed = true;
+            json!({"id": id})
+        }
+        Command::ProjectConfig { id } => {
+            let project = registry
+                .project(id)
+                .map_err(|_| RpcError::new("not_found", "Project ID is unavailable"))?;
+            let directory = crate::control::paths::config_directory().map_err(failed)?;
+            let yaml = crate::actions::read_project_yaml(&directory, id).map_err(failed)?;
+            json!({"project": project, "yaml": yaml})
+        }
+        Command::ProjectConfigure { id, yaml } => {
+            registry
+                .project(id)
+                .map_err(|_| RpcError::new("not_found", "Project ID is unavailable"))?;
+            let directory = crate::control::paths::config_directory().map_err(failed)?;
+            crate::actions::save_project_yaml(&directory, id, &yaml).map_err(failed)?;
             changed = true;
             json!({"id": id})
         }

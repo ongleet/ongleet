@@ -344,12 +344,22 @@ impl SessionRegistry {
         association: Option<crate::plugins::pull_request::Association>,
     ) -> Result<Snapshot, String> {
         self.plugin_tab(tab_id, "pull-request")?;
+        let session_id = self.tab_session_mut(tab_id)?.id;
+        self.associate_session_pull_request(session_id, association)
+    }
+    pub fn associate_session_pull_request(
+        &mut self,
+        session_id: u64,
+        association: Option<crate::plugins::pull_request::Association>,
+    ) -> Result<Snapshot, String> {
         if let Some(association) = &association {
             association.validate()?;
         }
-        let session_id = self.tab_session_mut(tab_id)?.id;
         let tabs: Vec<_> = self
-            .tab_session_mut(tab_id)?
+            .sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .ok_or("Session is unavailable")?
             .tabs
             .iter()
             .map(|t| t.id)
