@@ -21,4 +21,6 @@ assert.equal(load(), retry);
 assert.equal(await retry, engine);
 assert.equal(await load(), engine);
 assert.equal(requests, 2, 'A successful engine must remain shared across subsequent tabs');
-console.log('PASS: failed engine loads can retry, concurrent loads are shared, successful engine is retained');
+console.log(
+  'PASS: failed engine loads can retry, concurrent loads are shared, successful engine is retained',
+);

@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
@@ -26,6 +28,7 @@
     "@tauri-apps/cli": "^2.10.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "prettier": "3.9.10",
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   }

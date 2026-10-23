@@ -67,13 +67,11 @@ An engine-level regression reproduced closed-terminal cells appearing in a new h
 
 For reference, the user-requested t3code checkout was inspected at revision `d27c6067a9162150f654e38f455a7a936ef79178`. Its [custom Ghostty core](https://github.com/pingdotgg/t3code/blob/d27c6067a9162150f654e38f455a7a936ef79178/apps/web/src/terminal/ghostty/core.ts) resets before replay and temporarily detaches the PTY reply writer; its [browser surface](https://github.com/pingdotgg/t3code/blob/d27c6067a9162150f654e38f455a7a936ef79178/apps/web/src/terminal/ghostty/surface.ts) separates fitting/input/rendering and guards stale asynchronous callbacks. Its [output cursor](https://github.com/pingdotgg/t3code/blob/d27c6067a9162150f654e38f455a7a936ef79178/packages/client-runtime/src/state/terminalOutput.ts) distinguishes generations, resets and append offsets. These are design references only; no implementation, WASM artifact, Electron dependency or orchestration feature was copied. Our pinned ghostty-web stack and bounded Rust byte/ACK transport remain in use.
 
-
 ## External action boundary
 
 Project actions accept `kind: terminal` or `kind: command`. The latter prepares launch context from current registry metadata and common/action environment overrides, without creating a tab/session or changing SQLite. `actions/external.rs` expands a fixed set of session/project placeholders once, preserving literal argument boundaries; it never implicitly evaluates a command string. Shell-command mode receives reserved context environment variables instead of interpolated shell source. Creation skips command actions when choosing its initial terminal.
 
 External launches use standard process spawning, null stdio and a new session, with at most 64 outstanding direct-child waiter threads. Each child is reaped and its exit reported to a connected frontend. They intentionally remain outside PTY cgroup ownership, terminal running counts, restart policy and session/Quit termination: desktop apps can outlive this app and may delegate to an existing desktop service. This is an explicit separate ownership contract, not daemon or background-task orchestration. Neither output nor external process metadata is persisted.
-
 
 ## DevCenter naming and paths
 
@@ -85,13 +83,11 @@ Before opening SQLite, GUI startup serializes legacy directory migration and che
 
 `src/terminal-links.ts` retains only bounded OSC 8 URL metadata while passing every original output byte to Ghostty. The existing engine supplies hyperlink cell IDs, cursor positions, wrapping and scrollback; its public `getHyperlinkUri` stub is adapted to look up retained URLs. URL metadata is limited to 8 KiB per OSC, 4,096 IDs and 4 Mi code units overall. Reconnection reconstructs it from the existing bounded replay journal; RIS clears stale metadata. The browser link detector then resolves labeled OSC 8 links and plain URLs against the same Ghostty buffer. Ctrl-click uses native GIO URI dispatch with HTTP(S)/local-file scheme restrictions, rather than WebKit `window.open`. Native validation uses a private registered URI handler so it never opens the user's browser.
 
-
 ## Persistent terminal text
 
 The existing Ghostty buffer supplies up to 2,000 lines and approximately 60,000 UTF-16 code units for a text snapshot. Rust validates the runtime/tab association and 256 KiB wire/storage limit, then atomically replaces a private per-session/tab file on a blocking worker. Saves occur at most once per second on output, on EOF and before GUI Quit; abrupt termination and CLI Quit may omit the latest output. No second emulator or ANSI stripping is used to derive text.
 
 A new runtime retains its original saved prefix independently of subsequent disk snapshots. Reattachment restores that same prefix before replaying the current runtime journal, avoiding duplicate current-process history. Disk text has terminal control characters removed before display; restored text cannot activate terminal modes or issue queries. Snapshots do not restore colors, modes or processes; terminal clear commands and alternate screens retain their usual behavior. A saved full-screen buffer is text from that active screen, not a transcript of everything the program displayed.
-
 
 ## Built-in plugin boundary
 

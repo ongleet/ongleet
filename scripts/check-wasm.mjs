@@ -1,26 +1,37 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Ghostty } from 'ghostty-web';
-import { consumeOutput, initializeTerminal, SCROLLBACK_LINES, MAX_OUTPUT_CHUNK } from '../src/byte-transport.ts';
+import {
+  consumeOutput,
+  initializeTerminal,
+  SCROLLBACK_LINES,
+  MAX_OUTPUT_CHUNK,
+} from '../src/byte-transport.ts';
 
 // Exercise the production byte adapter against the actual pinned WASM, not a
 // simulated terminal. This does not certify rendering or WebKitGTK input.
 // The published browser bundle stubs filesystem imports. Use fetch's data URL
 // path with the exact installed bytes; the app fetches Vite's emitted asset.
-const wasm = await readFile(new URL('../node_modules/ghostty-web/ghostty-vt.wasm', import.meta.url));
+const wasm = await readFile(
+  new URL('../node_modules/ghostty-web/ghostty-vt.wasm', import.meta.url),
+);
 const ghostty = await Ghostty.load(`data:application/wasm;base64,${wasm.toString('base64')}`);
 const terminal = ghostty.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
 const encoder = new TextEncoder();
 function write(text, split = false) {
   const bytes = encoder.encode(text);
   if (split) for (const byte of bytes) consumeOutput(terminal, [byte]);
-  else for (let start = 0; start < bytes.length; start += MAX_OUTPUT_CHUNK) {
-    consumeOutput(terminal, Array.from(bytes.subarray(start, start + MAX_OUTPUT_CHUNK)));
-  }
+  else
+    for (let start = 0; start < bytes.length; start += MAX_OUTPUT_CHUNK) {
+      consumeOutput(terminal, Array.from(bytes.subarray(start, start + MAX_OUTPUT_CHUNK)));
+    }
 }
 function line(row) {
-  return (terminal.getLine(row) ?? []).filter(cell => cell.width !== 0)
-    .map(cell => cell.codepoint ? String.fromCodePoint(cell.codepoint) : ' ').join('').trimEnd();
+  return (terminal.getLine(row) ?? [])
+    .filter((cell) => cell.width !== 0)
+    .map((cell) => (cell.codepoint ? String.fromCodePoint(cell.codepoint) : ' '))
+    .join('')
+    .trimEnd();
 }
 
 try {
@@ -39,10 +50,15 @@ try {
   assert.ok(terminal.readResponse()?.endsWith('R'));
   assert.throws(() => consumeOutput(terminal, new Array(MAX_OUTPUT_CHUNK + 1).fill(65)), /limit/);
   for (let batch = 0; batch < 100; batch++) write('bounded output\r\n'.repeat(1000));
-  assert.ok(terminal.getScrollbackLength() <= SCROLLBACK_LINES, `Scrollback grew to ${terminal.getScrollbackLength()}`);
+  assert.ok(
+    terminal.getScrollbackLength() <= SCROLLBACK_LINES,
+    `Scrollback grew to ${terminal.getScrollbackLength()}`,
+  );
   terminal.resize(100, 32);
   assert.deepEqual(terminal.getDimensions(), { cols: 100, rows: 32 });
-  console.log('PASS: actual Ghostty WASM + byte adapter: split UTF-8/VT, alternate screen restoration, modes, DSR response, chunk rejection, 100,000 output lines, bounded scrollback, resize');
+  console.log(
+    'PASS: actual Ghostty WASM + byte adapter: split UTF-8/VT, alternate screen restoration, modes, DSR response, chunk rejection, 100,000 output lines, bounded scrollback, resize',
+  );
 } finally {
   terminal.free();
 }
@@ -50,7 +66,9 @@ try {
 // Reload rebuilds the existing engine from a bounded native byte/resize journal.
 // Check the screen and modes, including split UTF-8 and alternate-screen state.
 const live = ghostty.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
-const reloadedEngine = await Ghostty.load(`data:application/wasm;base64,${wasm.toString('base64')}`);
+const reloadedEngine = await Ghostty.load(
+  `data:application/wasm;base64,${wasm.toString('base64')}`,
+);
 const reloaded = reloadedEngine.createTerminal(80, 24, { scrollbackLimit: SCROLLBACK_LINES });
 initializeTerminal(live);
 initializeTerminal(reloaded);
@@ -76,7 +94,8 @@ function assertSameScreen() {
 try {
   recordText('before reload: café 日本語 🙂\r\n');
   recordText('\x1b[?1049h\x1b[?2004h\x1b[?1000h\x1b[?1006hCodex-like alternate screen');
-  live.resize(100, 32); journal.push({ cols: 100, rows: 32 });
+  live.resize(100, 32);
+  journal.push({ cols: 100, rows: 32 });
   recordText('\r\nsecond line λ é\x1b[6n');
   for (const event of journal) {
     if (event.bytes) consumeOutput(reloaded, event.bytes);
@@ -84,7 +103,13 @@ try {
   }
   assertSameScreen();
   const exitAlternate = Array.from(encoder.encode('\x1b[?1049l'));
-  consumeOutput(live, exitAlternate); consumeOutput(reloaded, exitAlternate);
+  consumeOutput(live, exitAlternate);
+  consumeOutput(reloaded, exitAlternate);
   assertSameScreen();
-  console.log('PASS: reload replay preserves real Ghostty screen, split Unicode, alternate/normal buffers, modes and dimensions');
-} finally { live.free(); reloaded.free(); }
+  console.log(
+    'PASS: reload replay preserves real Ghostty screen, split Unicode, alternate/normal buffers, modes and dimensions',
+  );
+} finally {
+  live.free();
+  reloaded.free();
+}

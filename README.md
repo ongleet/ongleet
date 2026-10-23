@@ -78,14 +78,14 @@ Tabs use trusted plugins bundled into the application. Adding a plugin requires 
 Add **Files** or **Pull request** through Edit project → Actions, choose its action type and save. The same configuration can be added to the project's YAML `actions` list:
 
 ```yaml
-  - id: files
-    name: Files
-    kind: files
-    config: {}
-  - id: pr
-    name: Pull request
-    kind: pull-request
-    config: {}
+- id: files
+  name: Files
+  kind: files
+  config: {}
+- id: pr
+  name: Pull request
+  kind: pull-request
+  config: {}
 ```
 
 `configVersion` defaults to 1. Action changes affect newly created definitions; existing definitions keep their copied configuration. New sessions still require and start their first configured terminal action. Closing a tab retains its definition; the CLI can reopen it with `devcenter tab open ID`. See `devcenter tab --help` for generic list/create/configure/rename/select/order/close operations. Raw terminal input and screen CLI operations remain deferred.
@@ -165,18 +165,18 @@ External commands launch without a PTY or application tab. They inherit the desk
 Example entries in a project's `actions` list:
 
 ```yaml
-  - id: vscode
-    name: Open in VS Code
-    kind: command
-    config:
-      executable: code
-      args: ["--new-window", "{{session.path}}"]
-  - id: desktop-terminal
-    name: Open external terminal
-    kind: command
-    config:
-      executable: gnome-terminal
-      args: ["--working-directory={{session.path}}"]
+- id: vscode
+  name: Open in VS Code
+  kind: command
+  config:
+    executable: code
+    args: ['--new-window', '{{session.path}}']
+- id: desktop-terminal
+  name: Open external terminal
+  kind: command
+  config:
+    executable: gnome-terminal
+    args: ['--working-directory={{session.path}}']
 ```
 
 Choose an installed executable and its supported arguments. These examples are opt-in; Bash and Codex remain the shipped defaults. Direct executable mode passes argument arrays without shell evaluation. External action executable, arguments, directory override and environment values support `{{session.path}}`, `{{session.name}}`, `{{session.id}}`, `{{project.path}}`, `{{project.name}}`, and `{{project.id}}`. Values come from current session metadata at launch, not a shell's current directory. Substitution is a single literal pass, preserving spaces, Unicode, braces and shell metacharacters inside argument values. Unknown or unclosed placeholders fail the launch. Tilde and arbitrary environment-variable expansion are not supported. Placeholder expansion is currently for external actions only.
@@ -213,10 +213,14 @@ Successes are JSON on stdout (`{"ok":true,"data":...}`); failures are JSON on st
 
 Ordinary commands never start the application. Only `devcenter app start` starts the sibling GUI executable, or use `app start --executable /path/to/devcenter-gui`. Existing instances are reused. It needs the same desktop session, user and XDG data directory as the GUI. The CLI itself runs without a display and never opens SQLite. Session list includes open tab IDs/names/statuses; direct terminal manipulation, text input and output snapshots remain pending.
 
-
 ## Checks
 
+Use `mise exec -- npm run format` to format supported source and documentation
+files with Prettier, and `mise exec -- npm run format:check` to check formatting
+without changing files. Rust formatting remains managed by `cargo fmt`.
+
 ```bash
+mise exec -- npm run format:check
 mise exec -- npm run build
 mise exec -- npm run check:wasm
 mise exec -- npm run check:terminal-reuse

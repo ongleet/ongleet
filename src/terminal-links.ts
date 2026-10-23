@@ -4,7 +4,8 @@ import type { Terminal } from 'ghostty-web';
 // stub. Retain only bounded OSC 8 metadata; Ghostty still parses all VT bytes
 // and remains authoritative for cell positions, wrapping and scrollback.
 export class TerminalLinks {
-  private state: 'ground' | 'escape' | 'csi' | 'osc' | 'oscEscape' | 'string' | 'stringEscape' = 'ground';
+  private state: 'ground' | 'escape' | 'csi' | 'osc' | 'oscEscape' | 'string' | 'stringEscape' =
+    'ground';
   private osc: number[] = [];
   private overflow = false;
   private pendingUri?: string;
@@ -14,8 +15,9 @@ export class TerminalLinks {
   private consume: (bytes: number[]) => void;
 
   constructor(term: Terminal, consume: (bytes: number[]) => void) {
-    this.term = term; this.consume = consume;
-    if (term.wasmTerm) term.wasmTerm.getHyperlinkUri = id => this.uris.get(id) ?? null;
+    this.term = term;
+    this.consume = consume;
+    if (term.wasmTerm) term.wasmTerm.getHyperlinkUri = (id) => this.uris.get(id) ?? null;
   }
 
   write(bytes: number[]) {
@@ -23,7 +25,8 @@ export class TerminalLinks {
     for (let i = 0; i < bytes.length; i++) {
       const byte = bytes[i];
       const engine = this.term.wasmTerm;
-      const bind = this.pendingUri !== undefined && this.state === 'ground' && byte >= 32 && byte !== 127;
+      const bind =
+        this.pendingUri !== undefined && this.state === 'ground' && byte >= 32 && byte !== 127;
       if (bind && engine) {
         if (start < i) this.consume(bytes.slice(start, i));
         const before = engine.getCursor();
@@ -35,7 +38,13 @@ export class TerminalLinks {
         const row = after.x < before.x ? after.y : before.y;
         const col = after.x < before.x ? Math.max(0, after.x - 1) : before.x;
         const printed = engine.getLine(row)?.[col];
-        if (printed?.hyperlink_id && (before.x !== after.x || before.y !== after.y || printed.hyperlink_id !== cell?.hyperlink_id || printed.codepoint !== cell?.codepoint)) {
+        if (
+          printed?.hyperlink_id &&
+          (before.x !== after.x ||
+            before.y !== after.y ||
+            printed.hyperlink_id !== cell?.hyperlink_id ||
+            printed.codepoint !== cell?.codepoint)
+        ) {
           this.remember(printed.hyperlink_id, this.pendingUri!);
           this.pendingUri = undefined;
         }
@@ -43,10 +52,20 @@ export class TerminalLinks {
       if (this.state === 'ground') {
         if (byte === 27) this.state = 'escape';
       } else if (this.state === 'escape') {
-        if (byte === 93) { this.state = 'osc'; this.osc = []; this.overflow = false; }
-        else if (byte === 91) this.state = 'csi';
+        if (byte === 93) {
+          this.state = 'osc';
+          this.osc = [];
+          this.overflow = false;
+        } else if (byte === 91) this.state = 'csi';
         else if ([80, 88, 94, 95].includes(byte)) this.state = 'string';
-        else { if (byte === 99) { this.uris.clear(); this.uriBytes = 0; this.pendingUri = undefined; } this.state = byte === 27 ? 'escape' : 'ground'; }
+        else {
+          if (byte === 99) {
+            this.uris.clear();
+            this.uriBytes = 0;
+            this.pendingUri = undefined;
+          }
+          this.state = byte === 27 ? 'escape' : 'ground';
+        }
       } else if (this.state === 'csi') {
         if (byte >= 64 && byte <= 126) this.state = 'ground';
         else if (byte === 27) this.state = 'escape';
@@ -56,12 +75,15 @@ export class TerminalLinks {
           if (start <= i) this.consume(bytes.slice(start, i + 1));
           start = i + 1;
           if (!this.overflow) this.oscComplete();
-          this.state = 'ground'; this.osc = [];
+          this.state = 'ground';
+          this.osc = [];
         } else if (byte === 24 || byte === 26) {
-          this.state = 'ground'; this.osc = [];
+          this.state = 'ground';
+          this.osc = [];
         } else if (byte === 27) this.state = 'oscEscape';
         else {
-          if (this.osc.length < 8192) this.osc.push(byte); else this.overflow = true;
+          if (this.osc.length < 8192) this.osc.push(byte);
+          else this.overflow = true;
           this.state = 'osc';
         }
       } else if (this.state === 'string') {
@@ -86,8 +108,10 @@ export class TerminalLinks {
     while (this.uris.size >= 4096 || this.uriBytes + uri.length > 4 * 1024 * 1024) {
       const oldest = this.uris.entries().next().value;
       if (!oldest) break;
-      this.uris.delete(oldest[0]); this.uriBytes -= oldest[1].length;
+      this.uris.delete(oldest[0]);
+      this.uriBytes -= oldest[1].length;
     }
-    this.uris.set(id, uri); this.uriBytes += uri.length;
+    this.uris.set(id, uri);
+    this.uriBytes += uri.length;
   }
 }

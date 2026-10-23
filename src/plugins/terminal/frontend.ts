@@ -1,6 +1,13 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
-import { FitAddon, Ghostty, Terminal, LinkDetector, OSC8LinkProvider, UrlRegexProvider } from 'ghostty-web';
+import {
+  FitAddon,
+  Ghostty,
+  Terminal,
+  LinkDetector,
+  OSC8LinkProvider,
+  UrlRegexProvider,
+} from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from '../../byte-transport';
 import { suppressHiddenRendering } from '../../render-visibility';
@@ -11,13 +18,18 @@ import { TerminalLinks } from '../../terminal-links';
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
 export type ProcessStatus = { state: 'running' } | { state: 'exited'; code: number };
-type Output = { type: 'data'; seq: number; bytes: number[] } | { type: 'size'; seq: number; cols: number; rows: number } | { type: 'ready'; seq: number } | { type: 'eof' } | { type: 'error'; message: string };
+type Output =
+  | { type: 'data'; seq: number; bytes: number[] }
+  | { type: 'size'; seq: number; cols: number; rows: number }
+  | { type: 'ready'; seq: number }
+  | { type: 'eof' }
+  | { type: 'error'; message: string };
 
 export class TerminalFrontend {
   private static instances = new Set<TerminalFrontend>();
 
   static async saveAllHistory() {
-    await Promise.all([...this.instances].map(terminal => terminal.saveHistory()));
+    await Promise.all([...this.instances].map((terminal) => terminal.saveHistory()));
   }
 
   private term?: Terminal;
@@ -37,15 +49,26 @@ export class TerminalFrontend {
   private disposed = false;
   private unregisterValidation?: () => void;
 
-  constructor(private host: HTMLElement, private tabId: number, private changed: (status: ProcessStatus | null) => void, private error: (error: unknown) => void) {
+  constructor(
+    private host: HTMLElement,
+    private tabId: number,
+    private changed: (status: ProcessStatus | null) => void,
+    private error: (error: unknown) => void,
+  ) {
     TerminalFrontend.instances.add(this);
     document.addEventListener('visibilitychange', this.visibilityChanged);
     if (import.meta.env.MODE === 'native-validation') {
       void import('../../native-validation').then(({ registerTerminal }) => {
         if (this.disposed) return;
         this.unregisterValidation = registerTerminal(this.tabId, {
-          state: () => ({ sessionId: this.id, replaying: this.replaying, cols: this.term?.cols, rows: this.term?.rows,
-            scrollback: this.term?.wasmTerm?.getScrollbackLength(), alternate: this.term?.wasmTerm?.isAlternateScreen() }),
+          state: () => ({
+            sessionId: this.id,
+            replaying: this.replaying,
+            cols: this.term?.cols,
+            rows: this.term?.rows,
+            scrollback: this.term?.wasmTerm?.getScrollbackLength(),
+            alternate: this.term?.wasmTerm?.isAlternateScreen(),
+          }),
           snapshot: () => this.snapshot(),
           selectAll: () => this.term?.selectAll(),
         });
@@ -58,7 +81,10 @@ export class TerminalFrontend {
   setVisible(visible: boolean) {
     const becameVisible = visible && !this.visible;
     this.visible = visible;
-    if (!visible || document.hidden) { this.term?.blur(); return; }
+    if (!visible || document.hidden) {
+      this.term?.blur();
+      return;
+    }
     if (!this.replaying) this.fitVisible?.();
     const term = this.term;
     if (term?.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
@@ -78,26 +104,52 @@ export class TerminalFrontend {
     }
     if (this.disposed) return;
     this.disposeEmulator();
-    const term = new Terminal({ ghostty, cols: 80, rows: 24, fontSize: 14, scrollback: SCROLLBACK_LINES,
-      theme: { background: '#12161d', foreground: '#dce3ec', cursor: '#a3e6cc', selectionBackground: '#355369' } });
+    const term = new Terminal({
+      ghostty,
+      cols: 80,
+      rows: 24,
+      fontSize: 14,
+      scrollback: SCROLLBACK_LINES,
+      theme: {
+        background: '#12161d',
+        foreground: '#dce3ec',
+        cursor: '#a3e6cc',
+        selectionBackground: '#355369',
+      },
+    });
     this.term = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
-    const terminalLinks = new TerminalLinks(term, bytes => consumeOutput(term, bytes));
-    this.subscriptions.push(attachTerminalMouse(this.host, term, bytes => this.sendBytes(bytes), () => !this.replaying && this.visible && !this.disposed));
+    const terminalLinks = new TerminalLinks(term, (bytes) => consumeOutput(term, bytes));
+    this.subscriptions.push(
+      attachTerminalMouse(
+        this.host,
+        term,
+        (bytes) => this.sendBytes(bytes),
+        () => !this.replaying && this.visible && !this.disposed,
+      ),
+    );
     const redraw = () => {
-      if (term.wasmTerm && this.visible) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
+      if (term.wasmTerm && this.visible)
+        term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
     };
-    this.subscriptions.push(term.onSelectionChange(() => { redraw(); void this.copy().catch(this.error); }));
+    this.subscriptions.push(
+      term.onSelectionChange(() => {
+        redraw();
+        void this.copy().catch(this.error);
+      }),
+    );
     const paste = (event: ClipboardEvent) => {
-      event.preventDefault(); event.stopImmediatePropagation();
+      event.preventDefault();
+      event.stopImmediatePropagation();
       void this.paste().catch(this.error);
     };
     this.host.addEventListener('paste', paste, true);
     const copy = (event: ClipboardEvent) => {
       if (!term.getSelection()) return;
-      event.preventDefault(); event.stopImmediatePropagation();
+      event.preventDefault();
+      event.stopImmediatePropagation();
       void this.copy().catch(this.error);
     };
     this.host.addEventListener('copy', copy, true);
@@ -106,27 +158,45 @@ export class TerminalFrontend {
     links.registerProvider(new UrlRegexProvider(term));
     const click = (event: MouseEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.button !== 0 || this.replaying) return;
-      event.preventDefault(); event.stopImmediatePropagation();
+      event.preventDefault();
+      event.stopImmediatePropagation();
       const canvas = this.host.querySelector('canvas');
       if (!canvas || !term.renderer || !term.wasmTerm) return;
       const rect = canvas.getBoundingClientRect();
       const col = Math.floor((event.clientX - rect.left) / term.renderer.charWidth);
-      const row = term.wasmTerm.getScrollbackLength() - Math.floor(term.viewportY) + Math.floor((event.clientY - rect.top) / term.renderer.charHeight);
+      const row =
+        term.wasmTerm.getScrollbackLength() -
+        Math.floor(term.viewportY) +
+        Math.floor((event.clientY - rect.top) / term.renderer.charHeight);
       links.invalidateCache();
-      void links.getLinkAt(col, row).then(link => {
-        if (link && this.term === term && !this.disposed) return invoke('open_terminal_link', { uri: link.text });
-      }).catch(this.error);
+      void links
+        .getLinkAt(col, row)
+        .then((link) => {
+          if (link && this.term === term && !this.disposed)
+            return invoke('open_terminal_link', { uri: link.text });
+        })
+        .catch(this.error);
     };
     this.host.addEventListener('click', click, true);
-    this.subscriptions.push({ dispose: () => {
-      this.host.removeEventListener('paste', paste, true);
-      this.host.removeEventListener('copy', copy, true);
-      this.host.removeEventListener('click', click, true);
-      links.dispose();
-    } });
-    if (term.renderer) suppressHiddenRendering(term.renderer, () => this.visible && !document.hidden);
+    this.subscriptions.push({
+      dispose: () => {
+        this.host.removeEventListener('paste', paste, true);
+        this.host.removeEventListener('copy', copy, true);
+        this.host.removeEventListener('click', click, true);
+        links.dispose();
+      },
+    });
+    if (term.renderer)
+      suppressHiddenRendering(term.renderer, () => this.visible && !document.hidden);
     const fitVisible = () => {
-      if (!this.replaying && this.visible && !document.hidden && this.host.clientWidth > 0 && this.host.clientHeight > 0) fit.fit();
+      if (
+        !this.replaying &&
+        this.visible &&
+        !document.hidden &&
+        this.host.clientWidth > 0 &&
+        this.host.clientHeight > 0
+      )
+        fit.fit();
     };
     this.fitVisible = fitVisible;
     fitVisible();
@@ -136,16 +206,20 @@ export class TerminalFrontend {
     if (term.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
     this.observer = new ResizeObserver(fitVisible);
     this.observer.observe(this.host);
-    this.subscriptions.push(term.onData(text => this.send(text)));
-    this.subscriptions.push(term.onResize(({ cols, rows }) => {
-      if (this.id !== undefined && !this.replaying) void invoke('resize', { id: this.id, cols, rows }).catch(this.error);
-    }));
+    this.subscriptions.push(term.onData((text) => this.send(text)));
+    this.subscriptions.push(
+      term.onResize(({ cols, rows }) => {
+        if (this.id !== undefined && !this.replaying)
+          void invoke('resize', { id: this.id, cols, rows }).catch(this.error);
+      }),
+    );
     // ghostty-web's custom handler returns true when it handled the event.
-    term.attachCustomKeyEventHandler(event => {
+    term.attachCustomKeyEventHandler((event) => {
       // Codex reads image data from the native clipboard on Ctrl+V. Upstream
       // otherwise lets WebKit swallow this key as a text-only browser paste.
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toUpperCase() === 'V') {
-        this.send('\x16'); return true;
+        this.send('\x16');
+        return true;
       }
       if (event.ctrlKey && event.shiftKey && ['C', 'V'].includes(event.key.toUpperCase())) {
         if (event.key.toUpperCase() === 'C') void this.copy().catch(this.error);
@@ -159,11 +233,16 @@ export class TerminalFrontend {
       await waitForConnection(this.tabId);
       if (this.disposed || this.term !== term) return;
     }
-    const history = await invoke<string>('terminal_history', { tabId: this.tabId }).catch(error => { this.error(error); return ''; });
+    const history = await invoke<string>('terminal_history', { tabId: this.tabId }).catch(
+      (error) => {
+        this.error(error);
+        return '';
+      },
+    );
     if (this.disposed || this.term !== term) return;
     const output = new Channel<Output>();
     let started: Promise<number | undefined>;
-    output.onmessage = event => {
+    output.onmessage = (event) => {
       void (async () => {
         const id = await started;
         if (id === undefined || this.id !== id || this.term !== term || this.disposed) return;
@@ -188,12 +267,23 @@ export class TerminalFrontend {
       })().catch(this.error);
     };
     type Attachment = { id: number; cols: number; rows: number; replay: boolean };
-    started = invoke<Attachment | null>('connect', { tabId: this.tabId, cols: term.cols, rows: term.rows, output, startIfStopped }).then(connection => {
+    started = invoke<Attachment | null>('connect', {
+      tabId: this.tabId,
+      cols: term.cols,
+      rows: term.rows,
+      output,
+      startIfStopped,
+    }).then((connection) => {
       if (this.disposed || this.term !== term) return undefined;
       if (history) {
         // Render saved text as text: never replay control sequences from disk.
         const safe = history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
-        term.write(new TextEncoder().encode(safe.replace(/\n/g, '\r\n') + '\r\n--- Previous terminal history; new process below ---\r\n'));
+        term.write(
+          new TextEncoder().encode(
+            safe.replace(/\n/g, '\r\n') +
+              '\r\n--- Previous terminal history; new process below ---\r\n',
+          ),
+        );
       }
       if (!connection) return undefined;
       this.replaying = connection.replay;
@@ -219,9 +309,16 @@ export class TerminalFrontend {
 
   private scheduleHistory() {
     if (this.historyTimer !== undefined) return;
-    this.historyTimer = setTimeout(() => {
-      void this.saveHistory().catch(this.error).finally(() => { this.historyTimer = undefined; });
-    }, Math.max(0, 1000 - (Date.now() - this.lastHistorySave)));
+    this.historyTimer = setTimeout(
+      () => {
+        void this.saveHistory()
+          .catch(this.error)
+          .finally(() => {
+            this.historyTimer = undefined;
+          });
+      },
+      Math.max(0, 1000 - (Date.now() - this.lastHistorySave)),
+    );
   }
 
   async saveHistory() {
@@ -234,23 +331,35 @@ export class TerminalFrontend {
     const buffer = term.buffer.active;
     const lines: string[] = [];
     let budget = 60000; // At most 240 KiB UTF-8, below the native 256 KiB limit.
-    for (let row = buffer.length - 1; row >= 0 && lines.length < SCROLLBACK_LINES && budget > 0; row--) {
-      const line = (buffer.getLine(row)?.translateToString(true) ?? '').slice(-budget).replace(/^[\uDC00-\uDFFF]/, '');
+    for (
+      let row = buffer.length - 1;
+      row >= 0 && lines.length < SCROLLBACK_LINES && budget > 0;
+      row--
+    ) {
+      const line = (buffer.getLine(row)?.translateToString(true) ?? '')
+        .slice(-budget)
+        .replace(/^[\uDC00-\uDFFF]/, '');
       lines.push(line);
       budget -= line.length + 1;
     }
     const text = lines.reverse().join('\n').trimEnd();
     this.historySave = invoke<void>('save_terminal_history', { tabId: this.tabId, id, text });
-    try { await this.historySave; } finally { this.historySave = undefined; }
+    try {
+      await this.historySave;
+    } finally {
+      this.historySave = undefined;
+    }
   }
 
   private poll(id: number) {
     this.timer = setTimeout(() => {
-      void invoke<ProcessStatus>('status', { id }).then(status => {
-        if (this.id !== id) return;
-        this.changed(status);
-        if (status.state === 'running') this.poll(id);
-      }).catch(this.error);
+      void invoke<ProcessStatus>('status', { id })
+        .then((status) => {
+          if (this.id !== id) return;
+          this.changed(status);
+          if (status.state === 'running') this.poll(id);
+        })
+        .catch(this.error);
     }, 300);
   }
 
@@ -258,21 +367,32 @@ export class TerminalFrontend {
     if (this.id === undefined || this.replaying || this.disposed) return;
     // Count UTF-8 bytes, including bracketed-paste framing. Reject a whole
     // oversized paste instead of silently truncating commands.
-    if (text.length > 65536) { this.error('Input queue limit (64 KiB) exceeded'); return; }
+    if (text.length > 65536) {
+      this.error('Input queue limit (64 KiB) exceeded');
+      return;
+    }
     this.sendBytes(new TextEncoder().encode(text));
   }
 
   private sendBytes(bytes: Uint8Array) {
     if (this.id === undefined || this.replaying || this.disposed) return;
-    if (this.queuedInput + bytes.length > 65536) { this.error('Input queue limit (64 KiB) exceeded'); return; }
+    if (this.queuedInput + bytes.length > 65536) {
+      this.error('Input queue limit (64 KiB) exceeded');
+      return;
+    }
     const id = this.id;
     this.queuedInput += bytes.length;
-    this.inputQueue = this.inputQueue.then(async () => {
-      if (this.id !== id) return;
-      for (let i = 0; i < bytes.length; i += 8192) {
-        await invoke('input', { id, bytes: Array.from(bytes.subarray(i, i + 8192)) });
-      }
-    }).catch(this.error).finally(() => { this.queuedInput -= bytes.length; });
+    this.inputQueue = this.inputQueue
+      .then(async () => {
+        if (this.id !== id) return;
+        for (let i = 0; i < bytes.length; i += 8192) {
+          await invoke('input', { id, bytes: Array.from(bytes.subarray(i, i + 8192)) });
+        }
+      })
+      .catch(this.error)
+      .finally(() => {
+        this.queuedInput -= bytes.length;
+      });
   }
 
   async copy() {
@@ -286,16 +406,21 @@ export class TerminalFrontend {
     if (!term || id === undefined || this.replaying || this.pasting) return;
     this.pasting = true;
     try {
-      const result = await invoke<{ kind: 'text'; text: string } | { kind: 'image' }>('terminal_clipboard');
+      const result = await invoke<{ kind: 'text'; text: string } | { kind: 'image' }>(
+        'terminal_clipboard',
+      );
       if (this.term !== term || this.id !== id || this.replaying || this.disposed) return;
       if (result.kind === 'image') this.send('\x16');
       else term.paste(result.text);
       term.focus();
-    } finally { this.pasting = false; }
+    } finally {
+      this.pasting = false;
+    }
   }
 
   snapshot(): string {
-    if (!this.term || this.id === undefined) throw new Error('Snapshot unavailable: no connected terminal frontend');
+    if (!this.term || this.id === undefined)
+      throw new Error('Snapshot unavailable: no connected terminal frontend');
     // The existing Ghostty buffer is authoritative. No second VT parser.
     const buffer = this.term.buffer.active;
     const lines: string[] = [];
@@ -318,7 +443,7 @@ export class TerminalFrontend {
     clearTimeout(this.historyTimer);
     this.historyTimer = undefined;
     this.observer?.disconnect();
-    this.subscriptions.splice(0).forEach(s => s.dispose());
+    this.subscriptions.splice(0).forEach((s) => s.dispose());
     this.term?.dispose();
     this.term = undefined;
     this.fitVisible = undefined;

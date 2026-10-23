@@ -1,0 +1,10 @@
+# Generated files and dependencies
+node_modules/
+dist/
+target/
+src-tauri/gen/
+.validation/
+package-lock.json
+
+# Local working notes
+*.ignore.md

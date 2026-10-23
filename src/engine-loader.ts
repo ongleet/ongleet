@@ -3,10 +3,12 @@
 export function createEngineLoader<T>(load: () => Promise<T>): () => Promise<T> {
   let pending: Promise<T> | undefined;
   return () => {
-    pending ??= Promise.resolve().then(load).catch(error => {
-      pending = undefined;
-      throw error;
-    });
+    pending ??= Promise.resolve()
+      .then(load)
+      .catch((error) => {
+        pending = undefined;
+        throw error;
+      });
     return pending;
   };
 }
