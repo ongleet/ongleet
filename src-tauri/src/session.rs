@@ -1,95 +1,41 @@
 use crate::storage::{Metadata, MetadataStore};
 use crate::terminal_session::{Status, TerminalSession};
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use serde::Serialize;
+use std::collections::HashMap;
 
 mod history;
 mod projects;
 mod tabs;
+#[path = "plugins/terminal/lifecycle.rs"]
 mod terminals;
 pub use projects::Project;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Session {
+    pub pull_request: Option<crate::plugins::pull_request::Association>,
     pub project_id: u64,
     pub id: u64,
     pub name: String,
     pub base_directory: String,
     pub display_order: usize,
-    pub tabs: Vec<TerminalTab>,
+    pub tabs: Vec<PluginTab>,
     pub selected_tab_id: Option<u64>,
 }
 
-#[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields, rename_all = "camelCase")]
-pub struct TabConfig {
-    pub cwd_override: Option<String>,
-    pub executable: Option<String>,
-    pub args: Vec<String>,
-    pub env: BTreeMap<String, String>,
-    pub shell_command: Option<String>,
-}
-
-impl TabConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        let config = self;
-        if config.shell_command.is_some()
-            && (config.executable.is_some() || !config.args.is_empty())
-        {
-            return Err("Shell-command mode cannot also specify an executable or arguments".into());
-        }
-        if config
-            .cwd_override
-            .as_ref()
-            .is_some_and(|p| !std::path::Path::new(p).is_absolute())
-        {
-            return Err("Working directory override must be absolute".into());
-        }
-        if config
-            .shell_command
-            .as_ref()
-            .is_some_and(|c| c.trim().is_empty())
-        {
-            return Err("Shell command cannot be empty".into());
-        }
-        if config
-            .executable
-            .as_ref()
-            .is_some_and(|e| e.trim().is_empty())
-        {
-            return Err("Executable cannot be empty".into());
-        }
-        if config
-            .env
-            .iter()
-            .any(|(key, value)| key.is_empty() || key.contains(['=', '\0']) || value.contains('\0'))
-        {
-            return Err("Invalid environment override".into());
-        }
-        if config.args.iter().any(|arg| arg.contains('\0'))
-            || config.executable.as_ref().is_some_and(|s| s.contains('\0'))
-            || config
-                .shell_command
-                .as_ref()
-                .is_some_and(|s| s.contains('\0'))
-        {
-            return Err("Commands and arguments cannot contain NUL bytes".into());
-        }
-        Ok(())
-    }
-}
+pub use crate::plugins::terminal::TabConfig;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TerminalTab {
+pub struct PluginTab {
+    pub config_version: u32,
     pub kind: String,
     pub is_open: bool,
     pub resume_on_start: bool,
     pub id: u64,
     pub name: String,
     pub display_order: usize,
-    pub config: TabConfig,
+    pub config: serde_json::Value,
 }
 
 #[derive(Clone, Serialize)]
@@ -116,6 +62,7 @@ pub struct SessionRegistry {
     next_tab_id: u64,
     // Keyed by tab ID, never by navigation selection or session position.
     pub terminals: HashMap<u64, TerminalSession>,
+    pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
 }
 
 impl SessionRegistry {
@@ -126,18 +73,6 @@ impl SessionRegistry {
     pub fn open(directory: &std::path::Path) -> Result<Self, String> {
         let store = MetadataStore::open(directory)?;
         let metadata = store.load()?;
-        if metadata
-            .snapshot
-            .sessions
-            .iter()
-            .flat_map(|w| &w.tabs)
-            .any(|t| t.kind != "terminal")
-        {
-            return Err(
-                "Saved configuration contains an unsupported tab type; database was not reset"
-                    .into(),
-            );
-        }
         Ok(Self {
             data_directory: Some(directory.to_path_buf()),
             projects: metadata.snapshot.projects.clone(),
@@ -148,7 +83,10 @@ impl SessionRegistry {
             next_tab_id: metadata.tab_sequence,
             store: Some(store),
             last_saved: Some(metadata),
-            ..Default::default()
+            actions_directory: None,
+            next_terminal_id: 0,
+            terminals: HashMap::new(),
+            plugin_jobs: HashMap::new(),
         })
     }
 
@@ -200,7 +138,16 @@ impl SessionRegistry {
             .into_iter()
             .find(|action| action.kind == "terminal")
             .ok_or("Project needs a terminal action to initialize a session")?;
-        self.insert_session(group, name, directory, Some((action.name, action.config)))
+        crate::plugins::validate(&action.kind, action.config_version, &action.config)?;
+        self.insert_session(
+            group,
+            name,
+            directory,
+            Some((
+                action.name,
+                serde_json::from_value(action.config).map_err(|e| e.to_string())?,
+            )),
+        )
     }
 
     // Legacy stopped fixtures for restoration and explicit-start integration tests.
@@ -241,6 +188,7 @@ impl SessionRegistry {
         validate_directory(&directory)?;
         self.next_id += 1;
         self.sessions.push(Session {
+            pull_request: None,
             project_id,
             id: self.next_id,
             name,
@@ -336,6 +284,8 @@ impl SessionRegistry {
         for session in session_ids {
             self.terminate_session(session, confirmed)?;
         }
+        let plugin_tabs: Vec<_> = self.sessions[index].tabs.iter().map(|t| t.id).collect();
+        self.cancel_plugin_jobs(&plugin_tabs)?;
         self.sessions.remove(index);
         self.normalize_order();
         if self.selected_id == Some(id) {
@@ -379,3 +329,77 @@ fn validate_directory(directory: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+impl PluginTab {
+    pub fn terminal_config(&self) -> TabConfig {
+        serde_json::from_value(self.config.clone()).unwrap()
+    }
+}
+
+impl SessionRegistry {
+    pub fn associate_pull_request(
+        &mut self,
+        tab_id: u64,
+        association: Option<crate::plugins::pull_request::Association>,
+    ) -> Result<Snapshot, String> {
+        self.plugin_tab(tab_id, "pull-request")?;
+        if let Some(association) = &association {
+            association.validate()?;
+        }
+        let session_id = self.tab_session_mut(tab_id)?.id;
+        let tabs: Vec<_> = self
+            .tab_session_mut(tab_id)?
+            .tabs
+            .iter()
+            .map(|t| t.id)
+            .collect();
+        self.cancel_plugin_jobs(&tabs)?;
+        self.sessions
+            .iter_mut()
+            .find(|s| s.id == session_id)
+            .unwrap()
+            .pull_request = association;
+        self.persist()
+    }
+    pub fn cancel_plugin_work(&mut self, tab: u64) -> Result<(), String> {
+        self.cancel_plugin_jobs(&[tab])
+    }
+    pub fn cancel_plugin_jobs(&mut self, tabs: &[u64]) -> Result<(), String> {
+        use std::{
+            sync::atomic::Ordering,
+            time::{Duration, Instant},
+        };
+        let jobs: Vec<_> = tabs
+            .iter()
+            .filter_map(|id| self.plugin_jobs.get(id).cloned())
+            .collect();
+        for job in &jobs {
+            job.cancel.store(true, Ordering::Release);
+        }
+        // Workers signal completion after subprocess cleanup, before acquiring
+        // this registry lock. Quit must not exit with a live gh subprocess.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while jobs.iter().any(|job| !job.finished.load(Ordering::Acquire)) {
+            if Instant::now() >= deadline {
+                return Err(
+                    "Plugin subprocess cleanup timed out; retry after pending work stops".into(),
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for id in tabs {
+            self.plugin_jobs.remove(id);
+        }
+        Ok(())
+    }
+}
+impl Drop for SessionRegistry {
+    fn drop(&mut self) {
+        for cancel in self.plugin_jobs.values() {
+            cancel
+                .cancel
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}

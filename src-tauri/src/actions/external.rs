@@ -64,12 +64,9 @@ impl SessionRegistry {
             .ok_or("Session is unavailable")?;
         let group = self.project(session.project_id)?;
         let yaml = super::read_project_yaml(directory, group.id)?;
-        let settings = super::parse_config(&yaml)?;
+        let settings = super::parse_project_config(&yaml)?;
         let Action {
-            name,
-            kind,
-            mut config,
-            ..
+            name, kind, config, ..
         } = settings
             .actions
             .into_iter()
@@ -78,6 +75,7 @@ impl SessionRegistry {
         if kind != "command" {
             return Err("This action opens a terminal tab".into());
         }
+        let mut config: TabConfig = serde_json::from_value(config).map_err(|e| e.to_string())?;
         let values = BTreeMap::from([
             ("session.path", session.base_directory.clone()),
             ("session.name", session.name.clone()),

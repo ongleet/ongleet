@@ -20,7 +20,7 @@ DevCenter is a native Linux terminal session application built with Tauri 2, Rea
 5. Add a CLI using a user-private Unix socket.
 6. Package for Ubuntu and document installation and limitations.
 
-Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, Git integration, worktree management, session setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically.
+Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, automatic Git discovery, worktree management, session setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically. Explicit session-linked, read-only GitHub PR status through the authenticated gh CLI is an intentional scope expansion.
 
 ## Terminal invariants
 
@@ -51,12 +51,12 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - SQLite belongs in the standard application user-data directory. Use migrations and transactional updates. Persist selected session and selected tab per session. Never store the inherited environment or add credential storage.
 - Native window close hides the window while the app and PTYs keep running. Repeated launch or --show activates it through a private socket; --show must never start an unavailable app. Keep explicit Quit confirmation and clean up before exiting. Desktop installation remains packaging work.
 - The user changed the original restart policy: automatically launch new processes for tabs that were running before shutdown, or in the last committed running set after a crash. Explicitly stopped/closed tabs and observed exits must not auto-start. Metadata restoration does not restore live processes or screens. Processes do not survive crashes, Quit, or reboot; commands may be launched anew next time. Historical output remains optional.
-- Separate available tab definitions from their openings. Closing a tab preserves its definition; reopening explicitly launches its saved command. Store the definition kind for future nonterminal types, but only terminal tabs are implemented now, with one opening per definition.
+- Separate available tab definitions from their openings. Closing a tab preserves its definition; reopening explicitly launches its saved command. Store the plugin identifier and configuration version/payload with each definition. Built-in terminal, read-only files and session-linked pull-request plugins have one opening per definition.
 - UI and CLI must use the same Rust operations. The CLI must never access SQLite directly. Restrict the Unix socket to the current user; use stable targeting IDs, JSON output, structured errors, and meaningful exit codes. Do not silently start the application when unavailable.
 
 ## Code map
 
-- `src/terminal.ts`: persistent frontend controller, Ghostty integration, input/output attachment, resizing, clipboard, snapshots.
+- `src/plugins/`: built-in plugin registry, generic tab host and plugin-owned content/configuration forms. `terminal/frontend.ts` owns the persistent Ghostty controller, transport attachment, resizing, clipboard and snapshots; `src/terminal.ts` remains a compatibility export.
 - `src/byte-transport.ts`: shared raw-byte adapter and transport limits.
 - `src/render-visibility.ts`: gates the public Ghostty drawing boundary for hidden sessions while VT parsing continues.
 - `src/main.tsx`: prototype React interface.
@@ -69,7 +69,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - `src-tauri/src/control/`: versioned protocol, current-user socket client/paths and GUI dispatcher. `src-tauri/src/cli/` and `bin/devcenter.rs`: headless CLI parsing and JSON/exit-code handling.
 - `scripts/check-lifecycle.py`: isolated X11/XWayland native hide/reopen, activation, Quit and restart checks.
 - `src-tauri/src/session.rs`: registry, transactional metadata and session operations shared by Tauri commands.
-- `src-tauri/src/session/{projects,tabs,terminals}.rs`: group metadata, tab operations and terminal lifecycle integration.
+- `src-tauri/src/session/{projects,tabs}.rs`: project metadata and generic tab operations. `src-tauri/src/plugins/terminal/` contains terminal configuration and registry lifecycle integration; `plugins/files/` and `plugins/pull_request/` contain dedicated filesystem and bounded gh operations.
 - `src-tauri/src/{session,terminal_session,storage,actions}/tests.rs` and `session/tests/projects.rs`: separate Rust behavioral tests.
 - `config/actions.yaml` and `src-tauri/src/actions.rs`: default launch types and per-project `projects/<id>/actions.yaml`, reloaded for New tab and creation. Only the `actions` YAML schema is accepted; no legacy/global-file fallback. Keep config outside project directories; existing openings keep independent SQLite configuration.
 - `src-tauri/src/branding.rs`: legacy config/data directory migration; preserve database sidecars and Codex mappings, reject live writers and destination conflicts.

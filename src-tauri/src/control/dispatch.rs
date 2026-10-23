@@ -34,9 +34,9 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
             }
             serde_json::to_value(status).map_err(|e| failed(e.to_string()))?
         } else {
-            json!({"state": if tab.resume_on_start { "starting" } else { "stopped" }})
+            json!({"state": if tab.kind != "terminal" { "open" } else if tab.resume_on_start { "starting" } else { "stopped" }})
         };
-        tabs.push(json!({"id":tab.id,"name":tab.name,"status":status}));
+        tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status}));
     }
     Ok(
         json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"runningTerminals":running,"tabs":tabs}),
@@ -62,6 +62,24 @@ pub fn handle(
     let shared = &app.state::<AppRegistry>().0;
     let mut registry = shared.lock().map_err(|e| failed(e.to_string()))?;
     let snapshot = registry.snapshot();
+    let tab_id = match &command {
+        Command::TabSelect { id }
+        | Command::TabRename { id, .. }
+        | Command::TabReorder { id, .. }
+        | Command::TabOpen { id }
+        | Command::TabClose { id, .. }
+        | Command::TabConfigure { id, .. } => Some(*id),
+        _ => None,
+    };
+    if tab_id.is_some_and(|id| {
+        !snapshot
+            .sessions
+            .iter()
+            .flat_map(|s| &s.tabs)
+            .any(|t| t.id == id)
+    }) {
+        return Err(RpcError::new("not_found", "Tab ID is unavailable"));
+    }
     let mut changed = false;
     let mut effect = Effect::None;
     let data = match command {
@@ -181,6 +199,71 @@ pub fn handle(
             registry.close(id, confirmed).map_err(failed)?;
             changed = true;
             json!({"closed":id})
+        }
+        Command::TabList { session_id } => json!({"tabs": session(&snapshot, session_id)?.tabs}),
+        Command::TabCreate {
+            session_id,
+            action_id,
+        } => {
+            let session = session(&snapshot, session_id)?;
+            let directory = crate::control::paths::config_directory().map_err(failed)?;
+            let action = crate::actions::load_project(&directory, session.project_id)
+                .map_err(failed)?
+                .into_iter()
+                .find(|a| a.id == action_id)
+                .ok_or_else(|| RpcError::new("not_found", "Action is unavailable"))?;
+            let updated = registry
+                .create_plugin_tab(
+                    session_id,
+                    action.name,
+                    action.kind,
+                    action.config_version,
+                    action.config,
+                )
+                .map_err(failed)?;
+            changed = true;
+            serde_json::to_value(updated).map_err(|e| failed(e.to_string()))?
+        }
+        Command::TabSelect { id } => {
+            registry.select_tab(id).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
+        }
+        Command::TabRename { id, name } => {
+            registry.rename_tab(id, name).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
+        }
+        Command::TabReorder { id, position } => {
+            registry.reorder_tab(id, position).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
+        }
+        Command::TabOpen { id } => {
+            registry.open_tab(id).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
+        }
+        Command::TabConfigure { id, config } => {
+            registry.configure_plugin_tab(id, config).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
+        }
+        Command::TabClose { id, confirmed } => {
+            if !confirmed
+                && registry
+                    .terminals
+                    .get_mut(&id)
+                    .is_some_and(|s| matches!(s.status(), Ok(Status::Running)))
+            {
+                return Err(RpcError::new(
+                    "confirmation_required",
+                    "Running terminal requires --confirm",
+                ));
+            }
+            registry.close_tab(id, confirmed).map_err(failed)?;
+            changed = true;
+            json!({"id": id})
         }
         Command::ProjectList => json!({"projects":snapshot.projects}),
         Command::ProjectCreate { name, root } => {

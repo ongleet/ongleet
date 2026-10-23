@@ -11,6 +11,7 @@ impl SessionRegistry {
         output: Channel<Output>,
         start_if_stopped: bool,
     ) -> Result<Option<Attachment>, String> {
+        self.plugin_tab(tab_id, "terminal")?;
         if let Some(session) = self.terminals.get(&tab_id) {
             return session.attach(output).map(Some);
         }
@@ -50,7 +51,13 @@ impl SessionRegistry {
         {
             return Err("Open this tab definition before starting it".into());
         }
-        let config = &session.tabs.iter().find(|t| t.id == tab_id).unwrap().config;
+        let tab = session.tabs.iter().find(|t| t.id == tab_id).unwrap();
+        if tab.kind != "terminal" {
+            return Err("This tab is not a terminal".into());
+        }
+        crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
+        let config: super::TabConfig =
+            serde_json::from_value(tab.config.clone()).map_err(|e| e.to_string())?;
         let (mut executable, mut args) = if let Some(command) = &config.shell_command {
             (
                 Some(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())),
@@ -61,7 +68,7 @@ impl SessionRegistry {
         };
         let mut env = if let Some(directory) = &self.actions_directory {
             let yaml = crate::actions::read_project_yaml(directory, session.project_id)?;
-            crate::actions::parse_config(&yaml)?.env
+            crate::actions::parse_project_config(&yaml)?.env
         } else {
             std::collections::BTreeMap::new()
         };
@@ -207,6 +214,8 @@ impl SessionRegistry {
                 }
             }
         }
+        let plugin_tabs: Vec<_> = self.plugin_jobs.keys().copied().collect();
+        self.cancel_plugin_jobs(&plugin_tabs)?;
         // Persist the last running set before killing processes for app exit.
         // Explicit Stop and tab close clear the flag through their own paths.
         let mut exited = Vec::new();

@@ -70,6 +70,9 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
     let needs_id = matches!(
         (resource, verb),
         (
+            "tab",
+            "select" | "rename" | "reorder" | "open" | "close" | "configure"
+        ) | (
             "session",
             "rename" | "directory" | "move" | "reorder" | "select" | "close"
         ) | (
@@ -115,9 +118,14 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         }
         offset += 2;
     }
-    if confirmed && !matches!((resource, verb), ("session", "close") | ("app", "quit")) {
+    if confirmed
+        && !matches!(
+            (resource, verb),
+            ("session", "close") | ("tab", "close") | ("app", "quit")
+        )
+    {
         return Err(invalid(
-            "--confirm applies only to session close or app quit",
+            "--confirm applies only to tab close, session close or app quit",
         ));
     }
     let mut take = |key: &str| {
@@ -161,6 +169,31 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         },
         ("session", "select") => Command::SessionSelect { id },
         ("session", "close") => Command::SessionClose { id, confirmed },
+        ("tab", "list") => Command::TabList {
+            session_id: positive(&take("--session")?)?,
+        },
+        ("tab", "create") => Command::TabCreate {
+            session_id: positive(&take("--session")?)?,
+            action_id: take("--action")?,
+        },
+        ("tab", "select") => Command::TabSelect { id },
+        ("tab", "rename") => Command::TabRename {
+            id,
+            name: take("--name")?,
+        },
+        ("tab", "reorder") => Command::TabReorder {
+            id,
+            position: take("--position")?
+                .parse()
+                .map_err(|_| invalid("Position must be a nonnegative integer"))?,
+        },
+        ("tab", "open") => Command::TabOpen { id },
+        ("tab", "close") => Command::TabClose { id, confirmed },
+        ("tab", "configure") => Command::TabConfigure {
+            id,
+            config: serde_json::from_str(&take("--config")?)
+                .map_err(|e| invalid(format!("Invalid JSON configuration: {e}")))?,
+        },
         ("project", "list") => Command::ProjectList,
         ("project", "create") => Command::ProjectCreate {
             name: take("--name")?,

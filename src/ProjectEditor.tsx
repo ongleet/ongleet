@@ -2,33 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type { Project } from './main';
+import { plugins, actionEditor } from './plugins';
 
-type Action = { id: string; name: string; kind: string; config: {
-  executable: string | null; args: string[]; env: Record<string, string>;
-  cwdOverride: string | null; shellCommand: string | null;
-} };
-type Draft = { id: string; name: string; kind: string; mode: 'executable' | 'shell'; executable: string;
-  args: string; env: string; cwd: string; shell: string };
+type Action = { id: string; name: string; kind: string; configVersion: number; config: unknown };
+type Draft = { id: string; name: string; kind: string; configVersion: number; pluginConfig: string };
 type Settings = { env: Record<string, string>; actions: Action[] };
 type EnvRow = { id: string; name: string; value: string };
 const envRows = (env: Record<string, string>): EnvRow[] => Object.entries(env).map(([name, value], index) => ({ id: `env-${index}`, name, value }));
 type View = 'general' | 'actions' | 'yaml';
-const drafts = (actions: Action[]): Draft[] => actions.map(action => ({ id: action.id, name: action.name, kind: action.kind,
-  mode: action.config.shellCommand === null ? 'executable' : 'shell', executable: action.config.executable ?? '',
-  args: JSON.stringify(action.config.args), env: JSON.stringify(action.config.env),
-  cwd: action.config.cwdOverride ?? '', shell: action.config.shellCommand ?? '' }));
+const drafts = (actions: Action[]): Draft[] => actions.map(action => ({ id: action.id, name: action.name, kind: action.kind, configVersion: action.configVersion,
+  pluginConfig: actionEditor(action.kind)?.toDraft(action.config) ?? JSON.stringify(action.config) }));
 function actionsFrom(draft: Draft[]): Action[] {
-  return draft.map(action => {
-    const args: unknown = action.mode === 'executable' ? JSON.parse(action.args) : [];
-    const env: unknown = JSON.parse(action.env);
-    if (!Array.isArray(args) || !args.every(value => typeof value === 'string')) throw new Error(`${action.name}: arguments must be a JSON array of strings.`);
-    if (!env || typeof env !== 'object' || Array.isArray(env) || !Object.values(env).every(value => typeof value === 'string')) throw new Error(`${action.name}: environment must be a JSON object of strings.`);
-    return { id: action.id, name: action.name, kind: action.kind, config: {
-      executable: action.mode === 'executable' ? action.executable : null, args,
-      env: env as Record<string, string>, cwdOverride: action.cwd.trim() || null,
-      shellCommand: action.mode === 'shell' ? action.shell : null,
-    } };
-  });
+  return draft.map(action => ({ id: action.id, name: action.name, kind: action.kind, configVersion: action.configVersion,
+    config: actionEditor(action.kind)?.fromDraft(action.pluginConfig) ?? JSON.parse(action.pluginConfig) }));
 }
 
 export function ProjectEditor({ project, initialDirectory, save, dismiss, externalError }: {
@@ -144,22 +130,19 @@ export function ProjectEditor({ project, initialDirectory, save, dismiss, extern
       {draft.map((action, index) => <fieldset key={action.id} disabled={busy}>
         <legend>{index + 1}. {action.name || 'New action'}</legend>
         <label>Name<input aria-label="Action name" value={action.name} onChange={event => patch(action.id, { name: event.target.value })} /></label>
-        <label>Action type<select aria-label="Action type" value={action.kind} onChange={event => patch(action.id, { kind: event.target.value })}><option value="terminal">Terminal tab</option><option value="command">External command</option></select></label>
+        <label>Action type<select aria-label="Action type" value={action.kind} onChange={event => patch(action.id, { kind: event.target.value, configVersion: 1, pluginConfig: actionEditor(event.target.value)!.toDraft(event.target.value === 'terminal' || event.target.value === 'command' ? { executable: 'bash' } : {}) })}>{plugins.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.label} tab</option>)}<option value="command">External command</option></select></label>
         {action.kind === 'command' && <p className="muted">Runs independently of session tabs. Arguments and directory support {'{{session.path}}'}, {'{{session.name}}'} and {'{{project.path}}'}. Output is discarded. Use SESSION_PATH and PROJECT_PATH environment variables in shell-command mode.</p>}
-        <label>Launch mode<select value={action.mode} onChange={event => patch(action.id, { mode: event.target.value as Draft['mode'] })}><option value="executable">Executable + arguments</option><option value="shell">Shell command</option></select></label>
-        {action.mode === 'executable' ? <>
-          <label>Executable<input aria-label="Executable" value={action.executable} onChange={event => patch(action.id, { executable: event.target.value })} /></label>
-          <label>Arguments (JSON array)<input aria-label="Arguments" value={action.args} onChange={event => patch(action.id, { args: event.target.value })} /></label>
-        </> : <label>Shell command<input aria-label="Shell command" value={action.shell} onChange={event => patch(action.id, { shell: event.target.value })} /></label>}
-        <label>Directory override<input value={action.cwd} placeholder="Session directory" onChange={event => patch(action.id, { cwd: event.target.value })} /></label>
-        <label>Environment overrides (JSON)<input aria-label="Environment overrides" value={action.env} onChange={event => patch(action.id, { env: event.target.value })} /></label>
+        {(() => {
+          const Editor = actionEditor(action.kind)?.ConfigurationEditor;
+          return Editor ? <Editor value={action.pluginConfig} onChange={pluginConfig => patch(action.id, { pluginConfig })} /> : <p>Plugin unavailable: {action.kind}</p>;
+        })()}
         <div className="action-controls">
           <button type="button" disabled={index === 0} onClick={() => move(index, -1)}>Move earlier</button>
           <button type="button" disabled={index === draft.length - 1} onClick={() => move(index, 1)}>Move later</button>
           <button type="button" disabled={draft.length <= 1} onClick={() => { setDraft(current => current.filter(item => item.id !== action.id)); setDirty(true); setNotice(''); }}>Remove action</button>
         </div>
       </fieldset>)}
-      <button type="button" disabled={busy || draft.length >= 100} onClick={() => { setDraft(current => [...current, { id: `action-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`, name: 'New action', kind: 'terminal', mode: 'executable', executable: 'bash', args: '[]', env: '{}', cwd: '', shell: '' }]); setDirty(true); setNotice(''); }}>Add action</button>
+      <button type="button" disabled={busy || draft.length >= 100} onClick={() => { setDraft(current => [...current, { id: `action-${crypto.getRandomValues(new Uint32Array(2)).join('-')}`, name: 'New action', kind: 'terminal', configVersion: 1, pluginConfig: actionEditor('terminal')!.toDraft({ executable: 'bash' }) }]); setDirty(true); setNotice(''); }}>Add action</button>
     </section>
     <section id="settings-panel-yaml" role="tabpanel" aria-labelledby="settings-yaml" hidden={view !== 'yaml'} className="action-yaml">
       <label htmlFor="project-actions-yaml">Actions (YAML)</label>

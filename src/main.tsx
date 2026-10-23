@@ -3,15 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
-import { TerminalFrontend, type ProcessStatus } from './terminal';
+import type { ProcessStatus } from './terminal';
+import { TabHost, flushPlugins, plugins } from './plugins';
+import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ProjectEditor } from './ProjectEditor';
 import './style.css';
 
-type TabConfig = { cwdOverride: string | null; executable: string | null; args: string[]; env: Record<string, string>; shellCommand: string | null };
-type TerminalTab = { id: number; kind: string; isOpen: boolean; resumeOnStart: boolean; name: string; displayOrder: number; config: TabConfig };
 export type Project = { id: number; name: string; rootDirectory: string; displayOrder: number; collapsed: boolean };
-export type Session = { projectId: number; id: number; name: string; baseDirectory: string; displayOrder: number; tabs: TerminalTab[]; selectedTabId: number | null };
+export type Session = { pullRequest: { repository: string; number: number } | null; projectId: number; id: number; name: string; baseDirectory: string; displayOrder: number; tabs: PluginTab[]; selectedTabId: number | null };
 type SessionSnapshot = { projects: Project[]; sessions: Session[]; selectedId: number | null };
 type Report = (error: unknown) => void;
 
@@ -69,34 +69,6 @@ function SessionEditor({ session, projects, initialProjectId, initialDirectory, 
   </dialog>;
 }
 
-function TabTerminal({ tab, visible, reportStatus, markRestoring }: {
-  tab: TerminalTab; visible: boolean;
-  reportStatus: (id: number, status: ProcessStatus | null) => void;
-  markRestoring: (delta: number) => void;
-}) {
-  const host = useRef<HTMLDivElement>(null);
-  const frontend = useRef<TerminalFrontend | null>(null);
-  const [error, setError] = useState('');
-  const report: Report = error => setError(String(error));
-
-  useEffect(() => {
-    const terminal = new TerminalFrontend(host.current!, tab.id, status => {
-      reportStatus(tab.id, status);
-    }, report);
-    frontend.current = terminal;
-    // Reconnect live/exited sessions after a WebView reload. Only eligible
-    // stopped configurations may launch a new process.
-    markRestoring(1);
-    void terminal.start(tab.resumeOnStart).catch(report).finally(() => markRestoring(-1));
-    return () => { terminal.dispose(); frontend.current = null; };
-  }, [tab.id, reportStatus, markRestoring]);
-  useEffect(() => { frontend.current?.setVisible(visible); }, [visible]);
-
-  return <section id={`tab-panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} className="tab-terminal" hidden={!visible}>
-    {error && <div role="alert" className="error">{error}</div>}
-    <div ref={host} className="terminal" />
-  </section>;
-}
 
 function NewTabPicker({ sessionId, disabled, create, external = false }: { sessionId: number; disabled: boolean; create: (actionId: string) => Promise<boolean>; external?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -105,7 +77,7 @@ function NewTabPicker({ sessionId, disabled, create, external = false }: { sessi
   const [loading, setLoading] = useState(false);
   async function open() {
     setError(''); setTypes([]); setLoading(true); dialog.current!.showModal();
-    try { setTypes((await invoke<{ id: string; name: string; kind: string }[]>('actions', { sessionId })).filter(action => action.kind === (external ? 'command' : 'terminal'))); }
+    try { setTypes((await invoke<{ id: string; name: string; kind: string; configVersion: number }[]>('actions', { sessionId })).filter(action => external ? action.kind === 'command' : plugins.some(plugin => plugin.id === action.kind && plugin.configVersion === action.configVersion))); }
     catch (error) { setError(String(error)); }
     finally { setLoading(false); }
   }
@@ -129,7 +101,7 @@ function SessionPane({ session, visible, statuses, disabled, reportStatus, mutat
   session: Session; visible: boolean; statuses: Record<number, ProcessStatus | null>; disabled: boolean;
   reportStatus: (id: number, status: ProcessStatus | null) => void;
   mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>;
-  closeTab: (tab: TerminalTab) => void; markRestoring: (delta: number) => void;
+  closeTab: (tab: PluginTab) => void; markRestoring: (delta: number) => void;
 }) {
   const openTabs = session.tabs.filter(tab => tab.isOpen);
   const active = openTabs.find(tab => tab.id === session.selectedTabId);
@@ -154,7 +126,7 @@ function SessionPane({ session, visible, statuses, disabled, reportStatus, mutat
   }
   return <section className="session-pane" hidden={!visible} aria-label={session.name}>
     <div className="tab-bar">
-      <div role="tablist" aria-label={`${session.name} terminals`} className="tab-list" onDragLeave={event => {
+      <div role="tablist" aria-label={`${session.name} tabs`} className="tab-list" onDragLeave={event => {
         if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setTabDrop(null);
       }}>
         {openTabs.map((tab, index) => <div key={tab.id} role="presentation"
@@ -177,7 +149,7 @@ function SessionPane({ session, visible, statuses, disabled, reportStatus, mutat
           }}>
           <button id={`tab-${tab.id}`} role="tab" aria-selected={tab.id === active?.id} aria-controls={`tab-panel-${tab.id}`} tabIndex={tab.id === active?.id ? 0 : -1}
             disabled={disabled} draggable={!disabled} onKeyDown={event => navigate(event, index)} onClick={() => void mutate('select_tab', { id: tab.id })}
-            title={`${tab.name} — ${statuses[tab.id]?.state ?? 'stopped'} · Drag to reorder · Alt+← / Alt+→`}
+            title={`${tab.name} — ${tab.kind === 'terminal' ? statuses[tab.id]?.state ?? 'stopped' : tab.kind} · Drag to reorder · Alt+← / Alt+→`}
             onDragStart={event => {
               setDragTabId(tab.id); event.dataTransfer.effectAllowed = 'move';
               event.dataTransfer.setData('text/plain', String(tab.id));
@@ -193,7 +165,7 @@ function SessionPane({ session, visible, statuses, disabled, reportStatus, mutat
       <NewTabPicker external sessionId={session.id} disabled={disabled} create={actionId => mutate('run_external_action', { sessionId: session.id, actionId })} />
     </div>
     {!active && <div className="empty-state"><p>No open tabs. Choose New tab to launch a configured type.</p></div>}
-    {openTabs.map(tab => <TabTerminal key={tab.id} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
+    {openTabs.map(tab => <TabHost key={tab.id} session={session} tab={tab} visible={visible && tab.id === active?.id} reportStatus={reportStatus} markRestoring={markRestoring} />)}
   </section>;
 }
 
@@ -269,7 +241,7 @@ function App() {
       const status = await invoke<{ runningTerminals: number }>('application_status');
       const confirmed = status.runningTerminals > 0;
       if (confirmed && !await confirm(`Quit and force-stop ${status.runningTerminals} running terminal session(s) and their child processes?`)) return;
-      await TerminalFrontend.saveAllHistory();
+      await flushPlugins();
       await invoke('quit', { confirmed });
     } catch (error) { report(error); }
     finally { markBusy(false); }
@@ -282,7 +254,9 @@ function App() {
     finally { markBusy(false); }
   }
 
-  const disabled = busy || restoring > 0;
+  // A pending terminal attachment must not lock navigation or sibling tabs.
+  // Quit still waits for attachments so it cannot race a new process launch.
+  const disabled = busy;
   return <main className="app">
     <SessionSidebar projects={state.projects} sessions={state.sessions} selectedId={state.selectedId} disabled={disabled} ready={ready}
       create={groupId => { setError(''); setNewProjectId(groupId); setEditor('new'); }}
@@ -309,7 +283,7 @@ function App() {
             if (closed) setStatuses(previous => { const next = { ...previous }; delete next[tab.id]; return next; });
           });
         }} />)}
-      <footer><span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span><button disabled={!ready || disabled} onClick={() => void quit()}>Quit</button></footer>
+      <footer><span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span><button disabled={!ready || disabled || restoring > 0} onClick={() => void quit()}>Quit</button></footer>
     </div>
     {confirmation && <ConfirmationDialog message={confirmation.message} choose={value => { confirmation.resolve(value); setConfirmation(null); }} />}
     {groupEditor && <ProjectEditor key={groupEditor === 'new' ? 'new-group' : groupEditor.id} project={groupEditor === 'new' ? undefined : groupEditor} initialDirectory={defaults[0]} externalError={error} dismiss={() => setGroupEditor(null)}

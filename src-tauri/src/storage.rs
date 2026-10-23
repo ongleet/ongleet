@@ -1,4 +1,11 @@
-use crate::session::{Project, Session, Snapshot, TabConfig, TerminalTab};
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredConfig {
+    version: u32,
+    config: serde_json::Value,
+}
+
+use crate::session::{PluginTab, Project, Session, Snapshot};
 use rusqlite::{params, Connection, TransactionBehavior};
 use std::{
     fs::{self, File, OpenOptions},
@@ -64,7 +71,7 @@ impl MetadataStore {
         let version: u32 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 3 {
+        if version > 5 {
             return Err(format!(
                 "Unsupported session database schema version {version}; the database was not reset"
             ));
@@ -128,6 +135,34 @@ impl MetadataStore {
             }
             transaction.commit().map_err(|e| e.to_string())?;
         }
+        if version < 4 {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            transaction
+                .execute_batch(include_str!("../migrations/004_plugins.sql"))
+                .map_err(|e| format!("Plugin migration failed: {e}"))?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 5 {
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            // Both intermediate and complete schema-4 builds were used. Never
+            // rerun payload wrapping; only add the association column if absent.
+            let has_association: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sessions') WHERE name='pull_request_json')",
+                [], |row| row.get(0),
+            ).map_err(|e| e.to_string())?;
+            if has_association {
+                transaction.execute_batch("PRAGMA user_version = 5;")
+            } else {
+                transaction
+                    .execute_batch(include_str!("../migrations/005_session_pull_requests.sql"))
+            }
+            .map_err(|e| format!("Session PR migration failed: {e}"))?;
+            transaction.commit().map_err(|e| e.to_string())?;
+        }
         Ok(Self {
             connection,
             _lock: lock,
@@ -151,10 +186,22 @@ impl MetadataStore {
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id FROM sessions ORDER BY display_order")?;
+            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json FROM sessions ORDER BY display_order")?;
             let mut sessions = statement
                 .query_map([], |row| {
+                    let association: Option<String> = row.get(6)?;
+                    let pull_request = association
+                        .map(|text| serde_json::from_str(&text))
+                        .transpose()
+                        .map_err(|e| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                6,
+                                rusqlite::types::Type::Text,
+                                Box::new(e),
+                            )
+                        })?;
                     Ok(Session {
+                        pull_request,
                         project_id: read_id(row, 5)?,
                         id: read_id(row, 0)?,
                         name: row.get(1)?,
@@ -170,18 +217,19 @@ impl MetadataStore {
                 session.tabs = statement
                     .query_map([sql_id(session.id)?], |row| {
                         let json: String = row.get(3)?;
-                        let config: TabConfig = serde_json::from_str(&json).map_err(|e| {
+                        let stored: StoredConfig = serde_json::from_str(&json).map_err(|e| {
                             rusqlite::Error::FromSqlConversionFailure(
                                 3,
                                 rusqlite::types::Type::Text,
                                 Box::new(e),
                             )
                         })?;
-                        Ok(TerminalTab {
+                        Ok(PluginTab {
+                            config_version: stored.version,
                             id: read_id(row, 0)?,
                             name: row.get(1)?,
                             kind: row.get(2)?,
-                            config,
+                            config: stored.config,
                             display_order: read_order(row, 4)?,
                             is_open: row.get(5)?,
                             resume_on_start: row.get(6)?,
@@ -227,19 +275,28 @@ impl MetadataStore {
             }
             for session in &metadata.snapshot.sessions {
                 transaction.execute(
-                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6)",
+                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6,?7)",
                     params![
                         sql_id(session.id)?,
                         session.name,
                         session.base_directory,
                         sql_order(session.display_order)?,
                         session.selected_tab_id.map(sql_id).transpose()?,
-                        sql_id(session.project_id)?
+                        sql_id(session.project_id)?,
+                        session
+                            .pull_request
+                            .as_ref()
+                            .map(serde_json::to_string)
+                            .transpose()
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?
                     ],
                 )?;
                 for tab in &session.tabs {
-                    let config = serde_json::to_string(&tab.config)
-                        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                    let config = serde_json::to_string(&StoredConfig {
+                        version: tab.config_version,
+                        config: tab.config.clone(),
+                    })
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                     transaction.execute(
                         "INSERT INTO tab_definitions VALUES (?1,?2,?3,?4,?5,?6)",
                         params![

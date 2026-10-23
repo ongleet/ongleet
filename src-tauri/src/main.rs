@@ -11,6 +11,7 @@ mod control;
 mod control_dispatch;
 mod desktop_input;
 mod instance;
+mod plugins;
 mod session;
 mod storage;
 mod terminal_session;
@@ -217,14 +218,20 @@ fn create_tab(
         .into_iter()
         .find(|t| t.id == action_id)
         .ok_or("Action is unavailable")?;
-    if template.kind != "terminal" {
+    if template.kind == "command" {
         return Err("External actions cannot open a tab".into());
     }
-    state.0.lock().map_err(|e| e.to_string())?.create_typed_tab(
-        session_id,
-        template.name,
-        template.config,
-    )
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create_plugin_tab(
+            session_id,
+            template.name,
+            template.kind,
+            template.config_version,
+            template.config,
+        )
 }
 
 #[tauri::command]
@@ -620,6 +627,10 @@ fn run() -> Result<(), String> {
             desktop_input::terminal_clipboard,
             desktop_input::open_terminal_link,
             close_session,
+            plugins::commands::associate_pull_request,
+            plugins::commands::refresh_pull_request,
+            plugins::commands::list_plugin_files,
+            plugins::commands::open_plugin_file,
             create_tab,
             run_external_action,
             actions,

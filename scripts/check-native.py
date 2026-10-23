@@ -207,7 +207,10 @@ def run(args):
                 return tab
 
             def focus(tab):
-                client.click(f"#tab-{tab}")
+                # WebKitGTK's pointer endpoint rejects some horizontally clipped
+                # tabs after resizing. Exercise the native button keyboard path.
+                wait_for(lambda: client.js("const button=document.getElementById('tab-'+arguments[0]); if (!button || button.disabled) return false; button.focus(); return document.activeElement===button", tab), "tab button focused")
+                client.keys("\ue007")  # Enter activates the focused tab button.
                 wait_for(lambda: client.js("const panel=document.getElementById('tab-panel-'+arguments[0]);return panel && !panel.hidden", tab), "selected panel visible")
                 wait_for(lambda: client.js("const input=document.querySelector('#tab-panel-'+arguments[0]+' textarea'); input?.focus(); return document.activeElement===input", tab), "terminal input focused")
 
@@ -216,7 +219,8 @@ def run(args):
                 client.keys(text + "\n")
 
             def close_tab(tab):
-                client.click(f"#tab-{tab} + .tab-close")
+                wait_for(lambda: client.js("const button=document.querySelector('#tab-'+arguments[0]+' + .tab-close'); if (!button || button.disabled) return false; button.focus(); return document.activeElement===button", tab), "close button focused")
+                client.keys("\ue007")
                 wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]') || !document.getElementById('tab-'+arguments[0])", tab), "close confirmation or exited tab closure")
                 if client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"):
                     client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")

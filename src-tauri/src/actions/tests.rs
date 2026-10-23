@@ -29,11 +29,20 @@ fn project_actions_are_independent_and_reloadable() {
 #[test]
 fn templates_preserve_literal_arguments_and_reject_invalid_modes() {
     let types = parse(DEFAULTS).unwrap();
-    assert_eq!(types[0].config.executable.as_deref(), Some("bash"));
-    assert_eq!(types[1].config.executable.as_deref(), Some("dcodex"));
+    assert_eq!(
+        types[0].terminal_config().executable.as_deref(),
+        Some("bash")
+    );
+    assert_eq!(
+        types[1].terminal_config().executable.as_deref(),
+        Some("dcodex")
+    );
     let input = "actions:\n  - id: test\n    name: Test\n    kind: terminal\n    config:\n      executable: printf\n      args: ['a; echo literal', '日本語']\n      env: {PORT: '3000'}\n";
     let types = parse(input).unwrap();
-    assert_eq!(types[0].config.args, ["a; echo literal", "日本語"]);
+    assert_eq!(
+        types[0].terminal_config().args,
+        ["a; echo literal", "日本語"]
+    );
     assert!(parse(&input.replace(
         "executable: printf",
         "executable: printf\n      shellCommand: echo bad"
@@ -101,5 +110,29 @@ fn project_config_migration_preserves_custom_yaml_and_refuses_conflicts() {
     migrate_projects(&directory).unwrap();
     assert_eq!(std::fs::read(project_path(&directory, 7)).unwrap(), custom);
     assert!(!directory.join("workgroups").exists());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn unavailable_project_actions_do_not_block_available_actions_or_common_environment() {
+    let directory =
+        std::env::temp_dir().join(format!("actions-unavailable-{}", std::process::id()));
+    load_project(&directory, 1).unwrap();
+    let path = project_path(&directory, 1);
+    let mut config: serde_json::Value =
+        serde_json::to_value(parse_config(DEFAULTS).unwrap()).unwrap();
+    config["env"] = serde_json::json!({"COMMON":"retained"});
+    config["actions"].as_array_mut().unwrap().push(serde_json::json!({"id":"removed","name":"Removed plugin","kind":"unavailable","configVersion":7,"config":{"opaque":[1,2,3]}}));
+    let text = config.to_string();
+    std::fs::write(&path, &text).unwrap();
+    let loaded = load_project(&directory, 1).unwrap();
+    assert_eq!(loaded[0].kind, "terminal");
+    assert_eq!(loaded[2].config["opaque"], serde_json::json!([1, 2, 3]));
+    assert_eq!(
+        parse_project_config(&text).unwrap().env["COMMON"],
+        "retained"
+    );
+    assert!(save_project_yaml(&directory, 1, &text).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
     std::fs::remove_dir_all(directory).unwrap();
 }

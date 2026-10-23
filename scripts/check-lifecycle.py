@@ -88,6 +88,12 @@ def run(args):
         shutil.copy2(args.application, copy)
         args.application = str(copy)
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"), XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}", GDK_BACKEND="x11", TAURI_WEBVIEW_AUTOMATION="true", TERMINAL_VALIDATION_RUN=str(directory))
+    plugin_checks = None
+    if args.plugins:
+        plugin_spec = importlib.util.spec_from_file_location("plugin_checks", Path(__file__).with_name("plugin-native-checks.py"))
+        plugin_checks = importlib.util.module_from_spec(plugin_spec)
+        plugin_spec.loader.exec_module(plugin_checks)
+        plugin_checks.prepare(directory, env)
     config = directory / "config/devcenter"
     config.mkdir(parents=True)
     (config / "projects/1").mkdir(parents=True)
@@ -374,6 +380,8 @@ def run(args):
                 mark("New PTY launches after replacing/unlinking the running application executable")
             before = client.screen(tab)
             stream_pid = next(int(line.split("=",1)[1].split()[0]) for line in before.splitlines() if line.startswith("PID="))
+            if plugin_checks:
+                saved_plugins = plugin_checks.run(client, directory, session, tab, stream_pid, wait_for, pid_alive, mark, cli if args.cli else None)
             assert os.stat(path).st_mode & 0o777 == 0o600
             with socket.socket(socket.AF_UNIX) as peer:
                 peer.connect(path); peer.sendall(b"x" * 1025); peer.shutdown(socket.SHUT_WR)
@@ -408,7 +416,9 @@ def run(args):
             subprocess.run([args.application], env=env, check=True, timeout=5)
             assert client.invoke("application_status")["runningTerminals"] == 1
             mark("Second launch activates the existing instance without duplicate processes")
+            if plugin_checks: pending_gh = plugin_checks.before_quit(client, directory, session['id'], wait_for)
             quit_app(pid, ui=True)
+            if plugin_checks: plugin_checks.after_quit(directory, pending_gh, pid_alive, mark)
             wait_for(lambda: not pid_alive(stream_pid), "PTY stopped after Quit")
             assert not Path(path).exists()
             unavailable = subprocess.run([args.application, "--show"], env=env, capture_output=True, timeout=5)
@@ -422,6 +432,7 @@ def run(args):
             assert history_file.stat().st_mode & 0o777 == 0o600
             new_pid = connect()
             wait_for(lambda: len([line for line in client.screen(tab).splitlines() if line.startswith("PID=")]) >= 2, "saved history and fresh command output")
+            if plugin_checks: plugin_checks.restored(client, session['id'], saved_plugins, mark)
             restored_screen = client.screen(tab)
             assert f"PID={stream_pid}" in restored_screen
             assert "Previous terminal history" in restored_screen
@@ -473,6 +484,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--plugins", action="store_true", help="Exercise mixed plugin tabs with read-only files and an isolated gh stand-in")
     parser.add_argument("--cli", help="Path to CLI executable for native shared-state integration checks")
     parser.add_argument("--actions-editor", action="store_true", help="Exercise the project Actions form and YAML editor (with --projects)")
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")

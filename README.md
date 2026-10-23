@@ -1,12 +1,12 @@
 # DevCenter
 
-DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple terminal tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls sessions, projects and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
+DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple plugin tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls sessions, projects and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
 
 Session/tab metadata, ordering and selection are saved transactionally. Changing a session's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Session operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
 Each session has a vertical **⋮** menu for editing and deletion. Drag its grip to reorder; the drop indicator shows the insertion point. Keyboard users can use Alt+Up/Down while the grip is focused. Deletion removes saved session/tab metadata and terminates its terminal processes after confirmation; the directory stays untouched.
 
-The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git integration, or agent orchestration.
+The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git worktree management, automatic Git discovery, or agent orchestration. Explicit session-linked GitHub PR status is supported.
 
 ## Run
 
@@ -67,9 +67,34 @@ actions:
 
 Environment precedence is the inherited process environment, then the project’s common `env`, then each action’s `config.env`. Values are literal strings. Common variables are reloaded for each new process; editing them never changes an already running process. They live in the same project YAML file and are not merged into saved tab metadata.
 
-IDs must be unique; names are shown in the picker. Only `kind: terminal` is supported. `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the session base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No session setup scripts or shell/Codex configuration changes are performed.
+IDs must be unique; names are shown in the picker. Tab actions support `kind: terminal`, `kind: files` and `kind: pull-request`; `kind: command` launches an external application without a tab. Terminal `config` also accepts `cwdOverride` and explicit `shellCommand`; shell-command mode cannot include `executable` or arguments. Executable mode passes arguments literally. The normal environment is inherited with only `env` overrides applied. Blank/omitted `cwdOverride` uses the session base directory. The file supports up to 100 types and 64 KiB. Commands must already be installed. Changes affect new tabs only; existing tabs keep their saved configuration. No session setup scripts or shell/Codex configuration changes are performed.
 
 Use the arrow keys, Home, and End while focused on the tab bar to select tabs. Drag a tab to reorder it, or use Alt+Left/Right while it is focused. Each tab has a cross to close; renaming controls are temporarily hidden. Closing a tab with a running process requires confirmation and retains its saved metadata internally. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Closing a session removes its definitions and confirms termination of all its sessions. Hidden tabs continue consuming output with painting suppressed.
+
+## Built-in tab plugins
+
+Tabs use trusted plugins bundled into the application. Adding a plugin requires rebuilding DevCenter; there is no runtime installer or public SDK. The application owns navigation, stable IDs, ordering, selection and openings. Plugins own their configuration, content and resources. Terminal tabs retain the existing PTY, containment, replay, history and Codex behavior. Process status and restart eligibility apply only to terminals.
+
+Add **Files** or **Pull request** through Edit project → Actions, choose its action type and save. The same configuration can be added to the project's YAML `actions` list:
+
+```yaml
+  - id: files
+    name: Files
+    kind: files
+    config: {}
+  - id: pr
+    name: Pull request
+    kind: pull-request
+    config: {}
+```
+
+`configVersion` defaults to 1. Action changes affect newly created definitions; existing definitions keep their copied configuration. New sessions still require and start their first configured terminal action. Closing a tab retains its definition; the CLI can reopen it with `devcenter tab open ID`. See `devcenter tab --help` for generic list/create/configure/rename/select/order/close operations. Raw terminal input and screen CLI operations remain deferred.
+
+**Files** starts in the session directory unless `config.folder` supplies an absolute path. It supports parent navigation, an editable folder path, refresh and opening files in their associated applications. Directory symlinks are followed, and browsing may leave the session directory. Successful navigation persists the current folder for restart. Listings stream up to 200 entries and 128 KiB per page in filesystem order, with an offset limit of one million; concurrent directory changes can shift page boundaries. Missing/inaccessible paths report errors without creating them. Non-UTF-8 filenames report an explicit error. There are no file creation, editing, copy, move or delete operations; the associated application opened for a file has its own behavior.
+
+**Pull request** stores one explicit GitHub `owner/repository` and PR number (or GitHub PR URL) on the session, shared by its PR tabs. Enter it inside the tab and choose Save association. It shows open/closed/merged state, check results, review decision and a browser link. Install and authenticate `gh` yourself (`gh auth login`); DevCenter uses its existing authentication and stores no tokens. Refresh runs on opening, manually and every 60 seconds while visible, without overlapping requests in a tab. Each request has a 20-second timeout and bounded output; closure/session deletion/Quit cancels pending requests and terminates their subprocess groups. Authentication, missing-PR and network errors retain the last successful data and refresh time until closure or reload. Automatic branch discovery and PR mutations are deferred. This explicit association intentionally expands the previous Git integration exclusion.
+
+Schema version 4 wraps existing `config_json` values with a configuration version. Schema version 5 adds the session PR association transactionally and also handles intermediate schema-4 databases that lack that column. Existing IDs, tab openings, ordering, selections, terminal settings and restart flags are preserved. Missing plugins or unsupported plugin versions display an unavailable panel while retaining their opaque configuration; they do not block metadata restoration. All open plugin tabs restore independently of terminal process restart policy.
 
 ## Terminal mouse, clipboard and links
 

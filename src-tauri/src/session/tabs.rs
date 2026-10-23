@@ -1,4 +1,4 @@
-use super::{SessionRegistry, Snapshot, TabConfig, TerminalTab};
+use super::{PluginTab, SessionRegistry, Snapshot, TabConfig};
 
 impl SessionRegistry {
     #[cfg(test)]
@@ -6,13 +6,20 @@ impl SessionRegistry {
         self.insert_tab(session_id, None)
     }
 
+    #[cfg(test)]
     pub fn create_typed_tab(
         &mut self,
         session_id: u64,
         name: String,
         config: TabConfig,
     ) -> Result<Snapshot, String> {
-        self.insert_tab(session_id, Some((name, config)))
+        self.create_plugin_tab(
+            session_id,
+            name,
+            "terminal".into(),
+            1,
+            serde_json::to_value(config).map_err(|e| e.to_string())?,
+        )
     }
 
     pub(super) fn insert_tab(
@@ -27,6 +34,42 @@ impl SessionRegistry {
                 TabConfig::default(),
             )
         });
+        let snapshot = self.create_plugin_tab(
+            session_id,
+            name,
+            "terminal".into(),
+            1,
+            serde_json::to_value(config).map_err(|e| e.to_string())?,
+        )?;
+        if !auto_start {
+            self.sessions
+                .iter_mut()
+                .flat_map(|s| &mut s.tabs)
+                .find(|t| t.id == self.next_tab_id)
+                .unwrap()
+                .resume_on_start = false;
+            return self.persist();
+        }
+        Ok(snapshot)
+    }
+
+    pub fn create_plugin_tab(
+        &mut self,
+        session_id: u64,
+        name: String,
+        kind: String,
+        config_version: u32,
+        config: serde_json::Value,
+    ) -> Result<Snapshot, String> {
+        crate::plugins::validate(&kind, config_version, &config)?;
+        let directory = &self
+            .sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .ok_or("Session is unavailable")?
+            .base_directory;
+        let config = crate::plugins::initialize(&kind, config, directory)?;
+        let auto_start = kind == "terminal";
         let session = self
             .sessions
             .iter_mut()
@@ -44,8 +87,9 @@ impl SessionRegistry {
             suffix += 1;
         }
         self.next_tab_id += 1;
-        session.tabs.push(TerminalTab {
-            kind: "terminal".into(),
+        session.tabs.push(PluginTab {
+            kind,
+            config_version,
             is_open: true,
             resume_on_start: auto_start,
             id: self.next_tab_id,
@@ -77,7 +121,21 @@ impl SessionRegistry {
     }
 
     pub fn configure_tab(&mut self, id: u64, config: TabConfig) -> Result<Snapshot, String> {
-        config.validate()?;
+        self.configure_plugin_tab(id, serde_json::to_value(config).map_err(|e| e.to_string())?)
+    }
+
+    pub fn configure_plugin_tab(
+        &mut self,
+        id: u64,
+        config: serde_json::Value,
+    ) -> Result<Snapshot, String> {
+        let tab = self
+            .tab_session_mut(id)?
+            .tabs
+            .iter()
+            .find(|t| t.id == id)
+            .unwrap();
+        crate::plugins::validate(&tab.kind, tab.config_version, &config)?;
         self.tab_session_mut(id)?
             .tabs
             .iter_mut()
@@ -115,9 +173,10 @@ impl SessionRegistry {
     pub fn open_tab(&mut self, id: u64) -> Result<Snapshot, String> {
         let session = self.tab_session_mut(id)?;
         let tab = session.tabs.iter_mut().find(|t| t.id == id).unwrap();
+        crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
         if !tab.is_open {
             tab.is_open = true;
-            tab.resume_on_start = true;
+            tab.resume_on_start = tab.kind == "terminal";
         }
         session.selected_tab_id = Some(id);
         self.persist()
@@ -125,6 +184,7 @@ impl SessionRegistry {
 
     pub fn close_tab(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
         self.tab_session_mut(id)?;
+        self.cancel_plugin_work(id)?;
         if let Some(session) = self.terminals.get(&id) {
             self.terminate_session(session.id, confirmed)?;
         }
@@ -140,5 +200,21 @@ impl SessionRegistry {
                 .map(|t| t.id);
         }
         self.persist()
+    }
+}
+
+impl SessionRegistry {
+    pub fn plugin_tab(&self, id: u64, kind: &str) -> Result<&super::PluginTab, String> {
+        let tab = self
+            .sessions
+            .iter()
+            .flat_map(|s| &s.tabs)
+            .find(|t| t.id == id && t.is_open)
+            .ok_or("Open tab is unavailable")?;
+        if tab.kind != kind {
+            return Err(format!("Tab does not use the {kind} plugin"));
+        }
+        crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
+        Ok(tab)
     }
 }

@@ -5,6 +5,13 @@ type Probe = {
   snapshot: () => string;
   selectAll: () => void;
 };
+let connectionGate: { promise: Promise<void>; release: () => void; tabId?: number } | undefined;
+export function waitForConnection(id: number) {
+  if (connectionGate && connectionGate.tabId === undefined) {
+    connectionGate.tabId = id;
+    return connectionGate.promise;
+  }
+}
 const terminals = new Map<number, Probe>();
 export function registerTerminal(id: number, probe: Probe) {
   terminals.set(id, probe);
@@ -12,6 +19,14 @@ export function registerTerminal(id: number, probe: Probe) {
 }
 Object.assign(window, {
   __terminalValidation: {
+    holdNextConnection: () => {
+      if (connectionGate) throw new Error('A connection is already held');
+      let release!: () => void;
+      const promise = new Promise<void>(resolve => { release = resolve; });
+      connectionGate = { promise, release };
+    },
+    pendingConnection: () => connectionGate?.tabId,
+    releaseConnection: () => { connectionGate?.release(); connectionGate = undefined; },
     state: (id: number) => terminals.get(id)?.state(),
     snapshot: (id: number) => terminals.get(id)?.snapshot(),
     selectAll: (id: number) => terminals.get(id)?.selectAll(),

@@ -2,6 +2,14 @@ use super::{invalid, RpcError};
 
 // Keep usage and effects together so every command has useful scoped help.
 const COMMANDS: &[(&str, &str, &str)] = &[
+    ("tab", "list --session ID", "List all plugin tab definitions, copied configuration, openings and restart eligibility."),
+    ("tab", "create --session ID --action ACTION_ID", "Open a fresh plugin tab from a configured project action. External command actions cannot open tabs."),
+    ("tab", "select ID", "Select an open tab without recreating plugin resources."),
+    ("tab", "rename ID --name NAME", "Rename a tab definition."),
+    ("tab", "reorder ID --position INDEX", "Move an open tab to a zero-based position."),
+    ("tab", "open ID", "Reopen a saved definition. Terminal tabs launch their saved command anew."),
+    ("tab", "close ID [--confirm]", "Close a plugin tab, retaining its definition. Running terminals require --confirm."),
+    ("tab", "configure ID --config JSON", "Validate and replace plugin-specific configuration. Running terminals retain their original launch settings."),
     ("session", "list", "List sessions and open tabs, including IDs, selection and observed process status."),
     ("session", "create --project ID --name NAME [--directory PATH]", "Create and select a session; launch its project's first terminal action. Directory defaults to the group's root. Requires valid actions YAML and an existing directory. A starting status is not proof of a successful launch: poll session list."),
     ("session", "rename ID --name NAME", "Rename saved session metadata. Its directory and running processes stay unchanged."),
@@ -47,7 +55,7 @@ const AUTOMATION: &str = r#"AUTOMATION CONTRACT
   A timeout can happen AFTER a change commits. Inspect list/status before
   retrying, especially create: retries can create duplicates.
   Terminal-specific commands, sending input and reading screens are not
-  implemented. Do not invent tab/terminal commands.
+  implemented. Generic tab operations are available under tab --help.
 
 EXIT CODES
   0 success                  2 invalid arguments/request

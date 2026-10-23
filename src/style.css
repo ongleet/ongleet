@@ -109,3 +109,12 @@ dialog[aria-label="Project editor"] > .error, dialog[aria-label="Project editor"
 .env-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto; gap: 8px; align-items: end; }
 .env-row label { min-width: 0; }
 @media (max-width: 600px) { .env-row { grid-template-columns: minmax(0, 1fr); } }
+
+.plugin-panel { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.plugin-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+.plugin-toolbar input { flex: 1; min-width: 100px; }
+.file-list { list-style: none; padding: 0; }
+.file-list button { text-align: left; width: 100%; margin-bottom: 3px; }
+.plugin-json { width: 100%; min-height: 100px; font-family: monospace; }
+
+.terminal-startup { flex-shrink: 0; padding: 8px 14px; color: #9cabbf; }

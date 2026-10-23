@@ -1,5 +1,6 @@
 use super::*;
 use crate::terminal_session::{Output, Status};
+use std::collections::BTreeMap;
 use std::{
     fs,
     sync::{
@@ -53,14 +54,15 @@ print('CONTEXT:' + os.environ['DEVCENTER_SESSION_ID'] + ':' + os.environ['DEVCEN
     registry.create("Codex".into(), directory.path()).unwrap();
     let session = registry.sessions[0].id;
     let tab = registry.sessions[0].tabs[0].id;
-    registry.sessions[0].tabs[0].config = TabConfig {
+    registry.sessions[0].tabs[0].config = serde_json::to_value(TabConfig {
         executable: Some("dcodex".into()),
         env: BTreeMap::from([
             ("PATH".into(), format!("{}:/usr/bin:/bin", directory.path())),
             ("DEVCENTER_TAB_ID".into(), "999".into()),
         ]),
         ..Default::default()
-    };
+    })
+    .unwrap();
     let (channel, receive) = output();
     let terminal_id = registry.start(tab, 80, 24, channel).unwrap();
     let mut bytes = Vec::new();
@@ -460,7 +462,7 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
     let payload: serde_json::Value =
         serde_json::from_str(&read_line(&registry, c, &receive)).unwrap();
     assert_eq!(payload[0], old_directory.path());
-    assert_eq!(registry.sessions[0].tabs[0].config.env.len(), 1);
+    assert_eq!(registry.sessions[0].tabs[0].terminal_config().env.len(), 1);
     registry.create_tab(session).unwrap();
     let d = registry.sessions[0].selected_tab_id.unwrap();
     registry
@@ -567,7 +569,7 @@ fn yaml_types_reload_without_changing_existing_openings() {
         .unwrap();
     let types = crate::actions::load(&config_directory.0).unwrap();
     let state = registry
-        .create_typed_tab(session, types[0].name.clone(), types[0].config.clone())
+        .create_typed_tab(session, types[0].name.clone(), types[0].terminal_config())
         .unwrap();
     let first = state.sessions[0].selected_tab_id.unwrap();
     let config_path = config_directory.0.join("actions.yaml");
@@ -575,7 +577,7 @@ fn yaml_types_reload_without_changing_existing_openings() {
     fs::write(&config_path, updated).unwrap();
     let types = crate::actions::load(&config_directory.0).unwrap();
     let state = registry
-        .create_typed_tab(session, types[0].name.clone(), types[0].config.clone())
+        .create_typed_tab(session, types[0].name.clone(), types[0].terminal_config())
         .unwrap();
     let second = state.sessions[0].selected_tab_id.unwrap();
     assert_ne!(first, second);
@@ -584,7 +586,10 @@ fn yaml_types_reload_without_changing_existing_openings() {
         .iter()
         .find(|t| t.id == first)
         .unwrap();
-    assert_eq!(original.config.executable.as_deref(), Some("bash"));
+    assert_eq!(
+        original.terminal_config().executable.as_deref(),
+        Some("bash")
+    );
     assert!(original.is_open && original.resume_on_start);
     fs::write(&config_path, "invalid: [").unwrap();
     assert!(crate::actions::load(&config_directory.0).is_err());
@@ -596,7 +601,7 @@ fn yaml_types_reload_without_changing_existing_openings() {
         .iter()
         .find(|t| t.id == second)
         .unwrap();
-    assert_eq!(saved.config.args, ["literal; text"]);
+    assert_eq!(saved.terminal_config().args, ["literal; text"]);
     assert_eq!(saved.name, "Custom");
 }
 
@@ -681,7 +686,7 @@ fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_res
             .iter()
             .find(|t| t.id == stopped)
             .unwrap()
-            .config
+            .terminal_config()
             .env
             .len(),
         1
@@ -831,5 +836,121 @@ fn sqlite_transaction_rolls_back_after_partial_replacement_and_future_schema_is_
                 .get::<_, String>(0))
             .unwrap(),
         "Keep"
+    );
+}
+
+#[test]
+fn plugin_tabs_restore_mixed_openings_and_unavailable_configuration_without_starting_ptys() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::open(&directory.0).unwrap();
+    registry.create("Mixed".into(), directory.path()).unwrap();
+    let session = registry.sessions[0].id;
+    let terminal = registry.sessions[0].tabs[0].id;
+    registry
+        .create_plugin_tab(
+            session,
+            "Files".into(),
+            "files".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let files = registry.next_tab_id;
+    registry
+        .create_plugin_tab(
+            session,
+            "PR".into(),
+            "pull-request".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let pr = registry.next_tab_id;
+    registry
+        .associate_pull_request(
+            pr,
+            Some(
+                crate::plugins::pull_request::Association::parse(
+                    "https://github.com/example/repository/pull/42",
+                    None,
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+    assert!(registry
+        .create_plugin_tab(
+            session,
+            "Invalid".into(),
+            "files".into(),
+            1,
+            serde_json::json!({"folder": "relative"})
+        )
+        .is_err());
+    assert!(registry
+        .create_plugin_tab(
+            session,
+            "Future".into(),
+            "terminal".into(),
+            2,
+            serde_json::json!({})
+        )
+        .is_err());
+    assert_eq!(registry.sessions[0].tabs.len(), 3);
+    assert!(!registry.sessions[0].tabs.iter().any(|t| t.resume_on_start));
+    assert!(registry.terminals.is_empty());
+    registry
+        .configure_plugin_tab(files, serde_json::json!({"folder":"/missing/retained"}))
+        .unwrap();
+    assert!(registry
+        .configure_plugin_tab(files, serde_json::json!({"executable":"bash"}))
+        .is_err());
+    registry.reorder_tab(files, 0).unwrap();
+    registry.close_tab(pr, false).unwrap();
+    registry.select_tab(files).unwrap();
+    // Simulate a plugin removed from a subsequent build, retaining opaque payloads.
+    let tab = registry.sessions[0]
+        .tabs
+        .iter_mut()
+        .find(|t| t.id == terminal)
+        .unwrap();
+    tab.kind = "removed-plugin".into();
+    tab.config_version = 7;
+    tab.config = serde_json::json!({"privateSetting":["preserved"]});
+    registry.persist().unwrap();
+    drop(registry);
+    let mut restored = SessionRegistry::open(&directory.0).unwrap();
+    let session = &restored.sessions[0];
+    assert_eq!(session.selected_tab_id, Some(files));
+    assert_eq!(session.tabs[0].id, files);
+    assert_eq!(session.tabs[0].config["folder"], "/missing/retained");
+    assert_eq!(
+        session.pull_request.as_ref().unwrap().repository,
+        "example/repository"
+    );
+    assert_eq!(session.pull_request.as_ref().unwrap().number, 42);
+    let unknown = session.tabs.iter().find(|t| t.id == terminal).unwrap();
+    assert_eq!(unknown.config_version, 7);
+    assert_eq!(unknown.config["privateSetting"][0], "preserved");
+    assert!(!session.tabs.iter().find(|t| t.id == pr).unwrap().is_open);
+    assert!(restored.terminals.is_empty());
+    assert!(restored.open_tab(terminal).is_err());
+    restored.open_tab(pr).unwrap();
+    assert!(
+        !restored.sessions[0]
+            .tabs
+            .iter()
+            .find(|t| t.id == pr)
+            .unwrap()
+            .resume_on_start
+    );
+    restored.close_tab(files, false).unwrap();
+    assert!(
+        restored.sessions[0]
+            .tabs
+            .iter()
+            .find(|t| t.id == terminal)
+            .unwrap()
+            .is_open
     );
 }

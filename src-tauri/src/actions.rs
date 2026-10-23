@@ -25,7 +25,13 @@ pub struct Action {
     pub id: String,
     pub name: String,
     pub kind: String,
-    pub config: TabConfig,
+    #[serde(default = "default_config_version", rename = "configVersion")]
+    pub config_version: u32,
+    pub config: serde_json::Value,
+}
+
+fn default_config_version() -> u32 {
+    1
 }
 
 pub fn parse(text: &str) -> Result<Vec<Action>, String> {
@@ -33,6 +39,16 @@ pub fn parse(text: &str) -> Result<Vec<Action>, String> {
 }
 
 pub fn parse_config(text: &str) -> Result<Config, String> {
+    parse_config_policy(text, false)
+}
+
+// Missing plugin actions remain opaque when reading existing project files.
+// Saving edited YAML still requires all configurations to be validated.
+pub fn parse_project_config(text: &str) -> Result<Config, String> {
+    parse_config_policy(text, true)
+}
+
+fn parse_config_policy(text: &str, allow_unavailable: bool) -> Result<Config, String> {
     if text.len() as u64 > MAX_BYTES {
         return Err("Configuration exceeds 64 KiB".into());
     }
@@ -49,14 +65,25 @@ pub fn parse_config(text: &str) -> Result<Config, String> {
     for template in &config.actions {
         if template.id.trim().is_empty()
             || template.name.trim().is_empty()
+            || template.kind.trim().is_empty()
             || !ids.insert(&template.id)
         {
             return Err("Actions require unique nonempty IDs and nonempty names".into());
         }
-        if !matches!(template.kind.as_str(), "terminal" | "command") {
-            return Err(format!("Unsupported action kind: {}", template.kind));
+        if allow_unavailable
+            && template.kind != "command"
+            && !crate::plugins::available(&template.kind, template.config_version)
+        {
+            continue;
         }
-        let launch = &template.config;
+        if template.kind != "command" {
+            crate::plugins::validate(&template.kind, template.config_version, &template.config)?;
+            if template.kind != "terminal" {
+                continue;
+            }
+        }
+        let launch: TabConfig =
+            serde_json::from_value(template.config.clone()).map_err(|e| e.to_string())?;
         let mut validation = launch.clone();
         if template.kind == "command"
             && validation
@@ -162,7 +189,7 @@ pub fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
                 Err(error) => return Err(error.to_string()),
             }
         }
-        parse(&read_config(&path)?)
+        parse_project_config(&read_config(&path)?).map(|config| config.actions)
     })();
     result.map_err(|error| format!("{}: {error}", path.display()))
 }
@@ -229,3 +256,10 @@ fn read_config(path: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+impl Action {
+    pub fn terminal_config(&self) -> TabConfig {
+        serde_json::from_value(self.config.clone()).unwrap()
+    }
+}

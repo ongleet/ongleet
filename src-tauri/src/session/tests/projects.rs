@@ -162,8 +162,8 @@ fn version_one_database_migrates_sessions_and_tabs_into_default_project() {
     let tab = &registry.sessions[0].tabs[0];
     assert_eq!(tab.id, 12);
     assert!(tab.is_open && tab.resume_on_start);
-    assert_eq!(tab.config.args, ["literal; 日本語"]);
-    assert_eq!(tab.config.env["PORT"], "1234");
+    assert_eq!(tab.terminal_config().args, ["literal; 日本語"]);
+    assert_eq!(tab.terminal_config().env["PORT"], "1234");
     registry.fold_project(1, true).unwrap();
     drop(registry);
     let restored = SessionRegistry::open(&data.0).unwrap();
@@ -239,7 +239,7 @@ fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically(
     assert_eq!(tab.name, "Project shell");
     assert_eq!(session.selected_tab_id, Some(tab.id));
     assert!(tab.is_open && tab.resume_on_start);
-    assert_eq!(tab.config.env["ACTION_TEST"], "literal value");
+    assert_eq!(tab.terminal_config().env["ACTION_TEST"], "literal value");
     let (channel, receive) = output();
     registry
         .connect(tab.id, 80, 24, channel, tab.resume_on_start)
@@ -258,7 +258,7 @@ fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically(
     assert_eq!(restored.sessions[0].tabs.len(), 1);
     assert_eq!(restored.sessions[0].tabs[0].name, "Project shell");
     assert_eq!(
-        restored.sessions[0].tabs[0].config.env["ACTION_TEST"],
+        restored.sessions[0].tabs[0].terminal_config().env["ACTION_TEST"],
         "literal value"
     );
 }
@@ -291,7 +291,7 @@ fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
     );
     document["env"]["COMMON"] = "second".into();
     crate::actions::save_project_yaml(&config.0, group, &document.to_string()).unwrap();
-    let saved = registry.sessions[0].tabs[0].config.clone();
+    let saved = registry.sessions[0].tabs[0].terminal_config();
     assert_eq!(
         saved.env.len(),
         1,
@@ -324,7 +324,10 @@ fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
     registry.shutdown(true).unwrap();
     drop(registry);
     let restored = SessionRegistry::open(&data.0).unwrap();
-    assert_eq!(restored.sessions[0].tabs[0].config.env, saved.env);
+    assert_eq!(
+        restored.sessions[0].tabs[0].terminal_config().env,
+        saved.env
+    );
     assert_eq!(
         crate::actions::parse_config(&crate::actions::read_project_yaml(&config.0, group).unwrap())
             .unwrap()

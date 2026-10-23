@@ -71,6 +71,36 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
+    TabList {
+        session_id: u64,
+    },
+    TabCreate {
+        session_id: u64,
+        action_id: String,
+    },
+    TabSelect {
+        id: u64,
+    },
+    TabRename {
+        id: u64,
+        name: String,
+    },
+    TabReorder {
+        id: u64,
+        position: usize,
+    },
+    TabOpen {
+        id: u64,
+    },
+    TabClose {
+        id: u64,
+        #[serde(default)]
+        confirmed: bool,
+    },
+    TabConfigure {
+        id: u64,
+        config: Value,
+    },
     ProjectList,
     ProjectCreate {
         name: String,
