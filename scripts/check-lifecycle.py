@@ -484,7 +484,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plugins", action="store_true", help="Exercise mixed plugin tabs with read-only files and an isolated gh stand-in")
+    parser.add_argument("--plugins", action="store_true", help="Exercise mixed plugin tabs with file browsing/editing and an isolated gh stand-in")
     parser.add_argument("--cli", help="Path to CLI executable for native shared-state integration checks")
     parser.add_argument("--actions-editor", action="store_true", help="Exercise the project Actions form and YAML editor (with --projects)")
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")

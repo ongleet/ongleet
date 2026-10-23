@@ -631,6 +631,8 @@ fn run() -> Result<(), String> {
             plugins::commands::refresh_pull_request,
             plugins::commands::list_plugin_files,
             plugins::commands::open_plugin_file,
+            plugins::commands::read_plugin_text,
+            plugins::commands::save_plugin_text,
             create_tab,
             run_external_action,
             actions,

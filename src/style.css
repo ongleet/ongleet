@@ -607,6 +607,23 @@ dialog[aria-label='Project editor'] > [role='status'] {
   flex-direction: column;
   overflow: hidden;
 }
+.files-path {
+  position: relative;
+  flex: 1;
+  min-width: 100px;
+}
+.files-path input {
+  padding-right: 38px;
+}
+.files-path .files-refresh {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 5px;
+  border: 0;
+  background: transparent;
+}
 .files-panel select {
   flex: 0 0 auto;
   width: auto;
@@ -627,6 +644,10 @@ dialog[aria-label='Project editor'] > [role='status'] {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+.files-panel .files-search {
+  flex: 0 1 220px;
+  width: 220px;
 }
 .files-load-more {
   min-height: 1px;
@@ -699,5 +720,70 @@ dialog[aria-label='Project editor'] > [role='status'] {
 .terminal-startup {
   flex-shrink: 0;
   padding: 8px 14px;
+  color: #9cabbf;
+}
+
+.files-browser,
+.text-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.files-browser > .plugin-toolbar,
+.editor-toolbar {
+  flex-shrink: 0;
+}
+.editor-toolbar {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.editor-path {
+  flex: 1;
+  min-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-wrap {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+.editor-wrap input {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: auto;
+}
+.editor-surface .cm-panel input {
+  width: auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 6px;
+}
+.editor-surface .cm-panel label {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-width: 0;
+  gap: 4px;
+}
+.editor-surface .cm-panel button {
+  padding: 3px 6px;
+}
+.editor-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #303a48;
+}
+.editor-status {
+  flex-shrink: 0;
+  padding: 6px 0 0;
+  font-size: 12px;
   color: #9cabbf;
 }

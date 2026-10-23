@@ -284,3 +284,17 @@ Follow-up after the user identified a renamed directory: the expanded native sta
 2026-10-23 dcodex supervision: automatic restart is exercised with a stand-in Codex subprocess without API calls. Real interactive Codex recovery, terminal-mode restoration after abrupt death, and native close/Quit during the restart delay remain manual acceptance checks.
 
 Observed for this change: wrapper subprocess checks (including group SIGINT), three wrapper unit tests, Cargo formatting/check and helper/GUI builds passed. The focused real cgroup-contained PTY recording test passed outside the sandbox; its sandbox attempt could not access the read-only cgroup filesystem. No live user application was controlled.
+
+## Integrated plain-text editor (2026-10-23)
+
+Build a normal embedded frontend/application with `mise exec -- npm run tauri -- build --no-bundle --debug`, then run:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-file-editor.py \
+  --driver /path/to/WebKitWebDriver \
+  --application src-tauri/target/debug/devcenter-gui
+```
+
+The harness uses private XDG metadata and temporary files, without controlling the user's running instance. The final XWayland/WebKitGTK report `/tmp/devcenter-editor-validation-5y80lkh7/report.json` passed seven checks: inline text opening, native Unicode input/undo/redo/find/replace/wrap/save, unsaved-change protection on Back and GUI tab closure/Quit, visible tab switching with retained edits, external-edit rejection, Reload and return to Files. No cleanup survivors remained. Editor and browser screenshots were inspected. The host keyboard layout caused WebDriver Ctrl+letter remapping (a→b, z→m, s→u); the harness therefore dispatches intended DOM shortcut events to the real editor while ordinary typing uses native WebDriver keys. Physical keyboard shortcuts, native editor clipboard integration and Wayland editor behavior remain manual checks.
+
+Six focused Rust Files tests passed, including BOM/CRLF/permission preservation, conflict rejection, binary/oversize rejection, symlink resolution and refusal of read-only/hardlinked/retargeted saves. Frontend/native debug builds, Cargo check/fmt, scoped Prettier, Python syntax and whitespace checks passed. The existing mixed-plugin harness was updated for inline text opening but its full PR-polling scenario was not rerun. Unsaved edits are in memory and can be lost on crash, WebView reload or destructive CLI commands; GUI closure guards do not cover these external paths. See README for save and encoding limits.

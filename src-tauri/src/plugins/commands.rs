@@ -84,6 +84,7 @@ pub async fn list_plugin_files(
     offset: usize,
     order: Option<plugins::files::SortOrder>,
     show_hidden: Option<bool>,
+    query: Option<String>,
 ) -> Result<plugins::files::Listing, String> {
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -99,6 +100,7 @@ pub async fn list_plugin_files(
             offset,
             order.unwrap_or_default(),
             show_hidden.unwrap_or(false),
+            query.as_deref().unwrap_or_default(),
         )?;
         let mut guard = registry.lock().map_err(|e| e.to_string())?;
         let current = guard.plugin_tab(id, "files")?;
@@ -128,4 +130,39 @@ pub async fn open_plugin_file(
     use gtk::gio::prelude::*;
     let file = gtk::gio::File::for_path(&path);
     desktop_input::open_terminal_link(file.uri().to_string()).await
+}
+
+#[tauri::command]
+pub async fn read_plugin_text(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    path: String,
+) -> Result<Option<plugins::files::editor::Document>, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .plugin_tab(id, "files")?;
+    tauri::async_runtime::spawn_blocking(move || plugins::files::editor::load(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn save_plugin_text(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    path: String,
+    text: String,
+    revision: String,
+) -> Result<plugins::files::editor::Document, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .plugin_tab(id, "files")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        plugins::files::editor::save(&path, &text, &revision)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

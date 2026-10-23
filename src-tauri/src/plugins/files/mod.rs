@@ -1,4 +1,5 @@
-//! Read-only filesystem operations; no PTY or terminal-engine dependency.
+//! Filesystem browsing and bounded text editing; no PTY or terminal-engine dependency.
+pub mod editor;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -64,7 +65,11 @@ pub fn list(
     offset: usize,
     order: SortOrder,
     show_hidden: bool,
+    query: &str,
 ) -> Result<Listing, String> {
+    if query.len() > 8192 {
+        return Err("Search exceeds 8192-byte limit".into());
+    }
     Config {
         folder: Some(folder.into()),
     }
@@ -115,6 +120,10 @@ pub fn list(
     if !show_hidden {
         entries.retain(|entry| !entry.name.starts_with('.'));
     }
+    let query = query.to_lowercase();
+    if !query.is_empty() {
+        entries.retain(|entry| entry.name.to_lowercase().contains(&query));
+    }
     entries.sort_by(|left, right| {
         let name = || {
             left.name
@@ -163,6 +172,58 @@ mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};
     #[test]
+    fn search_matches_names_case_insensitively_before_pagination() {
+        let root = std::env::temp_dir().join(format!("plugin-files-search-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        for index in 0..210 {
+            std::fs::write(root.join(format!("noise-{index}")), b"").unwrap();
+        }
+        std::fs::create_dir(root.join("Report-folder")).unwrap();
+        std::fs::write(root.join("z-REPORT.txt"), b"").unwrap();
+        std::fs::write(root.join(".report"), b"").unwrap();
+        let page = list(
+            root.to_str().unwrap(),
+            0,
+            SortOrder::default(),
+            false,
+            "report",
+        )
+        .unwrap();
+        assert_eq!(
+            page.entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Report-folder", "z-REPORT.txt"]
+        );
+        assert_eq!(page.next_offset, None);
+        assert_eq!(
+            list(
+                root.to_str().unwrap(),
+                0,
+                SortOrder::default(),
+                true,
+                "REPORT"
+            )
+            .unwrap()
+            .entries
+            .len(),
+            3
+        );
+        assert!(list(
+            root.to_str().unwrap(),
+            0,
+            SortOrder::default(),
+            true,
+            "missing"
+        )
+        .unwrap()
+        .entries
+        .is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn hidden_entries_are_filtered_before_pagination_and_can_be_shown() {
         let root = std::env::temp_dir().join(format!("plugin-files-hidden-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
@@ -171,11 +232,11 @@ mod tests {
             std::fs::write(root.join(format!(".hidden-{index:03}")), b"").unwrap();
         }
         std::fs::write(root.join("visible.txt"), b"").unwrap();
-        let hidden = list(root.to_str().unwrap(), 0, SortOrder::default(), false).unwrap();
+        let hidden = list(root.to_str().unwrap(), 0, SortOrder::default(), false, "").unwrap();
         assert_eq!(hidden.entries.len(), 1);
         assert_eq!(hidden.entries[0].name, "visible.txt");
         assert_eq!(hidden.next_offset, None);
-        let shown = list(root.to_str().unwrap(), 0, SortOrder::default(), true).unwrap();
+        let shown = list(root.to_str().unwrap(), 0, SortOrder::default(), true, "").unwrap();
         assert_eq!(shown.entries.len(), 200);
         assert_eq!(shown.entries[0].name, ".config");
         let last = list(
@@ -183,6 +244,7 @@ mod tests {
             shown.next_offset.unwrap(),
             SortOrder::default(),
             true,
+            "",
         )
         .unwrap();
         assert_eq!(last.entries.len(), 12);
@@ -222,7 +284,7 @@ mod tests {
                 ["z-folder", "a.txt", "b.rs", "z.rs"],
             ),
         ] {
-            let page = list(root.to_str().unwrap(), 0, order, false).unwrap();
+            let page = list(root.to_str().unwrap(), 0, order, false, "").unwrap();
             assert_eq!(
                 page.entries
                     .iter()
@@ -248,7 +310,14 @@ mod tests {
         let mut offset = 0;
         let mut ordered = Vec::new();
         loop {
-            let page = list(root.to_str().unwrap(), offset, SortOrder::default(), false).unwrap();
+            let page = list(
+                root.to_str().unwrap(),
+                offset,
+                SortOrder::default(),
+                false,
+                "",
+            )
+            .unwrap();
             assert!(page.entries.len() <= 200);
             for entry in page.entries {
                 ordered.push(entry.name.clone());
@@ -265,7 +334,14 @@ mod tests {
         assert_eq!(seen.len(), 452);
         assert_eq!(&ordered[..4], &["child", "linked", "entry-0", "entry-1"]);
         assert_eq!(ordered.last().unwrap(), "entry-99");
-        let descending = list(root.to_str().unwrap(), 0, SortOrder::NameDescending, false).unwrap();
+        let descending = list(
+            root.to_str().unwrap(),
+            0,
+            SortOrder::NameDescending,
+            false,
+            "",
+        )
+        .unwrap();
         assert_eq!(descending.entries[0].name, "linked");
         assert_eq!(descending.entries[1].name, "child");
         assert_eq!(descending.entries[2].name, "entry-99");
@@ -274,7 +350,8 @@ mod tests {
                 root.join("linked").to_str().unwrap(),
                 0,
                 SortOrder::default(),
-                false
+                false,
+                ""
             )
             .unwrap()
             .folder,
@@ -285,7 +362,8 @@ mod tests {
             root.join("missing").to_str().unwrap(),
             0,
             SortOrder::default(),
-            false
+            false,
+            ""
         )
         .is_err());
         assert!(!root.join("missing").exists());
@@ -293,12 +371,13 @@ mod tests {
             root.join("entry-0").to_str().unwrap(),
             0,
             SortOrder::default(),
-            false
+            false,
+            ""
         )
         .is_err());
         std::fs::set_permissions(&child, std::fs::Permissions::from_mode(0)).unwrap();
         if unsafe { libc::geteuid() } != 0 {
-            assert!(list(child.to_str().unwrap(), 0, SortOrder::default(), false).is_err());
+            assert!(list(child.to_str().unwrap(), 0, SortOrder::default(), false, "").is_err());
         }
         std::fs::set_permissions(&child, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(std::fs::read(root.join("entry-0")).unwrap(), before);

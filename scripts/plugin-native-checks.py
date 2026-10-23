@@ -64,6 +64,11 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
         raise AssertionError('Missing folder accepted')
     assert not (folder / 'missing').exists()
     client.click(f"//section[@id='tab-panel-{files}']//button[contains(.,'unchanged.txt')]", 'xpath')
+    wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('read-only fixture')"), 'inline text editor')
+    assert not (directory / 'opened-file').exists()
+    client.click("//div[contains(@class,'text-editor')]//button[normalize-space()='← Files']", 'xpath')
+    # The native external opener remains available for non-text files.
+    client.invoke('open_plugin_file', {'id': files, 'path': str(folder / 'unchanged.txt')})
     wait_for(lambda: (directory / 'opened-file').exists(), 'associated file application')
     assert (directory / 'opened-file').read_text() == str(folder / 'unchanged.txt')
     assert (folder / 'unchanged.txt').read_text() == 'read-only fixture'

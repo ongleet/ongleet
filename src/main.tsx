@@ -4,6 +4,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import type { ProcessStatus } from './terminal';
+import { allowEditorClose, fileEditors } from './plugins/files/editor-guards';
 import { TabHost, flushPlugins, plugins } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
@@ -562,6 +563,7 @@ function App() {
     markBusy(true);
     setError('');
     try {
+      if (!(await allowEditorClose([...fileEditors.keys()], confirm))) return;
       const status = await invoke<{ runningTerminals: number }>('application_status');
       const confirmed = status.runningTerminals > 0;
       if (
@@ -636,6 +638,13 @@ function App() {
         select={(id) => void mutate('select_session', { id })}
         reorder={(id, position) => mutate('reorder_session', { id, position })}
         remove={async (session) => {
+          if (
+            !(await allowEditorClose(
+              session.tabs.map((tab) => tab.id),
+              confirm,
+            ))
+          )
+            return;
           const hasSessions = session.tabs.some((tab) => statuses[tab.id]?.state === 'running');
           if (
             !(await confirm(
@@ -687,6 +696,7 @@ function App() {
             mutate={mutate}
             markRestoring={markRestoring}
             closeTab={async (tab) => {
+              if (!(await allowEditorClose([tab.id], confirm))) return;
               const confirmed = statuses[tab.id]?.state === 'running';
               if (
                 confirmed &&
