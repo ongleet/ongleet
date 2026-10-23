@@ -8,6 +8,7 @@ use std::{
         unix::{
             fs::{DirBuilderExt, OpenOptionsExt},
             process::CommandExt,
+            process::ExitStatusExt,
         },
     },
     path::{Path, PathBuf},
@@ -235,7 +236,7 @@ pub fn run(flag: &str, args: Vec<String>) {
     let result = (|| {
         let mut extra = args;
         if extra.first().is_some_and(|a| a == "--help" || a == "-h") {
-            println!("dcodex [--session-id ID --tab-id ID] [--fresh] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation. Configure the tab executable as dcodex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
+            println!("dcodex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically resume after exit; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as dcodex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
             return Ok(());
         }
         let path = session_path()?;
@@ -246,23 +247,74 @@ pub fn run(flag: &str, args: Vec<String>) {
                 std::io::stdin().lock(),
             );
         }
-        let fresh = extra.first().is_some_and(|a| a == "--fresh");
-        if fresh {
+        let mut fresh = false;
+        let mut restart = true;
+        while let Some(option) = extra.first().map(String::as_str) {
+            match option {
+                "--fresh" => fresh = true,
+                "--no-restart" => restart = false,
+                _ => break,
+            }
             extra.remove(0);
         }
         if extra.first().is_some_and(|a| a == "--") {
             extra.remove(0);
         }
         let hook = required("DEVCENTER_CODEX_HOOK_EXE")?;
-        let state = begin(&path, fresh)?;
-        if let Some(id) = &state.conversation {
-            eprintln!("Resuming Codex conversation {id}. If unavailable, use --fresh to start a new conversation.");
+        let mut state = begin(&path, fresh)?;
+        // Keep terminal-generated interrupts directed at Codex without killing
+        // its supervisor. The child restores normal dispositions before exec.
+        unsafe {
+            libc::signal(libc::SIGINT, libc::SIG_IGN);
+            libc::signal(libc::SIGQUIT, libc::SIG_IGN);
         }
-        let error = Command::new("codex")
-            .args(codex_args(&state, &hook, &extra))
-            .env("DEVCENTER_CODEX_LAUNCH", &state.launch)
-            .exec();
-        Err(format!("Cannot start Codex: {error}"))
+        let mut rapid_exits = 0;
+        loop {
+            if let Some(id) = &state.conversation {
+                eprintln!("Resuming Codex conversation {id}. If unavailable, use --fresh to start a new conversation.");
+            }
+            let started = std::time::Instant::now();
+            let mut command = Command::new("codex");
+            command
+                .args(codex_args(&state, &hook, &extra))
+                .env("DEVCENTER_CODEX_LAUNCH", &state.launch);
+            unsafe {
+                command.pre_exec(|| {
+                    libc::signal(libc::SIGINT, libc::SIG_DFL);
+                    libc::signal(libc::SIGQUIT, libc::SIG_DFL);
+                    Ok(())
+                });
+            }
+            let status = command
+                .status()
+                .map_err(|error| format!("Cannot start Codex: {error}"))?;
+            if !restart {
+                std::process::exit(
+                    status
+                        .code()
+                        .unwrap_or_else(|| 128 + status.signal().unwrap_or(1)),
+                );
+            }
+            rapid_exits = if started.elapsed() < std::time::Duration::from_secs(10) {
+                rapid_exits + 1
+            } else {
+                0
+            };
+            if rapid_exits >= 5 {
+                return Err("Codex exited too quickly five times; automatic restart stopped. Fix the reported error and reopen the tab.".into());
+            }
+            // Never fall back to a fresh conversation, including when hooks
+            // were disabled or Codex failed before recording its first ID.
+            if read_state(&path)?.conversation.is_none() {
+                return Err(
+                    "Codex exited without a saved conversation ID; cannot resume automatically."
+                        .into(),
+                );
+            }
+            eprintln!("Codex exited ({status}); resuming in 2 seconds. Close the tab to stop.");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            state = begin(&path, false)?;
+        }
     })();
     if let Err(error) = result {
         eprintln!("Codex conversation restoration: {error}");

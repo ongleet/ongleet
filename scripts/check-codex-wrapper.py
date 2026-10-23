@@ -26,8 +26,20 @@ for index, arg in enumerate(args):
         if "hooks" in layer:
             settings.setdefault("hooks", {}).update(layer["hooks"])
 command = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+mode = os.environ.get("TEST_RESTART")
+if mode:
+    with open("attempts.jsonl", "a+") as log:
+        log.seek(0)
+        attempt = len(log.readlines())
+        log.write(json.dumps(args) + "\\n")
+    os.environ["TEST_CONVERSATION"] = "restart-" + str(attempt)
 event = {"session_id": os.environ["TEST_CONVERSATION"], "hook_event_name": "SessionStart"}
-subprocess.run(command, shell=True, input=json.dumps(event), text=True, check=True)
+if mode != "missing":
+    subprocess.run(command, shell=True, input=json.dumps(event), text=True, check=True)
+if mode and attempt == 1:
+    os.kill(os.getpid(), 9)
+if mode and attempt == 2:
+    os.killpg(os.getpgrp(), 2)
 print(json.dumps({"args": args, "cwd": os.getcwd(), "env": os.environ["TEST_INHERITED"]}))
 sys.exit(23)
 ''')
@@ -37,7 +49,7 @@ sys.exit(23)
 
     def launch(session, tab, conversation, *options):
         result = subprocess.run([str(wrapper), "--session-id", str(session),
-                                 "--tab-id", str(tab), *options],
+                                 "--tab-id", str(tab), "--no-restart", *options],
                                 env=dict(env, TEST_CONVERSATION=conversation),
                                 cwd=root, text=True, capture_output=True, timeout=10)
         assert result.returncode == 23, result.stderr
@@ -58,6 +70,26 @@ sys.exit(23)
     path = root / "data/codex-sessions/12/34.json"
     assert json.loads(path.read_text())["conversation"] == "fresh-id"
     assert path.stat().st_mode & 0o777 == 0o600
+    # Exercise the supervisor itself: fresh only once, latest hook ID on each
+    # retry, signal death as well as normal exit, and a bounded failure loop.
+    restarted = subprocess.run(
+        [str(wrapper), "--session-id", "20", "--tab-id", "1", "--fresh",
+         "--", "--model", "literal $model"],
+        env=dict(env, TEST_RESTART="yes"), cwd=root,
+        text=True, capture_output=True, timeout=15, start_new_session=True)
+    assert restarted.returncode == 1 and "five times" in restarted.stderr, restarted.stderr
+    attempts = [json.loads(line) for line in (root / "attempts.jsonl").read_text().splitlines()]
+    assert len(attempts) == 5, attempts
+    assert "resume" not in attempts[0]
+    for index, args in enumerate(attempts[1:], 1):
+        assert args[-4:] == ["resume", f"restart-{index - 1}", "--model", "literal $model"], args
+    (root / "attempts.jsonl").unlink()
+    missing = subprocess.run(
+        [str(wrapper), "--session-id", "21", "--tab-id", "1"],
+        env=dict(env, TEST_RESTART="missing"), cwd=root,
+        text=True, capture_output=True, timeout=5)
+    assert missing.returncode == 1 and "without a saved conversation" in missing.stderr
+    assert len((root / "attempts.jsonl").read_text().splitlines()) == 1
     path.write_text("invalid state")
     rejected = subprocess.run([str(wrapper), "--session-id", "12", "--tab-id", "34"],
                               env=env, text=True, capture_output=True, timeout=10)

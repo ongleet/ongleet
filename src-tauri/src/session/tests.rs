@@ -56,6 +56,7 @@ print('CONTEXT:' + os.environ['DEVCENTER_SESSION_ID'] + ':' + os.environ['DEVCEN
     let tab = registry.sessions[0].tabs[0].id;
     registry.sessions[0].tabs[0].config = serde_json::to_value(TabConfig {
         executable: Some("dcodex".into()),
+        args: vec!["--no-restart".into()],
         env: BTreeMap::from([
             ("PATH".into(), format!("{}:/usr/bin:/bin", directory.path())),
             ("DEVCENTER_TAB_ID".into(), "999".into()),
