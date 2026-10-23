@@ -284,7 +284,7 @@ def run(args):
         wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), "ready after group checks")
 
     def cli(*arguments, code=0):
-        result = subprocess.run([args.cli, *map(str, arguments)], env=env, capture_output=True, text=True, timeout=40)
+        result = subprocess.run([args.cli, "--json", *map(str, arguments)], env=env, capture_output=True, text=True, timeout=40)
         assert result.returncode == code, (arguments, result.returncode, result.stdout, result.stderr)
         response = json.loads(result.stdout if code == 0 else result.stderr)
         assert response['ok'] == (code == 0), response
@@ -309,7 +309,7 @@ def run(args):
         actions = json.loads((config / 'projects/1/actions.yaml').read_text())
         probe = str(native.ROOT / 'scripts/terminal-probe.py')
         actions['actions'][0]['config']['args'] = ['-u', '-c',
-            "import subprocess,os,json,sys,runpy; result=subprocess.run(['devcenter','session','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
+            "import subprocess,os,json,sys,runpy; result=subprocess.run(['devcenter','--json','session','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
         (config_path / 'actions.yaml').write_text(json.dumps(actions))
         first = cli('session', 'create', '--project', gid, '--name', 'CLI first')
         wid, tab = first['id'], first['selectedTabId']

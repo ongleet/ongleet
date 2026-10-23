@@ -74,6 +74,13 @@ impl SessionRegistry {
         };
         // Process environment < common project variables < action overrides.
         env.extend(config.env.clone());
+        // Stable launch context is reserved and cannot be overridden by project/action env.
+        env.insert("DEVCENTER_SESSION_ID".into(), session.id.to_string());
+        env.insert(
+            "DEVCENTER_PROJECT_ID".into(),
+            session.project_id.to_string(),
+        );
+        env.insert("DEVCENTER_TAB_ID".into(), tab_id.to_string());
         // Resolve the opt-in wrapper through the running image, including after
         // rebuilds unlink that image. Never depend on a separately built helper.
         if config.shell_command.is_none()
@@ -93,8 +100,6 @@ impl SessionRegistry {
                 "DEVCENTER_CODEX_DATA".into(),
                 data.to_string_lossy().into_owned(),
             );
-            env.insert("DEVCENTER_SESSION_ID".into(), session.id.to_string());
-            env.insert("DEVCENTER_TAB_ID".into(), tab_id.to_string());
             env.insert(
                 "DEVCENTER_CODEX_HOOK_EXE".into(),
                 crate::containment::executable()?

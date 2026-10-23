@@ -372,6 +372,7 @@ fn sibling_ptys_survive_tab_changes_and_session_close_preflights_all_sessions() 
     assert!(registry.start(a, 80, 24, channel).is_err());
     assert!(registry.close(session, false).is_err());
     assert!(registry.close_tab(a, false).is_err());
+    assert!(registry.delete_tab(a, false).is_err());
     for (tab, session) in [(a, session_a), (b, session_b)] {
         assert_eq!(registry.terminals[&tab].id, session);
         assert!(matches!(
@@ -379,7 +380,8 @@ fn sibling_ptys_survive_tab_changes_and_session_close_preflights_all_sessions() 
             Status::Running
         ));
     }
-    registry.close_tab(a, true).unwrap();
+    registry.delete_tab(a, true).unwrap();
+    assert!(registry.sessions[0].tabs.iter().all(|tab| tab.id != a));
     assert!(!registry.terminals.contains_key(&a));
     assert!(matches!(
         registry.terminals.get_mut(&b).unwrap().status().unwrap(),
@@ -419,8 +421,8 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
     let a = registry.sessions[0].tabs[0].id;
     let mut config = TabConfig {
             executable: Some("/usr/bin/python3".into()),
-            args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
-            env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into())]), ..Default::default()
+            args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ,os.environ['DEVCENTER_SESSION_ID'],os.environ['DEVCENTER_PROJECT_ID'],os.environ['DEVCENTER_TAB_ID']]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
+            env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into()), ("DEVCENTER_SESSION_ID".into(), "999".into()), ("DEVCENTER_PROJECT_ID".into(), "999".into()), ("DEVCENTER_TAB_ID".into(), "999".into())]), ..Default::default()
         };
     registry.configure_tab(a, config.clone()).unwrap();
     let (channel, receive) = output();
@@ -433,7 +435,10 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
             old_directory.path(),
             "literal; echo $(shell-syntax)",
             "explicit",
-            true
+            true,
+            session.to_string(),
+            registry.sessions[0].project_id.to_string(),
+            a.to_string()
         ])
     );
     registry
@@ -463,7 +468,11 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
     let payload: serde_json::Value =
         serde_json::from_str(&read_line(&registry, c, &receive)).unwrap();
     assert_eq!(payload[0], old_directory.path());
-    assert_eq!(registry.sessions[0].tabs[0].terminal_config().env.len(), 1);
+    let saved_env = registry.sessions[0].tabs[0].terminal_config().env;
+    assert_eq!(saved_env.len(), 4);
+    assert_eq!(saved_env["DEVCENTER_SESSION_ID"], "999");
+    assert_eq!(saved_env["DEVCENTER_PROJECT_ID"], "999");
+    assert_eq!(saved_env["DEVCENTER_TAB_ID"], "999");
     registry.create_tab(session).unwrap();
     let d = registry.sessions[0].selected_tab_id.unwrap();
     registry
@@ -954,4 +963,36 @@ fn plugin_tabs_restore_mixed_openings_and_unavailable_configuration_without_star
             .unwrap()
             .is_open
     );
+}
+
+#[test]
+fn deleted_tab_stays_removed_after_reload_without_affecting_siblings_or_directory() {
+    let directory = Directory::new();
+    let marker = directory.0.join("keep.txt");
+    fs::write(&marker, "untouched").unwrap();
+    let (session, removed, sibling);
+    {
+        let mut registry = SessionRegistry::open(&directory.0).unwrap();
+        session = registry
+            .create("Session".into(), directory.path())
+            .unwrap()
+            .selected_id
+            .unwrap();
+        sibling = registry.sessions[0].tabs[0].id;
+        registry.create_tab(session).unwrap();
+        removed = registry.sessions[0].selected_tab_id.unwrap();
+        registry.delete_tab(removed, false).unwrap();
+        assert_eq!(registry.sessions[0].selected_tab_id, Some(sibling));
+        assert!(registry.open_tab(removed).is_err());
+        assert!(registry.delete_tab(removed, false).is_err());
+    }
+    let mut registry = SessionRegistry::open(&directory.0).unwrap();
+    let saved = &registry.sessions[0];
+    assert_eq!(saved.id, session);
+    assert_eq!(saved.tabs.len(), 1);
+    assert_eq!(saved.tabs[0].id, sibling);
+    assert_eq!(saved.tabs[0].display_order, 0);
+    assert_eq!(saved.selected_tab_id, Some(sibling));
+    assert!(registry.open_tab(removed).is_err());
+    assert_eq!(fs::read_to_string(marker).unwrap(), "untouched");
 }

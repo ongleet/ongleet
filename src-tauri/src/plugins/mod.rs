@@ -1,4 +1,6 @@
 //! Trusted built-in plugins. Native byte transport remains terminal-specific.
+mod catalog;
+pub use catalog::catalog;
 pub mod commands;
 pub mod files;
 pub mod pull_request;

@@ -1,6 +1,6 @@
 # DevCenter
 
-DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple plugin tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls sessions, projects and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
+DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple plugin tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls tabs, sessions, projects and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
 
 Session/tab metadata, ordering and selection are saved transactionally. Changing a session's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Session operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
@@ -189,7 +189,7 @@ External applications are deliberately independent of managed terminal sessions.
 
 Build the frontend with `mise exec -- npm run build`, then the GUI and command-line executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. App-launched terminals automatically prepend the application executable directory to PATH, so `devcenter` is available there when built alongside the GUI. This does not change your personal PATH or shell configuration. Explicit project/action PATH overrides take precedence, and shell startup files may replace PATH. Existing terminals retain their environment; open a new tab after restarting the updated app.
 
-The CLI is `src-tauri/target/debug/devcenter`. Use `--help` for the full command reference and automation contract, `session --help` for a resource, or `session create --help` for a specific command (`-h` also works). Help runs without connecting to the application. It documents command effects, JSON responses, ID discovery, exit codes, confirmation and timeout/retry behavior for scripts and AI agents. Outside app terminals, until packaging installs it on PATH, substitute that path for `devcenter` in these examples:
+The CLI is `src-tauri/target/debug/devcenter`. Use `--help` for a short resource index, `session --help` for its command list, or `session create --help` for that command’s usage, effects and relevant defaults (`-h` also works). The separate `automation --help` topic documents JSON responses, ID discovery, exit codes and timeout/retry behavior. Help runs without connecting to the application. Outside app terminals, until packaging installs it on PATH, substitute that path for `devcenter` in these examples:
 
 ```bash
 devcenter project list
@@ -200,18 +200,29 @@ devcenter session directory 2 --directory /existing/other-project
 devcenter session reorder 2 --position 0
 devcenter session select 2
 devcenter session close 2 --confirm
+devcenter tab types
+devcenter tab actions --session 3
+devcenter tab list --session 3
+devcenter tab create --session 3 --action bash --name 'Agent shell' --config '{"executable":"/bin/bash","args":[],"env":{}}'
+devcenter tab rename 7 --name Backend
+devcenter tab configure 7 --config '{"executable":"/bin/bash","args":[],"env":{}}'
+devcenter tab close 7 --confirm
+devcenter tab open 7
+devcenter tab delete 7 --confirm
 devcenter app show
 devcenter app status
 devcenter app quit --confirm
 ```
 
+Every newly launched terminal receives reserved `DEVCENTER_SESSION_ID`, `DEVCENTER_PROJECT_ID` and `DEVCENTER_TAB_ID` variables. Inside it, `devcenter tab actions`, `tab list` and `tab create --action ACTION_ID` default to that session; `session create --name NAME` defaults to that project. Explicit `--session`/`--project` takes precedence. Outside a terminal, supply the option or set the variable explicitly. Missing/invalid context fails; the CLI never guesses from the GUI selection. Destructive commands still require explicit IDs. Context reflects launch time: project moves do not update running environments, and terminals already running before this change need relaunching.
+
 IDs are stable positive integers returned by list/create, not names or list indexes. Reorder positions are zero-based within the session's project. Omitting `--directory` on creation uses the group's root; relative paths resolve from the CLI's current directory. Creating a session selects it and opens its first configured terminal action through the connected frontend, including when the window is hidden. The response may report `starting` before that frontend launches the process; a disconnected/reloading frontend delays launch. Poll `session list` for observed process status. Directory changes affect future launches and never change an existing process's cwd or create/move/delete directories.
 
 Project commands support `create --name NAME --root PATH`, `list`, `rename ID --name NAME`, `directory ID --directory PATH`, `fold ID`, `unfold ID`, and `close ID` (empty groups only). `session move ID --project ID` changes membership while preserving running processes. UI and CLI call the same Rust registry methods; successful CLI changes refresh the sidebar automatically.
 
-Successes are JSON on stdout (`{"ok":true,"data":...}`); failures are JSON on stderr (`{"ok":false,"error":{"code":"...","message":"..."}}`). JSON is always enabled; `--json` is accepted explicitly. Help is plain text. Exit codes: 0 success, 2 invalid arguments/request, 3 application unavailable, 4 missing ID, 5 confirmation required, 6 operation failed, 7 permission denied, 8 protocol/size/timeout. Running-session closure and Quit require `--confirm`; without it no process is terminated. A timeout can occur after a mutation was committed: check state before retrying a creation.
+Commands print readable text by default; errors go to stderr. For scripts and agents, pass `--json` before the resource or after command arguments: successes are JSON on stdout (`{"ok":true,"data":...}`) and failures are JSON on stderr (`{"ok":false,"error":{"code":"...","message":"..."}}`). For example, `devcenter --json tab list`. Help remains plain text. Exit codes: 0 success, 2 invalid arguments/request, 3 application unavailable, 4 missing ID, 5 confirmation required, 6 operation failed, 7 permission denied, 8 protocol/size/timeout. Running-session closure and Quit require `--confirm`; without it no process is terminated. A timeout can occur after a mutation was committed: check state before retrying a creation.
 
-Ordinary commands never start the application. Only `devcenter app start` starts the sibling GUI executable, or use `app start --executable /path/to/devcenter-gui`. Existing instances are reused. It needs the same desktop session, user and XDG data directory as the GUI. The CLI itself runs without a display and never opens SQLite. Session list includes open tab IDs/names/statuses; direct terminal manipulation, text input and output snapshots remain pending.
+Ordinary commands never start the application. Only `devcenter app start` starts the sibling GUI executable, or use `app start --executable /path/to/devcenter-gui`. Existing instances are reused. It needs the same desktop session, user and XDG data directory as the GUI. The CLI itself runs without a display and never opens SQLite. Tab IDs and action IDs above are examples: use the IDs returned by your app and `tab actions --session ID`. This command returns the project's available tab action IDs, names, plugin kinds, versions and copied configurations, excluding external commands and unavailable plugins. `tab types` returns each built-in plugin's configuration schema, defaults, constraints and valid JSON examples. `tab create` copies a configured plugin action and opens a fresh tab. Optional `--name` and `--config JSON` override its name and complete configuration before the first launch. Configuration is a replacement object, not a patch; omitted fields use plugin defaults. Both creation and later configuration use the same plugin validators. The complete encoded CLI request must fit below 16 KiB. `tab rename` changes its name; `tab configure --config JSON` replaces its plugin configuration (terminal changes apply to future launches). `tab list --session ID` includes open and closed definitions, configuration, selection, restart eligibility and observed status. `tab close` keeps the definition for `tab open`; `tab delete` permanently removes it. Both require `--confirm` when a terminal is running and preserve the session directory and retained history files. Tab reorder/select are also available. Session list includes open tab IDs/names/statuses; terminal text input and output snapshots remain pending.
 
 ## Checks
 

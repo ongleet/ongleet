@@ -2,16 +2,19 @@ use super::{invalid, RpcError};
 
 // Keep usage and effects together so every command has useful scoped help.
 const COMMANDS: &[(&str, &str, &str)] = &[
-    ("tab", "list --session ID", "List all plugin tab definitions, copied configuration, openings and restart eligibility."),
-    ("tab", "create --session ID --action ACTION_ID", "Open a fresh plugin tab from a configured project action. External command actions cannot open tabs."),
+    ("tab", "types", "Describe built-in plugin types, configuration schemas, defaults, constraints and valid JSON examples."),
+    ("tab", "actions [--session ID]", "List available tab actions for this session with action IDs, plugin kinds, versions and copied configuration. Excludes external commands and unavailable plugins."),
+    ("tab", "list [--session ID]", "List all plugin tab definitions, copied configuration, openings, observed status and restart eligibility."),
+    ("tab", "create [--session ID] --action ACTION_ID [--name NAME] [--config JSON]", "Open a fresh plugin tab from a configured project action. Discover action IDs with tab actions --session ID, and configuration fields with tab types. --config replaces the complete action configuration before launch. External command actions cannot open tabs."),
     ("tab", "select ID", "Select an open tab without recreating plugin resources."),
     ("tab", "rename ID --name NAME", "Rename a tab definition."),
     ("tab", "reorder ID --position INDEX", "Move an open tab to a zero-based position."),
     ("tab", "open ID", "Reopen a saved definition. Terminal tabs launch their saved command anew."),
     ("tab", "close ID [--confirm]", "Close a plugin tab, retaining its definition. Running terminals require --confirm."),
+    ("tab", "delete ID [--confirm]", "Permanently remove a tab definition and close its opening. Running terminals require --confirm. Session directories and retained history files are preserved."),
     ("tab", "configure ID --config JSON", "Validate and replace plugin-specific configuration. Running terminals retain their original launch settings."),
     ("session", "list", "List sessions and open tabs, including IDs, selection and observed process status."),
-    ("session", "create --project ID --name NAME [--directory PATH]", "Create and select a session; launch its project's first terminal action. Directory defaults to the group's root. Requires valid actions YAML and an existing directory. A starting status is not proof of a successful launch: poll session list."),
+    ("session", "create [--project ID] --name NAME [--directory PATH]", "Create and select a session; launch its project's first terminal action. Directory defaults to the group's root. Requires valid actions YAML and an existing directory. A starting status is not proof of a successful launch: poll session list."),
     ("session", "rename ID --name NAME", "Rename saved session metadata. Its directory and running processes stay unchanged."),
     ("session", "directory ID --directory PATH", "Set an existing base directory for future launches. Running processes keep their working directories."),
     ("session", "move ID --project ID", "Move a session to another project, preserving its directory and live terminals."),
@@ -32,13 +35,26 @@ const COMMANDS: &[(&str, &str, &str)] = &[
 ];
 
 const AUTOMATION: &str = r#"AUTOMATION CONTRACT
-  Normal results: one JSON object on stdout, exit 0:
+  Default output is readable text. Pass --json before the resource or after
+  command arguments for structured output (including errors).
+  With --json, normal results: one JSON object on stdout, exit 0:
     {"ok":true,"data":...}
-  Failures: one JSON object on stderr, nonzero exit:
+  With --json, failures: one JSON object on stderr, nonzero exit:
     {"ok":false,"error":{"code":"not_found","message":"..."}}
   Parse error.code for decisions; error.message is diagnostic text.
-  --json is optional: normal results are always JSON. Help is plain text,
+  Text output is for humans; scripts should use --json. Help is plain text,
   exits 0, and does not contact the app. No interactive prompts are used.
+
+  Inside DevCenter terminals, tab list/actions/create default --session to
+  DEVCENTER_SESSION_ID; session create defaults --project to DEVCENTER_PROJECT_ID.
+  Explicit options take precedence. Outside, supply the option or variable.
+  Invalid context fails; there is no fallback to the selected GUI session.
+  Context is fixed at terminal launch; existing terminals need relaunch.
+
+  Discover tab action IDs with tab actions --session ID; tab types returns
+  plugin configuration schemas, defaults and examples. tab create --config JSON
+  applies a replacement configuration before launch; tab configure replaces
+  saved configuration for future terminal launches. Neither is a JSON patch.
 
   Discover IDs with project list / session list; never infer IDs from
   names or list positions. Session list returns data.sessions and
@@ -54,8 +70,8 @@ const AUTOMATION: &str = r#"AUTOMATION CONTRACT
   --confirm authorizes termination; use it only when that action is intended.
   A timeout can happen AFTER a change commits. Inspect list/status before
   retrying, especially create: retries can create duplicates.
-  Terminal-specific commands, sending input and reading screens are not
-  implemented. Generic tab operations are available under tab --help.
+  Sending terminal input and reading screens are not implemented.
+  Generic tab operations: devcenter tab --help.
 
 EXIT CODES
   0 success                  2 invalid arguments/request
@@ -65,6 +81,14 @@ EXIT CODES
 "#;
 
 pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
+    if scope.is_empty() {
+        return Ok(String::from(
+            "devcenter [--json] <resource> <command> [options]\n\nRESOURCES\n  tab         Manage plugin tabs\n  session     Manage sessions\n  project     Manage projects\n  app         Control the application\n\nHELP\n  devcenter tab --help                 List tab commands\n  devcenter tab create --help          Command usage and effects\n  devcenter automation --help          JSON, errors and exit codes\n  -h is an alias for --help.\n",
+        ));
+    }
+    if scope == ["automation"] {
+        return Ok(AUTOMATION.into());
+    }
     if scope.len() > 2 {
         return Err(invalid(
             "Expected --help, RESOURCE --help or RESOURCE COMMAND --help",
@@ -73,7 +97,7 @@ pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
     let selected: Vec<_> = COMMANDS
         .iter()
         .filter(|(resource, usage, _)| {
-            scope.first().is_none_or(|s| s == resource)
+            &scope[0] == resource
                 && scope
                     .get(1)
                     .is_none_or(|s| usage.split_whitespace().next() == Some(s.as_str()))
@@ -82,15 +106,44 @@ pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
     if selected.is_empty() {
         return Err(invalid("Unknown help topic; use devcenter --help"));
     }
-    let mut text = String::from("devcenter — control the native terminal session application\n\nUSAGE\n  devcenter [--json] <resource> <command> [options]\n  devcenter [<resource> [<command>]] --help\n  -h is an alias for --help. ID is a stable positive integer.\n\nCOMMANDS\n");
-    for (resource, usage, description) in selected {
+    if scope.len() == 1 {
+        let mut text = format!("devcenter {} <command> [options]\n\nCOMMANDS\n", scope[0]);
+        for (resource, usage, _) in selected {
+            text.push_str(&format!("  devcenter {resource} {usage}\n"));
+        }
         text.push_str(&format!(
-            "  devcenter {resource} {usage}\n    {description}\n\n"
+            "\nDetails: devcenter {} <command> --help\nAutomation: devcenter automation --help\n",
+            scope[0]
         ));
+        return Ok(text);
     }
-    if scope.is_empty() {
-        text.push_str("EXAMPLE WORKFLOW\n  devcenter app status\n  devcenter project list\n  devcenter session create --project 1 --name \"API work\" --directory \"/existing/project\"\n  devcenter session list\n  devcenter session select 2\n  devcenter app show\n  Replace 1 and 2 with IDs returned by list/create; paths are examples.\n  For details: devcenter session create --help\n\n");
+    let (resource, usage, description) = selected[0];
+    let mut text = format!("devcenter {resource} {usage}\n\n{description}\n");
+    match (*resource, scope[1].as_str()) {
+        ("tab", "list" | "actions" | "create") => text.push_str(
+            "\n--session defaults to DEVCENTER_SESSION_ID; an explicit option wins.\nOutside a DevCenter terminal, supply --session ID or set that variable.\n",
+        ),
+        ("session", "create") => text.push_str(
+            "\n--project defaults to DEVCENTER_PROJECT_ID; an explicit option wins.\nDiscover project IDs: devcenter project list\n",
+        ),
+        ("tab", "configure") => text.push_str(
+            "\n--config replaces the complete configuration, not a patch.\nFields and examples: devcenter tab types\nDiscover tab IDs: devcenter tab list\n",
+        ),
+        ("tab", "types") => text.push_str(
+            "\nReturns data.types with configSchema, examples and notes per plugin,\nplus configuration limits and a suggested workflow.\nAvailable project actions: devcenter tab actions\n",
+        ),
+        _ => {}
     }
-    text.push_str(AUTOMATION);
+    if matches!(scope[1].as_str(), "create" | "rename" | "directory") {
+        text.push_str(
+            "\nQuote names/paths with spaces. Relative directory paths use the CLI cwd.\n",
+        );
+    }
+    if matches!(scope[1].as_str(), "create" | "close" | "delete" | "quit") {
+        text.push_str(
+            "\nAfter a timeout, inspect list/status before retrying; changes may have committed.\n",
+        );
+    }
+    text.push_str("\nResults are text; add --json for structured output. Errors use stderr and a nonzero exit code.\nAutomation details: devcenter automation --help\n");
     Ok(text)
 }

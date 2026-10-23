@@ -68,6 +68,7 @@ pub fn handle(
         | Command::TabReorder { id, .. }
         | Command::TabOpen { id }
         | Command::TabClose { id, .. }
+        | Command::TabDelete { id, .. }
         | Command::TabConfigure { id, .. } => Some(*id),
         _ => None,
     };
@@ -200,10 +201,39 @@ pub fn handle(
             changed = true;
             json!({"closed":id})
         }
-        Command::TabList { session_id } => json!({"tabs": session(&snapshot, session_id)?.tabs}),
+        Command::TabTypes => crate::plugins::catalog(),
+        Command::TabActions { session_id } => {
+            let session = session(&snapshot, session_id)?;
+            let directory = crate::control::paths::config_directory().map_err(failed)?;
+            let actions: Vec<_> = crate::actions::load_project(&directory, session.project_id)
+                .map_err(failed)?
+                .into_iter()
+                .filter(|action| crate::plugins::available(&action.kind, action.config_version))
+                .collect();
+            json!({"sessionId": session_id, "projectId": session.project_id, "actions": actions})
+        }
+        Command::TabList { session_id } => {
+            let session = session(&snapshot, session_id)?;
+            let observed = summary(&mut registry, &session)?;
+            let mut tabs = Vec::new();
+            for tab in &session.tabs {
+                let mut value = serde_json::to_value(tab).map_err(|e| failed(e.to_string()))?;
+                value["status"] = observed["tabs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|item| item["id"] == tab.id)
+                    .map(|item| item["status"].clone())
+                    .unwrap_or_else(|| json!({"state": "closed"}));
+                tabs.push(value);
+            }
+            json!({"tabs": tabs, "selectedTabId": session.selected_tab_id})
+        }
         Command::TabCreate {
             session_id,
             action_id,
+            name,
+            config,
         } => {
             let session = session(&snapshot, session_id)?;
             let directory = crate::control::paths::config_directory().map_err(failed)?;
@@ -215,10 +245,10 @@ pub fn handle(
             let updated = registry
                 .create_plugin_tab(
                     session_id,
-                    action.name,
+                    name.unwrap_or(action.name),
                     action.kind,
                     action.config_version,
-                    action.config,
+                    config.unwrap_or(action.config),
                 )
                 .map_err(failed)?;
             changed = true;
@@ -249,7 +279,7 @@ pub fn handle(
             changed = true;
             json!({"id": id})
         }
-        Command::TabClose { id, confirmed } => {
+        Command::TabClose { id, confirmed } | Command::TabDelete { id, confirmed } => {
             if !confirmed
                 && registry
                     .terminals
@@ -261,7 +291,11 @@ pub fn handle(
                     "Running terminal requires --confirm",
                 ));
             }
-            registry.close_tab(id, confirmed).map_err(failed)?;
+            if matches!(command, Command::TabDelete { .. }) {
+                registry.delete_tab(id, confirmed).map_err(failed)?;
+            } else {
+                registry.close_tab(id, confirmed).map_err(failed)?;
+            }
             changed = true;
             json!({"id": id})
         }

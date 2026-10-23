@@ -10,6 +10,7 @@ use std::{
 };
 
 mod help;
+mod output;
 
 #[derive(Debug)]
 pub enum Invocation {
@@ -42,6 +43,20 @@ fn absolute(value: String) -> Result<String, RpcError> {
 }
 
 pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
+    let session = std::env::var_os("DEVCENTER_SESSION_ID");
+    let project = std::env::var_os("DEVCENTER_PROJECT_ID");
+    parse_with_context(
+        args,
+        session.as_ref().map(|s| s.to_string_lossy()).as_deref(),
+        project.as_ref().map(|s| s.to_string_lossy()).as_deref(),
+    )
+}
+
+fn parse_with_context(
+    args: Vec<String>,
+    session: Option<&str>,
+    project: Option<&str>,
+) -> Result<Invocation, RpcError> {
     let mut args = args;
     if args.first().is_some_and(|arg| arg == "--json") {
         args.remove(0);
@@ -71,7 +86,7 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         (resource, verb),
         (
             "tab",
-            "select" | "rename" | "reorder" | "open" | "close" | "configure"
+            "select" | "rename" | "reorder" | "open" | "close" | "delete" | "configure"
         ) | (
             "session",
             "rename" | "directory" | "move" | "reorder" | "select" | "close"
@@ -121,12 +136,30 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
     if confirmed
         && !matches!(
             (resource, verb),
-            ("session", "close") | ("tab", "close") | ("app", "quit")
+            ("session", "close") | ("tab", "close" | "delete") | ("app", "quit")
         )
     {
         return Err(invalid(
-            "--confirm applies only to tab close, session close or app quit",
+            "--confirm applies only to tab close/delete, session close or app quit",
         ));
+    }
+    let context = match (resource, verb) {
+        ("tab", "list" | "actions" | "create") => {
+            Some(("--session", "DEVCENTER_SESSION_ID", session))
+        }
+        ("session", "create") => Some(("--project", "DEVCENTER_PROJECT_ID", project)),
+        _ => None,
+    };
+    if let Some((option, variable, fallback)) = context {
+        if !options.contains_key(option) {
+            let value = fallback.ok_or_else(|| {
+                invalid(format!(
+                    "Required option: {option} (or {variable} inside a DevCenter terminal)"
+                ))
+            })?;
+            positive(value).map_err(|_| invalid(format!("{variable} must be a positive integer; pass {option} explicitly to override it")))?;
+            options.insert(option.into(), value.into());
+        }
     }
     let mut take = |key: &str| {
         options
@@ -169,12 +202,24 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         },
         ("session", "select") => Command::SessionSelect { id },
         ("session", "close") => Command::SessionClose { id, confirmed },
+        ("tab", "types") => Command::TabTypes,
+        ("tab", "actions") => Command::TabActions {
+            session_id: positive(&take("--session")?)?,
+        },
         ("tab", "list") => Command::TabList {
             session_id: positive(&take("--session")?)?,
         },
         ("tab", "create") => Command::TabCreate {
             session_id: positive(&take("--session")?)?,
             action_id: take("--action")?,
+            name: options.remove("--name"),
+            config: options
+                .remove("--config")
+                .map(|text| {
+                    serde_json::from_str(&text)
+                        .map_err(|e| invalid(format!("Invalid JSON configuration: {e}")))
+                })
+                .transpose()?,
         },
         ("tab", "select") => Command::TabSelect { id },
         ("tab", "rename") => Command::TabRename {
@@ -189,6 +234,7 @@ pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
         },
         ("tab", "open") => Command::TabOpen { id },
         ("tab", "close") => Command::TabClose { id, confirmed },
+        ("tab", "delete") => Command::TabDelete { id, confirmed },
         ("tab", "configure") => Command::TabConfigure {
             id,
             config: serde_json::from_str(&take("--config")?)
@@ -297,9 +343,11 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
 }
 
 pub fn run() -> i32 {
-    let invocation = match parse(std::env::args().skip(1).collect()) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let json = args.iter().any(|arg| arg == "--json");
+    let invocation = match parse(args) {
         Ok(value) => value,
-        Err(error) => return print_error(error),
+        Err(error) => return print_error(error, json),
     };
     if let Invocation::Help(text) = invocation {
         print!("{text}");
@@ -307,19 +355,16 @@ pub fn run() -> i32 {
     }
     match execute(invocation) {
         Ok(response) if response.ok => {
-            println!("{}", serde_json::to_string(&response).unwrap());
+            println!("{}", output::success(&response, json));
             0
         }
-        Ok(response) => print_error(response.error.unwrap()),
-        Err(error) => print_error(error),
+        Ok(response) => print_error(response.error.unwrap(), json),
+        Err(error) => print_error(error, json),
     }
 }
-fn print_error(error: RpcError) -> i32 {
+fn print_error(error: RpcError, json: bool) -> i32 {
     let code = error.exit_code();
-    eprintln!(
-        "{}",
-        serde_json::to_string(&Response::failure(error)).unwrap()
-    );
+    eprintln!("{}", output::error(error, json));
     code
 }
 

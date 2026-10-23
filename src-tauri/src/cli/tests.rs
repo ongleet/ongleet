@@ -1,4 +1,8 @@
 use super::*;
+
+fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
+    super::parse_with_context(args, None, None)
+}
 fn args(values: &[&str]) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
 }
@@ -110,12 +114,13 @@ fn scoped_help_needs_no_target_or_required_options() {
         let Invocation::Help(text) = parse(args(&values)).unwrap() else {
             panic!("Help must never execute a request: {values:?}");
         };
-        assert!(text.contains("AUTOMATION CONTRACT"));
+        assert!(text.contains("devcenter automation --help"));
+        assert!(!text.contains("AUTOMATION CONTRACT"));
     }
     let Invocation::Help(text) = parse(args(&["session", "create", "--help"])).unwrap() else {
         panic!("Expected help");
     };
-    assert!(text.contains("session create --project ID --name NAME"));
+    assert!(text.contains("session create [--project ID] --name NAME"));
     assert!(text.contains("poll session list"));
     assert!(!text.contains("session rename ID"));
     for values in [
@@ -130,4 +135,230 @@ fn scoped_help_needs_no_target_or_required_options() {
         parse(args(&["session", "rename", "1", "--name", "-h"])).unwrap(),
         Invocation::Request(Command::SessionRename { name, .. }) if name == "-h"
     ));
+}
+
+#[test]
+fn tab_commands_target_definitions_and_require_explicit_delete_confirmation() {
+    assert!(matches!(
+        parse(args(&["tab", "delete", "7"])).unwrap(),
+        Invocation::Request(Command::TabDelete {
+            id: 7,
+            confirmed: false
+        })
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "delete", "7", "--confirm"])).unwrap(),
+        Invocation::Request(Command::TabDelete {
+            id: 7,
+            confirmed: true
+        })
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "list", "--session", "3"])).unwrap(),
+        Invocation::Request(Command::TabList { session_id: 3 })
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "create", "--session", "3", "--action", "bash"])).unwrap(),
+        Invocation::Request(Command::TabCreate { session_id: 3, action_id, .. }) if action_id == "bash"
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "configure", "7", "--config", r#"{"executable":"/bin/bash"}"#])).unwrap(),
+        Invocation::Request(Command::TabConfigure { id: 7, config }) if config["executable"] == "/bin/bash"
+    ));
+    for values in [
+        vec!["tab", "delete", "0"],
+        vec!["tab", "delete", "7", "--confirm", "--confirm"],
+        vec!["tab", "configure", "7", "--config", "invalid"],
+        vec!["tab", "create", "--session", "3"],
+    ] {
+        assert!(parse(args(&values)).is_err(), "{values:?}");
+    }
+}
+
+#[test]
+fn tab_discovery_and_creation_overrides_are_available_to_agents() {
+    assert!(matches!(
+        parse(args(&["tab", "types"])).unwrap(),
+        Invocation::Request(Command::TabTypes)
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "actions", "--session", "3"])).unwrap(),
+        Invocation::Request(Command::TabActions { session_id: 3 })
+    ));
+    assert!(matches!(
+        parse(args(&["tab", "create", "--session", "3", "--action", "bash",
+            "--name", "Agent task", "--config", r#"{"executable":"/usr/bin/python3","args":["-V"]}"#])).unwrap(),
+        Invocation::Request(Command::TabCreate { session_id: 3, action_id, name: Some(name), config: Some(config) })
+            if action_id == "bash" && name == "Agent task" && config["args"][0] == "-V"
+    ));
+    for values in [
+        vec!["tab", "actions"],
+        vec!["tab", "types", "--session", "3"],
+        vec![
+            "tab",
+            "create",
+            "--session",
+            "3",
+            "--action",
+            "bash",
+            "--config",
+            "invalid",
+        ],
+    ] {
+        assert!(parse(args(&values)).is_err(), "{values:?}");
+    }
+    let Invocation::Help(help) = parse(args(&["tab", "--help"])).unwrap() else {
+        panic!("Expected tab help");
+    };
+    assert!(help.contains("tab types"));
+    assert!(help.contains("tab actions [--session ID]"));
+    assert!(help.contains("[--name NAME] [--config JSON]"));
+}
+
+#[test]
+fn terminal_context_supplies_defaults_with_explicit_options_taking_precedence() {
+    for verb in ["list", "actions", "create"] {
+        let mut values = vec!["tab", verb];
+        if verb == "create" {
+            values.extend(["--action", "bash"]);
+        }
+        let invocation = super::parse_with_context(args(&values), Some("12"), Some("9")).unwrap();
+        match invocation {
+            Invocation::Request(
+                Command::TabList { session_id }
+                | Command::TabActions { session_id }
+                | Command::TabCreate { session_id, .. },
+            ) => assert_eq!(session_id, 12),
+            _ => panic!("Expected session-targeted command"),
+        }
+        values.extend(["--session", "5"]);
+        let invocation = super::parse_with_context(args(&values), Some("invalid"), None).unwrap();
+        match invocation {
+            Invocation::Request(
+                Command::TabList { session_id }
+                | Command::TabActions { session_id }
+                | Command::TabCreate { session_id, .. },
+            ) => assert_eq!(session_id, 5),
+            _ => panic!("Expected explicit session"),
+        }
+    }
+    assert!(matches!(
+        super::parse_with_context(
+            args(&["session", "create", "--name", "New"]),
+            Some("12"),
+            Some("9")
+        )
+        .unwrap(),
+        Invocation::Request(Command::SessionCreate { project_id: 9, .. })
+    ));
+    assert!(matches!(
+        super::parse_with_context(
+            args(&["session", "create", "--name", "New", "--project", "2"]),
+            None,
+            Some("invalid")
+        )
+        .unwrap(),
+        Invocation::Request(Command::SessionCreate { project_id: 2, .. })
+    ));
+    for value in [None, Some(""), Some("0"), Some("bad")] {
+        assert!(super::parse_with_context(args(&["tab", "list"]), value, None).is_err());
+    }
+    // Context does not silently retarget destructive commands.
+    assert!(super::parse_with_context(args(&["session", "close"]), Some("12"), Some("9")).is_err());
+    assert!(super::parse_with_context(args(&["tab", "delete"]), Some("12"), Some("9")).is_err());
+}
+
+#[test]
+fn help_is_progressive_and_keeps_automation_details_in_their_own_topic() {
+    let help = |values: &[&str]| {
+        let Invocation::Help(text) = parse(args(values)).unwrap() else {
+            panic!("Help must not execute commands");
+        };
+        text
+    };
+    let root = help(&["--help"]);
+    assert!(root.contains("RESOURCES"));
+    assert!(!root.contains("--confirm"));
+    assert!(!root.contains("EXIT CODES"));
+    assert!(!root.contains("configSchema"));
+    assert!(root.lines().count() <= 20);
+
+    let tabs = help(&["tab", "--help"]);
+    assert!(tabs.contains("tab delete ID [--confirm]"));
+    assert!(!tabs.contains("session create"));
+    assert!(!tabs.contains("retaining its definition"));
+    assert!(!tabs.contains("EXIT CODES"));
+
+    let create = help(&["tab", "create", "--help"]);
+    assert!(create.contains("DEVCENTER_SESSION_ID"));
+    assert!(create.contains("tab types"));
+    assert!(create.contains("before launch"));
+    assert!(!create.contains("project close"));
+    assert!(!create.contains("EXIT CODES"));
+    assert!(create.lines().count() <= 20);
+
+    let delete = help(&["tab", "delete", "--help"]);
+    assert!(delete.contains("Permanently remove"));
+    assert!(delete.contains("require --confirm"));
+
+    let automation = help(&["automation", "--help"]);
+    assert!(automation.contains("AUTOMATION CONTRACT"));
+    assert!(automation.contains("EXIT CODES"));
+    assert!(automation.contains("confirmation required"));
+    assert!(parse(args(&["automation", "unknown", "--help"])).is_err());
+}
+
+#[test]
+fn human_output_preserves_ids_status_configuration_and_escapes_terminal_controls() {
+    let response = Response::success(Some(serde_json::json!({
+        "selectedTabId": 42,
+        "tabs": [
+            {"id": 42, "name": "Agent shell", "kind": "terminal",
+             "status": {"state": "exited", "code": 23},
+             "config": {"env": {"PATH": "/bin", "MixedCase_Key": "value"}},
+             "isOpen": true},
+            {"id": 81, "name": "bad\u{1b}[2J\nname", "status": {"state": "closed"}}
+        ]
+    })));
+    let text = output::success(&response, false);
+    assert!(text.contains("ID: 42"));
+    assert!(text.contains("Selected tab: 42"));
+    assert!(text.contains("Name: Agent shell"));
+    assert!(text.contains("state: exited"));
+    assert!(text.contains("code: 23"));
+    assert!(text.contains("state: closed"));
+    assert!(text.contains("Open: yes"));
+    assert!(text.contains("PATH: /bin"));
+    assert!(text.contains("MixedCase_Key: value"));
+    assert!(!text.contains('\u{1b}'));
+    assert!(text.contains(r"bad\u{1b}[2J\nname"));
+    assert!(serde_json::from_str::<serde_json::Value>(&text).is_err());
+    let json: serde_json::Value = serde_json::from_str(&output::success(&response, true)).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["tabs"][0]["status"]["code"], 23);
+    assert_eq!(json["data"]["tabs"][1]["name"], "bad\u{1b}[2J\nname");
+    assert_eq!(output::success(&Response::success(None), false), "Done.");
+    assert!(output::success(
+        &Response::success(Some(serde_json::json!({"tabs": []}))),
+        false
+    )
+    .contains("(empty)"));
+}
+
+#[test]
+fn output_mode_applies_to_errors_without_changing_exit_codes() {
+    let error = || {
+        RpcError::new(
+            "confirmation_required",
+            "Running terminal requires --confirm",
+        )
+    };
+    assert_eq!(error().exit_code(), 5);
+    assert_eq!(
+        output::error(error(), false),
+        "Error (confirmation_required): Running terminal requires --confirm"
+    );
+    let json: serde_json::Value = serde_json::from_str(&output::error(error(), true)).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["code"], "confirmation_required");
 }

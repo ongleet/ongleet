@@ -71,12 +71,20 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
+    TabTypes,
+    TabActions {
+        session_id: u64,
+    },
     TabList {
         session_id: u64,
     },
     TabCreate {
         session_id: u64,
         action_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        config: Option<Value>,
     },
     TabSelect {
         id: u64,
@@ -93,6 +101,11 @@ pub enum Command {
         id: u64,
     },
     TabClose {
+        id: u64,
+        #[serde(default)]
+        confirmed: bool,
+    },
+    TabDelete {
         id: u64,
         #[serde(default)]
         confirmed: bool,

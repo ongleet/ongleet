@@ -61,6 +61,10 @@ impl SessionRegistry {
         config_version: u32,
         config: serde_json::Value,
     ) -> Result<Snapshot, String> {
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            return Err("Tab name is required".into());
+        }
         crate::plugins::validate(&kind, config_version, &config)?;
         let directory = &self
             .sessions
@@ -182,7 +186,22 @@ impl SessionRegistry {
         self.persist()
     }
 
+    pub fn delete_tab(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+        self.close_tab_state(id, confirmed)?;
+        let session = self.tab_session_mut(id)?;
+        session.tabs.retain(|tab| tab.id != id);
+        for (order, tab) in session.tabs.iter_mut().enumerate() {
+            tab.display_order = order;
+        }
+        self.persist()
+    }
+
     pub fn close_tab(&mut self, id: u64, confirmed: bool) -> Result<Snapshot, String> {
+        self.close_tab_state(id, confirmed)?;
+        self.persist()
+    }
+
+    fn close_tab_state(&mut self, id: u64, confirmed: bool) -> Result<(), String> {
         self.tab_session_mut(id)?;
         self.cancel_plugin_work(id)?;
         if let Some(session) = self.terminals.get(&id) {
@@ -199,7 +218,7 @@ impl SessionRegistry {
                 .or_else(|| session.tabs[..index].iter().rev().find(|t| t.is_open))
                 .map(|t| t.id);
         }
-        self.persist()
+        Ok(())
     }
 }
 
