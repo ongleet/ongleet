@@ -124,6 +124,29 @@ impl SessionRegistry {
         self.persist()
     }
 
+    pub fn remember_files_folder(&mut self, id: u64, folder: String) -> Result<Snapshot, String> {
+        let mut config = self.plugin_tab(id, "files")?.config.clone();
+        if config["folder"].as_str() == Some(folder.as_str()) {
+            return Ok(self.snapshot());
+        }
+        config["folder"] = serde_json::Value::String(folder);
+        self.configure_plugin_tab(id, config)
+    }
+
+    pub fn remember_files_editor(
+        &mut self,
+        id: u64,
+        file: Option<String>,
+    ) -> Result<Snapshot, String> {
+        let mut config = self.plugin_tab(id, "files")?.config.clone();
+        let value = serde_json::to_value(file).map_err(|e| e.to_string())?;
+        if config["editorFile"] == value {
+            return Ok(self.snapshot());
+        }
+        config["editorFile"] = value;
+        self.configure_plugin_tab(id, config)
+    }
+
     pub fn configure_tab(&mut self, id: u64, config: TabConfig) -> Result<Snapshot, String> {
         self.configure_plugin_tab(id, serde_json::to_value(config).map_err(|e| e.to_string())?)
     }

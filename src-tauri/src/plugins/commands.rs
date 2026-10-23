@@ -103,9 +103,8 @@ pub async fn list_plugin_files(
             query.as_deref().unwrap_or_default(),
         )?;
         let mut guard = registry.lock().map_err(|e| e.to_string())?;
-        let current = guard.plugin_tab(id, "files")?;
-        if offset == 0 && current.config["folder"].as_str() != Some(&listing.folder) {
-            guard.configure_plugin_tab(id, serde_json::json!({"folder": listing.folder}))?;
+        if offset == 0 {
+            guard.remember_files_folder(id, listing.folder.clone())?;
         }
         Ok(listing)
     })
@@ -162,6 +161,24 @@ pub async fn save_plugin_text(
         .plugin_tab(id, "files")?;
     tauri::async_runtime::spawn_blocking(move || {
         plugins::files::editor::save(&path, &text, &revision)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn remember_plugin_editor(
+    state: State<'_, AppRegistry>,
+    id: u64,
+    file: Option<String>,
+) -> Result<(), String> {
+    let registry = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        registry
+            .lock()
+            .map_err(|e| e.to_string())?
+            .remember_files_editor(id, file)?;
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?

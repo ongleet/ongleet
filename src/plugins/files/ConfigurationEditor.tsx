@@ -1,8 +1,10 @@
 import type { ConfigurationEditorProps } from '..';
 export function FilesConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
+  let config: { folder?: string; editorFile?: string } = {};
   let folder = '';
   try {
-    folder = JSON.parse(value).folder ?? '';
+    config = JSON.parse(value);
+    folder = config.folder ?? '';
   } catch {
     /* The YAML view reports malformed configuration. */
   }
@@ -13,7 +15,7 @@ export function FilesConfigurationEditor({ value, onChange }: ConfigurationEdito
         placeholder="Session directory"
         value={folder}
         onChange={(event) =>
-          onChange(JSON.stringify(event.target.value ? { folder: event.target.value } : {}))
+          onChange(JSON.stringify({ ...config, folder: event.target.value || undefined }))
         }
       />
     </label>

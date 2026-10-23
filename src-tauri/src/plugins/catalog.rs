@@ -29,10 +29,13 @@ pub fn catalog() -> Value {
             },
             {
                 "kind": "files", "configVersion": 1,
-                "description": "Read-only file browser.",
+                "description": "File browser with a plain-text editor.",
                 "configSchema": {
                     "type": "object", "additionalProperties": false,
-                    "properties": {"folder": {"type": ["string", "null"], "description": "Absolute path, at most 8192 bytes, no NUL. Defaults to session directory on creation."}}
+                    "properties": {
+                        "folder": {"type": ["string", "null"], "description": "Absolute path, at most 8192 bytes, no NUL. Defaults to session directory on creation; successful navigation remembers the current folder."},
+                        "editorFile": {"type": ["string", "null"], "description": "Absolute UTF-8 text file to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores saved file contents, not unsaved edits."}
+                    }
                 },
                 "examples": [{}, {"folder": "/tmp"}],
                 "notes": ["Browsing requires an accessible directory. Configuration does not create directories."]

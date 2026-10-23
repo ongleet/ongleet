@@ -18,6 +18,7 @@ import {
   redo,
 } from '@codemirror/commands';
 import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
+import { useEditorWrap } from './editor-settings';
 import { fileEditors } from './editor-guards';
 
 export type TextDocument = {
@@ -36,7 +37,7 @@ export function TextEditor({
   id: number;
   document: TextDocument;
   visible: boolean;
-  back: () => void;
+  back: () => Promise<void>;
 }) {
   const wrapCompartment = useRef(new Compartment());
   const host = useRef<HTMLDivElement>(null);
@@ -47,7 +48,10 @@ export function TextEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [position, setPosition] = useState({ line: 1, column: 1 });
-  const [wrap, setWrap] = useState(false);
+  const [wrap, setWrap] = useEditorWrap();
+  const menu = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const menuId = `editor-actions-${id}`;
   const [confirmation, setConfirmation] = useState<'back' | 'reload'>();
   const dialog = useRef<HTMLDialogElement>(null);
   const saveRef = useRef<() => void>(() => {});
@@ -93,7 +97,7 @@ export function TextEditor({
       state: EditorState.create({
         doc: document.text,
         extensions: [
-          wrapCompartment.current.of([]),
+          wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
           lineNumbers(),
           highlightActiveLine(),
           drawSelection(),
@@ -203,6 +207,14 @@ export function TextEditor({
     };
   }, [id, document.path]);
   useEffect(() => {
+    view.current?.dispatch({
+      effects: wrapCompartment.current.reconfigure(wrap ? EditorView.lineWrapping : []),
+    });
+  }, [wrap]);
+  useEffect(() => {
+    if (!visible) menu.current?.hidePopover();
+  }, [visible]);
+  useEffect(() => {
     if (visible) view.current?.requestMeasure();
   }, [visible]);
   useEffect(() => {
@@ -234,67 +246,141 @@ export function TextEditor({
       saving.current = false;
     }
   }
+  async function leave() {
+    if (saving.current) return;
+    saving.current = true;
+    publish(dirty, true);
+    try {
+      await back();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      saving.current = false;
+      publish(dirty, false);
+    }
+  }
   return (
     <div className="text-editor">
       <div className="plugin-toolbar editor-toolbar">
-        <button disabled={busy} onClick={() => (dirty ? setConfirmation('back') : back())}>
-          ← Files
-        </button>
         <span className="editor-path" title={document.path}>
           {document.path}
           {dirty ? ' •' : ''}
         </span>
-        <button disabled={busy || !dirty} onClick={() => void save()}>
-          {busy ? 'Working…' : 'Save'}
+        <button ref={menuTrigger} popoverTarget={menuId} aria-haspopup="menu">
+          Actions ▾
         </button>
-        <button disabled={busy} onClick={() => (dirty ? setConfirmation('reload') : void reload())}>
-          Reload
-        </button>
-        <button
-          title="Undo (Ctrl+Z)"
-          onClick={() => {
-            if (view.current) {
-              undo(view.current);
-              view.current.focus();
+        <div
+          id={menuId}
+          ref={menu}
+          popover="auto"
+          role="menu"
+          aria-label="Editor actions"
+          className="editor-menu"
+          onToggle={(event) => {
+            if (!event.currentTarget.matches(':popover-open')) return;
+            const trigger = menuTrigger.current?.getBoundingClientRect();
+            if (trigger) {
+              event.currentTarget.style.right = `${Math.max(8, window.innerWidth - trigger.right)}px`;
+              event.currentTarget.style.top = `${Math.max(8, Math.min(trigger.bottom + 4, window.innerHeight - event.currentTarget.offsetHeight - 8))}px`;
             }
+            event.currentTarget.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+          }}
+          onKeyDown={(event) => {
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const items = [
+              ...event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+            ];
+            const index = items.indexOf(globalThis.document.activeElement as HTMLButtonElement);
+            const next =
+              event.key === 'Home'
+                ? 0
+                : event.key === 'End'
+                  ? items.length - 1
+                  : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]?.focus();
           }}
         >
-          Undo
-        </button>
-        <button
-          title="Redo (Ctrl+Shift+Z)"
-          onClick={() => {
-            if (view.current) {
-              redo(view.current);
-              view.current.focus();
-            }
-          }}
-        >
-          Redo
-        </button>
-        <button
-          onClick={() => {
-            if (view.current) openSearchPanel(view.current);
-          }}
-        >
-          Find / replace
-        </button>
-        <label className="editor-wrap">
-          <input
-            type="checkbox"
-            checked={wrap}
-            onChange={(event) => {
-              setWrap(event.target.checked);
-              // Reconfigure only the wrapping extension, preserving history and selection.
-              view.current?.dispatch({
-                effects: wrapCompartment.current.reconfigure(
-                  event.target.checked ? EditorView.lineWrapping : [],
-                ),
-              });
+          <button
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              menu.current?.hidePopover();
+              if (dirty) setConfirmation('back');
+              else void leave();
             }}
-          />
-          Wrap
-        </label>
+          >
+            ← Files
+          </button>
+          <button
+            role="menuitem"
+            disabled={busy || !dirty}
+            onClick={() => {
+              menu.current?.hidePopover();
+              void save();
+            }}
+          >
+            Save <kbd>Ctrl+S</kbd>
+          </button>
+          <button
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              menu.current?.hidePopover();
+              if (dirty) setConfirmation('reload');
+              else void reload();
+            }}
+          >
+            Reload
+          </button>
+          <div role="separator" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              menu.current?.hidePopover();
+              if (view.current) {
+                undo(view.current);
+                view.current.focus();
+              }
+            }}
+          >
+            Undo <kbd>Ctrl+Z</kbd>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              menu.current?.hidePopover();
+              if (view.current) {
+                redo(view.current);
+                view.current.focus();
+              }
+            }}
+          >
+            Redo <kbd>Ctrl+Shift+Z</kbd>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => {
+              menu.current?.hidePopover();
+              if (view.current) openSearchPanel(view.current);
+            }}
+          >
+            Find / replace <kbd>Ctrl+F</kbd>
+          </button>
+          <div role="separator" />
+          <div className="editor-menu-heading">Settings</div>
+          <button
+            role="menuitemcheckbox"
+            aria-checked={wrap}
+            onClick={() => {
+              setWrap(!wrap);
+              menu.current?.hidePopover();
+              view.current?.focus();
+            }}
+          >
+            Wrap long lines <span>{wrap ? 'On' : 'Off'}</span>
+          </button>
+        </div>
       </div>
       {error && (
         <p className="error" role="alert">
@@ -322,7 +408,7 @@ export function TextEditor({
               onClick={() => {
                 const action = confirmation;
                 setConfirmation(undefined);
-                if (action === 'back') back();
+                if (action === 'back') void leave();
                 else void reload();
               }}
             >

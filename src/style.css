@@ -747,17 +747,46 @@ dialog[aria-label='Project editor'] > [role='status'] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.editor-wrap {
-  display: flex;
-  flex: 0 0 auto;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
+.editor-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  width: 260px;
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  background: #191f29;
+  color: #dce3ec;
+  border: 1px solid #45546a;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px #0008;
 }
-.editor-wrap input {
-  flex: 0 0 auto;
-  min-width: 0;
-  width: auto;
+.editor-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.editor-menu kbd,
+.editor-menu button > span {
+  color: #9cabbf;
+  font: inherit;
+  font-size: 11px;
+}
+.editor-menu [role='separator'] {
+  height: 1px;
+  margin: 4px;
+  background: #303a48;
+}
+.editor-menu-heading {
+  padding: 5px 10px;
+  color: #9cabbf;
+  font-size: 11px;
 }
 .editor-surface .cm-panel input {
   width: auto;

@@ -7,15 +7,19 @@ use std::path::Path;
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct Config {
     pub folder: Option<String>,
+    pub editor_file: Option<String>,
 }
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
-        if self
-            .folder
-            .as_ref()
-            .is_some_and(|p| p.len() > 8192 || p.contains('\0') || !Path::new(p).is_absolute())
-        {
-            return Err("File browser folder must be an absolute path (up to 8192 bytes)".into());
+        for (name, path) in [("folder", &self.folder), ("editor file", &self.editor_file)] {
+            if path
+                .as_ref()
+                .is_some_and(|p| p.len() > 8192 || p.contains('\0') || !Path::new(p).is_absolute())
+            {
+                return Err(format!(
+                    "File browser {name} must be an absolute path (up to 8192 bytes)"
+                ));
+            }
         }
         Ok(())
     }
@@ -72,6 +76,7 @@ pub fn list(
     }
     Config {
         folder: Some(folder.into()),
+        ..Default::default()
     }
     .validate()?;
     if offset > 1_000_000 {

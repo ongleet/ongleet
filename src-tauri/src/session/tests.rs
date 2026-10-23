@@ -996,3 +996,52 @@ fn deleted_tab_stays_removed_after_reload_without_affecting_siblings_or_director
     assert!(registry.open_tab(removed).is_err());
     assert_eq!(fs::read_to_string(marker).unwrap(), "untouched");
 }
+
+#[test]
+fn files_location_and_editor_restore_together_and_back_clears_only_the_editor() {
+    let data = Directory::new();
+    let workspace = Directory::new();
+    let file = workspace.0.join("saved.txt");
+    std::fs::write(&file, "unchanged saved text").unwrap();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry
+        .create("Files restore".into(), workspace.path())
+        .unwrap();
+    let session = registry.sessions[0].id;
+    registry
+        .create_plugin_tab(
+            session,
+            "Files".into(),
+            "files".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let tab = registry.next_tab_id;
+    registry
+        .remember_files_editor(tab, Some(file.to_str().unwrap().into()))
+        .unwrap();
+    // A listing update must not erase the remembered editor.
+    registry
+        .remember_files_folder(tab, workspace.path())
+        .unwrap();
+    assert!(registry
+        .remember_files_editor(tab, Some("relative.txt".into()))
+        .is_err());
+    drop(registry);
+    let mut restored = SessionRegistry::open(&data.0).unwrap();
+    let config = restored.plugin_tab(tab, "files").unwrap().config.clone();
+    assert_eq!(config["folder"], workspace.path());
+    assert_eq!(config["editorFile"], file.to_str().unwrap());
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "unchanged saved text"
+    );
+    restored.remember_files_editor(tab, None).unwrap();
+    drop(restored);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    let config = &restored.plugin_tab(tab, "files").unwrap().config;
+    assert_eq!(config["folder"], workspace.path());
+    assert!(config["editorFile"].is_null());
+    assert!(restored.terminals.is_empty());
+}

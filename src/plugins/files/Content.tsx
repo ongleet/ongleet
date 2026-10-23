@@ -9,11 +9,14 @@ type Listing = {
   nextOffset: number | null;
 };
 export function FilesContent({ tab, visible }: PluginContentProps) {
-  const configuredFolder = (tab.config as { folder?: string } | null)?.folder;
+  const config = tab.config as { folder?: string; editorFile?: string | null } | null;
+  const configuredFolder = config?.folder;
+  const [restoringEditor, setRestoringEditor] = useState(!!config?.editorFile);
+  const [restoreError, setRestoreError] = useState('');
   const [editing, setEditing] = useState<TextDocument>();
   const opening = useRef(false);
   const [listing, setListing] = useState<Listing>();
-  const [path, setPath] = useState('');
+  const [path, setPath] = useState(configuredFolder ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
@@ -80,7 +83,34 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     };
   }, [tab.id, configuredFolder, search]);
   useEffect(() => {
-    if (!visible || editing) return;
+    const file = config?.editorFile;
+    if (!file) return;
+    let cancelled = false;
+    setRestoringEditor(true);
+    void invoke<TextDocument | null>('read_plugin_text', { id: tab.id, path: file })
+      .then((document) => {
+        if (cancelled) return;
+        if (!document) throw new Error('Saved file is no longer supported UTF-8 text.');
+        setEditing(document);
+      })
+      .catch((error) => {
+        if (!cancelled) setRestoreError(`Could not reopen ${file}: ${String(error)}`);
+      })
+      .finally(() => {
+        if (!cancelled) setRestoringEditor(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Restore once per opening; metadata refreshes must not replace a live editor.
+  }, [tab.id]);
+  async function leaveEditor() {
+    await invoke('remember_plugin_editor', { id: tab.id, file: null });
+    setRestoreError('');
+    setEditing(undefined);
+  }
+  useEffect(() => {
+    if (!visible || editing || restoringEditor) return;
     const toggleHidden = (event: KeyboardEvent) => {
       if (
         event.ctrlKey &&
@@ -97,9 +127,17 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     };
     window.addEventListener('keydown', toggleHidden);
     return () => window.removeEventListener('keydown', toggleHidden);
-  }, [visible, showHidden, listing?.folder, order, tab.id, search, editing]);
+  }, [visible, showHidden, listing?.folder, order, tab.id, search, editing, restoringEditor]);
   useEffect(() => {
-    if (!visible || editing || busy || error || listing?.nextOffset == null || !loadMore.current)
+    if (
+      !visible ||
+      editing ||
+      restoringEditor ||
+      busy ||
+      error ||
+      listing?.nextOffset == null ||
+      !loadMore.current
+    )
       return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -111,7 +149,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     );
     observer.observe(loadMore.current);
     return () => observer.disconnect();
-  }, [visible, busy, error, listing, order, showHidden, search, editing]);
+  }, [visible, busy, error, listing, order, showHidden, search, editing, restoringEditor]);
   async function openFile(path: string) {
     if (opening.current) return;
     opening.current = true;
@@ -121,8 +159,12 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     try {
       const document = await invoke<TextDocument | null>('read_plugin_text', { id: tab.id, path });
       if (request !== generation.current) return;
-      if (document) setEditing(document);
-      else await invoke('open_plugin_file', { id: tab.id, path });
+      if (document) {
+        await invoke('remember_plugin_editor', { id: tab.id, file: document.path });
+        if (request !== generation.current) return;
+        setRestoreError('');
+        setEditing(document);
+      } else await invoke('open_plugin_file', { id: tab.id, path });
     } catch (error) {
       if (request === generation.current) setError(String(error));
     } finally {
@@ -139,18 +181,24 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
       className="plugin-panel files-panel"
     >
       {editing && (
-        <TextEditor
-          id={tab.id}
-          document={editing}
-          visible={visible}
-          back={() => setEditing(undefined)}
-        />
+        <TextEditor id={tab.id} document={editing} visible={visible} back={leaveEditor} />
       )}
       <div className="files-browser" hidden={!!editing}>
+        {restoringEditor && <p role="status">Reopening text file…</p>}
+        {restoreError && (
+          <div className="error" role="alert">
+            <p>{restoreError}</p>
+            <button
+              onClick={() => void leaveEditor().catch((error) => setRestoreError(String(error)))}
+            >
+              Keep browsing
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            if (!busy) void browse(path);
+            if (!busy && !restoringEditor) void browse(path);
           }}
           className="plugin-toolbar"
         >
@@ -162,7 +210,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
-                  if (!busy) void browse(path);
+                  if (!busy && !restoringEditor) void browse(path);
                 }
               }}
             />
@@ -171,7 +219,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
               type="button"
               aria-label="Refresh folder"
               title="Refresh folder"
-              disabled={busy}
+              disabled={busy || restoringEditor}
               onClick={() => void browse(listing?.folder)}
             >
               <svg
@@ -196,6 +244,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
             type="search"
             aria-label="Search filenames in current folder"
             placeholder="Search files…"
+            disabled={restoringEditor || opening.current}
             maxLength={1024}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -206,7 +255,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
           <select
             aria-label="Sort order (folders first)"
             value={order}
-            disabled={busy}
+            disabled={busy || restoringEditor}
             onChange={(event) => {
               setOrder(event.target.value);
               void browse(listing?.folder, 0, event.target.value);
@@ -238,7 +287,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
                   type="button"
                   className="file-row"
                   aria-label="Parent folder"
-                  disabled={busy}
+                  disabled={busy || restoringEditor}
                   onClick={() => void browse(listing.parent!)}
                 >
                   <span className="file-icon" aria-hidden="true">
@@ -253,7 +302,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
                 <button
                   type="button"
                   className="file-row"
-                  disabled={busy}
+                  disabled={busy || restoringEditor}
                   onClick={() => {
                     if (entry.directory) void browse(entry.path);
                     else void openFile(entry.path);

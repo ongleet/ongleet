@@ -45,7 +45,23 @@ def run(args):
         # CodeMirror DOM; ordinary Unicode typing still uses native key actions.
         client.js("document.querySelector('.cm-content').dispatchEvent(new KeyboardEvent('keydown', {key:arguments[0],code:'Key'+arguments[0].toUpperCase(),ctrlKey:true,bubbles:true,cancelable:true}))", key)
     def button(label):
-        client.click(f"//div[contains(@class,'text-editor')]//button[normalize-space()='{label}']", 'xpath')
+        if not client.js("return !!document.querySelector('.editor-menu:popover-open')"):
+            client.click('.editor-toolbar button[popovertarget]')
+        client.click(f"//div[@role='menu' and @popover]//button[starts-with(normalize-space(),'{label}')]", 'xpath')
+    def restart():
+        client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
+        native.wait_for(lambda: not any(process['name'].startswith('devcenter') for process in native.owned_processes(directory)), 'application stopped', timeout=10)
+        try:
+            client.request('DELETE', '')
+        except Exception:
+            pass
+        client.session = None
+        result = client.request('POST', '/session', {'capabilities': {'alwaysMatch': {
+            'webkitgtk:browserOptions': {'binary': str(Path(args.application).resolve())}
+        }}}, session=False)
+        client.session = result['sessionId']
+        native.wait_for(lambda: client.js("return !!document.querySelector('.files-browser')"), 'restored Files tab')
+
     with (directory / 'driver.log').open('w') as log:
         driver = subprocess.Popen([args.driver, '--host=127.0.0.1', f'--port={port}'], env=env,
                                   stdout=log, stderr=log, start_new_session=True)
@@ -85,7 +101,7 @@ def run(args):
             client.fill('.cm-search input[name=replace]', 'next')
             client.click('.cm-search button[name=replaceAll]')
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content').innerText.includes('next line')"), 'replace all')
-            client.click('.editor-wrap input')
+            button('Wrap long lines')
             assert client.js("return !!document.querySelector('.cm-lineWrapping')")
             client.click('.cm-content')
             ctrl('s')
@@ -124,6 +140,50 @@ def run(args):
             button('← Files')
             native.wait_for(lambda: client.js("return !document.querySelector('.files-browser').hidden"), 'browser restored')
             mark('reload and return to existing folder')
+            # The setting must survive a WebView reload and apply to a new editor.
+            client.request('POST', '/refresh', {})
+            client.click(f"//section[@id='tab-panel-{tab}']//button[.//span[text()='hello.txt']]", 'xpath')
+            native.wait_for(lambda: client.js("return !!document.querySelector('.cm-lineWrapping')"), 'persisted wrap setting')
+            client.click('.editor-toolbar button[popovertarget]')
+            native.wait_for(lambda: client.js("return !!document.querySelector('.editor-menu:popover-open')"), 'actions menu')
+            assert client.js("return document.querySelector('[role=menuitemcheckbox]').getAttribute('aria-checked') === 'true'")
+            client.keys('\ue015')
+            assert client.js("return document.activeElement.textContent.trim() === 'Reload'")
+            client.keys('\ue00c')
+            native.wait_for(lambda: client.js("return !document.querySelector('.editor-menu:popover-open')"), 'Escape menu dismissal')
+            client.click('.editor-toolbar button[popovertarget]')
+            client.click('.editor-path')
+            native.wait_for(lambda: client.js("return !document.querySelector('.editor-menu:popover-open')"), 'outside-click menu dismissal')
+            mark('actions menu keyboard/dismissal and wrapping preference survive WebView reload')
+            button('← Files')
+            nested = folder / 'nested'
+            nested.mkdir()
+            second = nested / 'resume.txt'
+            second.write_text('Restored saved contents\n')
+            client.click('.files-refresh')
+            client.click("//button[.//span[text()='nested']]", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('input[aria-label=Folder]').value === arguments[0]", str(nested)), 'nested folder')
+            client.click("//button[.//span[text()='resume.txt']]", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Restored saved contents')"), 'second editor')
+            restart()
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Restored saved contents')"), 'file restored after stop/start')
+            assert client.js("return document.querySelector('input[aria-label=Folder]').value === arguments[0]", str(nested))
+            mark('stop/start restores nested folder and open text file')
+            button('← Files')
+            native.wait_for(lambda: client.js("return !document.querySelector('.cm-content')"), 'editor closed')
+            restart()
+            native.wait_for(lambda: client.js("return document.querySelector('input[aria-label=Folder]').value === arguments[0]", str(nested)), 'browser folder restored')
+            assert not client.js("return !!document.querySelector('.cm-content')")
+            mark('returning to Files persists browser mode across restart')
+            client.click("//button[.//span[text()='resume.txt']]", 'xpath')
+            native.wait_for(lambda: client.js("return !!document.querySelector('.cm-content')"), 'editor reopened')
+            second.unlink()
+            restart()
+            native.wait_for(lambda: client.js("return document.querySelector('.files-browser [role=alert]')?.textContent.includes('Could not reopen')"), 'missing saved file error')
+            assert not second.exists()
+            client.click("//button[normalize-space()='Keep browsing']", 'xpath')
+            native.wait_for(lambda: client.js("return !document.querySelector('.files-browser [role=alert]')"), 'missing-file recovery')
+            mark('missing restored file reports an error without recreation and allows browsing')
             (directory / 'success.png').write_bytes(base64.b64decode(client.request('GET', '/screenshot')))
         except Exception as error:
             report['error'] = str(error)
