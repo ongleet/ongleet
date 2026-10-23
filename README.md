@@ -31,7 +31,7 @@ Terminal launch currently also requires Linux cgroup v2, a writable systemd user
 
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
-Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the session directory. Each opening keeps its own launch configuration and runtime state. Launch settings are edited under Edit project → Actions, or in its YAML tab. To replace an exited or legacy stopped tab, close it and open a new tab.
+Click **+ New tab** and choose **Bash** or **Codex** to launch a new terminal in the session directory. **Files** and **Pull request** are also included in the default **New tab** choices. Each opening keeps its own launch configuration and runtime state. Launch settings are edited under Edit project → Actions, or in its YAML tab. To replace an exited or legacy stopped tab, close it and open a new tab.
 
 ## Projects and actions (YAML)
 
@@ -39,7 +39,7 @@ A project has a name and an existing root directory. Use the sidebar's top **+**
 
 Click the group's chevron/name to fold or unfold its session list. Folding is persisted and only hides sidebar entries: it does not close sessions, change the active terminal, or interrupt output. Reorder sessions inside their group with their existing drag grips/keyboard shortcuts. A group can be deleted only after its sessions have been moved or closed. Session/root directories and group configuration files are never deleted by these operations.
 
-Each project has one YAML file at `$XDG_CONFIG_HOME/devcenter/projects/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit project** to see its exact path. The file is initialized on first Edit/New tab access with Bash/Codex defaults. Each file is independent; global configuration files are not used. For the migrated Default group, for example: `vim ~/.config/devcenter/projects/1/actions.yaml`.
+Each project has one YAML file at `$XDG_CONFIG_HOME/devcenter/projects/<id>/actions.yaml`, normally under `~/.config/`. Open **Edit project** to see its exact path. The file is initialized on first Edit/New tab access with Bash, Codex, Files and Pull request defaults. Each file is independent; global configuration files are not used. For the migrated Default group, for example: `vim ~/.config/devcenter/projects/1/actions.yaml`.
 
 The Edit project modal has **General**, **Actions**, and **YAML** tabs. General edits the name/root. Actions provides a form for adding, removing, and reordering actions, with executable/arguments or explicit shell-command mode, optional directory and explicit environment overrides. The **Common environment variables** section provides shared name/value pairs for all actions in the project. Arguments use a JSON array of strings; environment overrides use a JSON object of strings. YAML edits the same list directly. Switching views transfers unsaved action edits between them; **Save actions** validates and atomically replaces that group's file. General settings use **Save project** separately. Existing openings keep their copied launch settings. An invalid YAML file opens in the YAML editor so it can be repaired.
 
@@ -75,7 +75,7 @@ Use the arrow keys, Home, and End while focused on the tab bar to select tabs. D
 
 Tabs use trusted plugins bundled into the application. Adding a plugin requires rebuilding DevCenter; there is no runtime installer or public SDK. The application owns navigation, stable IDs, ordering, selection and openings. Plugins own their configuration, content and resources. Terminal tabs retain the existing PTY, containment, replay, history and Codex behavior. Process status and restart eligibility apply only to terminals.
 
-Add **Files** or **Pull request** through Edit project → Actions, choose its action type and save. The same configuration can be added to the project's YAML `actions` list:
+New project configurations include **Files** and **Pull request** by default. Existing project files keep their custom actions; add these entries through Edit project → Actions when absent, choose the action type and save. The same configuration can be added to the project's YAML `actions` list:
 
 ```yaml
 - id: files

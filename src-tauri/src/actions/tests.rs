@@ -127,7 +127,10 @@ fn unavailable_project_actions_do_not_block_available_actions_or_common_environm
     std::fs::write(&path, &text).unwrap();
     let loaded = load_project(&directory, 1).unwrap();
     assert_eq!(loaded[0].kind, "terminal");
-    assert_eq!(loaded[2].config["opaque"], serde_json::json!([1, 2, 3]));
+    assert_eq!(
+        loaded.last().unwrap().config["opaque"],
+        serde_json::json!([1, 2, 3])
+    );
     assert_eq!(
         parse_project_config(&text).unwrap().env["COMMON"],
         "retained"

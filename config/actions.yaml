@@ -16,3 +16,11 @@ actions:
       executable: dcodex
       args: []
       env: {}
+  - id: files
+    name: Files
+    kind: files
+    config: {}
+  - id: pull-request
+    name: Pull request
+    kind: pull-request
+    config: {}
