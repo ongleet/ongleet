@@ -16,7 +16,7 @@ Observed host: Ubuntu 26.04.1, GTK 3.24.52, WebKitGTK 2.52.6, ghostty-web 0.4.0.
 
 - Builds, WASM parsing, shared-engine reuse, hidden-rendering and input/link adapter checks passed.
 - Native Wayland/XWayland checks passed shell typing, arrows, wide characters/emoji, split UTF-8, native clipboard shortcuts, alternate-screen resizing/replay, hidden output, reload with unchanged PID and query-reply suppression.
-- Wayland mouse forwarding, pointer selection/copy and private-handler OSC 8 activation passed. X11 mouse reporting remains unverified.
+- Wayland mouse forwarding, pointer selection/copy and private-handler OSC 8 activation passed. XWayland mouse reporting also passed in `096ye_uk`; separate Xorg remains unverified.
 - Actual Codex startup, prompt/cursor editing, slash menu, resize/reload and unsent draft preservation passed. No task was submitted.
 - Floods produced 350,000 lines across three hidden streams, at most 2,000 scrollback lines and explicit 4 MiB replay-overflow warnings. Tab interactions took about 22–75 ms. Debug WebProcess RSS samples were 371 MiB before, then 383/370/364 MiB; app RSS was about 197/201 MiB. These finite observations do not prove global memory bounds.
 - Real PTY tests passed detached/double-fork and app-death cleanup, eager resource release, blocked-I/O closure, replay/ACK validation and containment failure reporting.
@@ -31,8 +31,8 @@ Full dated reports, paths, migration evidence and earlier failures: [validation 
 
 ## Remaining acceptance
 
-- Codex multiline paste, approvals, scrolling, Ctrl+C, actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
-- Function keys, combining graphemes, IME, primary selection, multiline bracketed paste, broader selection and X11 mouse reporting.
+- Codex approvals, scrolling, active-task Ctrl+C, actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
+- Function keys beyond F1/F12, combining graphemes, IME, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting.
 - Minimize/restore, separate Xorg, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
 - Snapshot graphemes/selection and unavailable frontend behavior; CLI input/snapshots when implemented. Input queue saturation, cancellation and stale runtime IDs need complete boundary coverage.
 - Physical editor shortcuts, native editor clipboard and Wayland editor/archive interaction. WebDriver Ctrl-letter remapping required DOM shortcut events in editor checks.
@@ -122,3 +122,34 @@ Production frontend/native builds, plugin boundaries and formatting pass. `npm r
 The fixture establishes application integration, not hook delivery by actual Codex. Live `request_user_input`, permission approvals, interrupts and continuation behavior remain unverified. A plain-text final question is only distinguishable as Idle. User-configured hooks may continue a stopped turn or resolve a permission request automatically.
 
 Native X11/WebKitGTK report `/tmp/devcenter-codex-activity-6h9_oa3b/report.json` passed the ordinary Codex tag, independent background/dot colors, automatic text contrast, descending priority, unique-name updates and shared CLI/SDK listing/add/removal. It also passed concurrent hook waits, restart generation rejection, reload and closure checks with zero fixture process survivors. The full Rust suite, production frontend build, plugin boundaries and changed-file formatting passed. This uses fixture hook delivery; live Codex remains pending.
+
+## Terminal input and custom window controls (2026-10-25)
+
+Native Wayland run `terminal-native-validation-hkg5__hu` passed sixteen checks;
+XWayland run `terminal-native-validation-096ye_uk` passed seventeen. Both observed
+Codex 0.164.0 multiline Unicode clipboard paste, Ctrl+C clearing an unsent draft,
+prompt editing, slash menus and draft preservation across resize/reload. No task
+was submitted: approvals, active-task interruption and Codex scrolling remain
+unverified. Both backends passed F1/F12 as ncurses function keys, mouse reporting,
+selection/copy, clipboard types, OSC 8 activation, split UTF-8, PTY resize/replay,
+hidden floods and tab reuse. Custom maximize/restore followed native window state
+on both; XWayland custom close-to-hide/reopen preserved the shell PID. This is
+XWayland evidence, not a separate Xorg desktop test.
+
+XWayland run `terminal-native-validation-m7j2uzo6` observed native minimization,
+but `--show` did not clear the reported minimized state before timeout. Reproduce
+with `scripts/check-native.py --backend x11 --check-minimize` and the driver/build
+arguments above. The cause remains unresolved; do not count restoration as passed.
+Geometry/maximization persistence across Quit/restart, dragging, rounded transparent
+corners, IME, primary selection and broader grapheme/selection coverage remain open.
+
+The harness now uses the Session menu, waits for actual output rather than command
+echo, waits for clipboard ownership changes and waits for the actual GUI process
+at shutdown. Each successful run still listed one WebKit WebProcess at final
+cleanup, which the harness killed; neither listed a surviving GUI or PTY process.
+Do not infer general cleanup completion from these runs.
+
+Codex screenshots show blank spacing omitted by the current text snapshot
+(`codex-multiline.txt` versus `codex-multiline.png`). Token assertions allow this
+known limitation; exact whitespace fidelity remains open before CLI snapshots.
+Production frontend assets were restored after validation.

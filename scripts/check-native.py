@@ -200,8 +200,8 @@ def run(args):
 
             def new_tab(name):
                 previous_tabs = client.js("return Array.from(document.querySelectorAll('[role=tab]'),tab=>Number(tab.id.slice(4)))")
-                client.click("//button[normalize-space()='+ New tab']", "xpath")
-                client.click(f"//dialog[@open]//button[normalize-space()='{name}']", "xpath")
+                client.click('[aria-label="Session menu"]')
+                client.click(f"//details[@open]//button[@title='Open a new tab'][normalize-space()='{name}']", "xpath")
                 tab = wait_for(lambda: client.js("const id=Number(document.querySelector('[role=tab][aria-selected=true]')?.id.slice(4));return id && !arguments[0].includes(id) ? id : null", previous_tabs), "new selected tab")
                 wait_for(lambda: (state := client.state(tab)) and state.get("sessionId") and not state["replaying"], "terminal connected")
                 return tab
@@ -230,12 +230,31 @@ def run(args):
                 report["checks"].append(description)
                 print("PASS:", description, flush=True)
 
+            client.click('[aria-label="Maximize window"]')
+            wait_for(lambda: client.find('[aria-label="Restore window"]'), "native maximize state")
+            client.click('[aria-label="Restore window"]')
+            wait_for(lambda: client.find('[aria-label="Maximize window"]'), "native restore state")
+            mark("Custom title bar maximize/restore follows native window state")
+
             first = new_tab("Bash")
             command(first, "printf 'BEFORE_RELOAD café 日本語 🙂\\n'; printf 'SHELL_PID=%s\\n' \"$$\"")
             screen = wait_for(lambda: (value := client.screen(first)) and "BEFORE_RELOAD café 日本語 🙂" in value and any(line.startswith("SHELL_PID=") and line.split("=", 1)[1].isdigit() for line in value.splitlines()) and value, "Unicode shell marker")
             session_id = client.state(first)["sessionId"]
             # Read a standalone output line, not the command echo.
             shell_pid = next(int(line.split("=", 1)[1]) for line in screen.splitlines() if line.startswith("SHELL_PID=") and line.split("=", 1)[1].isdigit())
+            if args.check_minimize:
+                client.click('[aria-label="Minimize window"]')
+                wait_for(lambda: client.invoke("plugin:window|is_minimized", {"label": "main"}), "native minimized state")
+                subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
+                wait_for(lambda: not client.invoke("plugin:window|is_minimized", {"label": "main"}), "native window restored")
+                mark("Custom minimize and --show restore the native window")
+            client.click('[aria-label="Close window"]')
+            wait_for(lambda: not client.invoke("application_status")["visible"], "custom close hides window")
+            subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
+            wait_for(lambda: client.invoke("application_status")["visible"], "hidden window reopened")
+            command(first, "printf 'WINDOW_PID=%s\\n' \"$$\"")
+            wait_for(lambda: f"WINDOW_PID={shell_pid}" in client.screen(first).splitlines(), "same shell after minimize/hide")
+            mark("Custom close-to-hide and --show preserve the live shell PID")
             second = new_tab("Bash")
             command(second, "printf 'SECOND_TAB\\n'")
             wait_for(lambda: "SECOND_TAB" in client.screen(second), "second tab marker")
@@ -256,11 +275,12 @@ def run(args):
                 client.invoke("plugin:clipboard-manager|write_text", {"text": "printf 'PASTED café 日本語 🙂\\n'"})
                 focus(first)
                 client.shortcut("v")
+                wait_for(lambda: "printf 'PASTED café 日本語 🙂\\n'" in client.screen(first), "pasted command reaches shell before Enter")
                 client.keys("\n")
-                wait_for(lambda: "PASTED café 日本語 🙂" in client.screen(first), "native Unicode paste shortcut")
+                wait_for(lambda: "PASTED café 日本語 🙂" in client.screen(first).splitlines(), "native Unicode paste shortcut")
                 mark("Ctrl+Shift+C/V use native clipboard after reload")
                 command(first, "printf '\\033[2J\\033[HSELECT_WITH_MOUSE\\n'")
-                wait_for(lambda: "SELECT_WITH_MOUSE" in client.screen(first), "selection fixture")
+                wait_for(lambda: client.screen(first).splitlines()[0] == "SELECT_WITH_MOUSE", "selection fixture")
                 rect = client.js("const r=document.querySelector('#tab-panel-'+arguments[0]+' canvas').getBoundingClientRect(); const s=window.__terminalValidation.state(arguments[0]);return {x:r.x,y:r.y,w:r.width/s.cols,h:r.height/s.rows}", first)
                 client.request("POST", "/actions", {"actions": [{"type":"pointer", "id":"selection", "parameters":{"pointerType":"mouse"}, "actions":[
                     {"type":"pointerMove", "origin":"viewport", "x":round(rect['x']+1), "y":round(rect['y']+rect['h']/2)},
@@ -272,13 +292,13 @@ def run(args):
                 mark("Real mouse drag selects terminal text and copies through the native clipboard")
                 if shutil.which("wl-copy"):
                     subprocess.run(["wl-copy", "--type", "image/png"], input=(ROOT / "src-tauri/icons/32x32.png").read_bytes(), env=env, check=True, timeout=3)
-                    assert client.invoke("terminal_clipboard") == {"kind":"image"}
+                    wait_for(lambda: client.invoke("terminal_clipboard") == {"kind":"image"}, "image clipboard ownership")
                     subprocess.run(["wl-copy", "--type", "text/uri-list"], input=b"file:///tmp/a%20b.png\r\nfile:///tmp/it%27s.png\r\n", env=env, check=True, timeout=3)
-                    assert client.invoke("terminal_clipboard") == {"kind":"text", "text":"'/tmp/a b.png' '/tmp/it'\\''s.png'"}
+                    wait_for(lambda: client.invoke("terminal_clipboard") == {"kind":"text", "text":"'/tmp/a b.png' '/tmp/it'\\''s.png'"}, "file clipboard ownership")
                     mark("Native clipboard distinguishes images and copied files, preserving spaces and quotes")
 
             command(first, "printf '\\033[2J\\033[H\\033]8;;https://example.invalid/devcenter-input-test\\007OPEN_TEST\\033]8;;\\007\\nBEFORE_RELOAD\\n'")
-            wait_for(lambda: "OPEN_TEST" in client.screen(first), "OSC 8 link fixture")
+            wait_for(lambda: client.screen(first).splitlines()[0] == "OPEN_TEST", "OSC 8 link fixture")
             rect = client.js("const r=document.querySelector('#tab-panel-'+arguments[0]+' canvas').getBoundingClientRect();return {x:r.x+20,y:r.y+8}", first)
             client.request("POST", "/actions", {"actions": [
                 {"type":"key", "id":"keyboard", "actions":[{"type":"keyDown", "value":"\ue009"}]},
@@ -321,6 +341,10 @@ def run(args):
             focus(screen_tab)
             client.keys("\ue013")  # Arrow Up
             wait_for(lambda: "Key event:" in client.screen(screen_tab), "native arrow key")
+            for key, expected in [("\ue031", 265), ("\ue03c", 276)]:  # F1, F12; ncurses KEY_F(1/12).
+                client.keys(key)
+                wait_for(lambda: f"Key event: {expected}" in client.screen(screen_tab), f"native function key {expected}")
+            mark("Native F1 and F12 reach curses as function keys")
             if args.skip_mouse:
                 report.setdefault("blockers", []).append("Mouse check skipped explicitly: pointer automation is unavailable on this display backend.")
             else:
@@ -333,7 +357,7 @@ def run(args):
                     wait_for(lambda: "Mouse event:" in client.screen(screen_tab), "native mouse reporting", timeout=3)
                     mark("Native mouse reporting reaches curses")
                 except AssertionError:
-                    report.setdefault("blockers", []).append("Curses receives no mouse reports: ghostty-web 0.4.0 browser input only selects text; VT mouse-mode support alone is insufficient.")
+                    report.setdefault("blockers", []).append("Native pointer automation produced no observed curses mouse report; investigate input delivery on this backend.")
             old_size = client.state(screen_tab)
             client.request("POST", "/window/rect", {"width": 950, "height": 650})
             resized = wait_for(lambda: (state := client.state(screen_tab)) and (state["cols"],state["rows"]) != (old_size["cols"],old_size["rows"]) and state, "visible resize")
@@ -386,6 +410,26 @@ def run(args):
                 wait_for(lambda: (value := client.screen(codex_tab)) and "codex" in value.lower() and "Usage:" not in value and "unexpected argument" not in value, "interactive Codex startup", timeout=20)
                 wait_for(lambda: "Ask Codex to do anything" in client.screen(codex_tab), "Codex input prompt")
                 focus(codex_tab)
+                if clipboard_backup is not None:
+                    clipboard_touched = True
+                    pasted = "validation_line_one café\nvalidation_line_two 日本語 🙂"
+                    client.invoke("plugin:clipboard-manager|write_text", {"text": pasted})
+                    client.shortcut("v")
+                    def multiline_draft():
+                        value = client.screen(codex_tab)
+                        (run_dir / "codex-multiline.txt").write_text(value)
+                        # Codex paints some blank cells without literal spaces;
+                        # the text snapshot omits them. Keep the screenshot too.
+                        return all(token in value for token in ["validation_line_one", "café", "validation_line_two", "日本語", "🙂"])
+                    wait_for(multiline_draft, "Codex multiline clipboard draft")
+                    (run_dir / "codex-multiline.txt").write_text(client.screen(codex_tab))
+                    (run_dir / "codex-multiline.png").write_bytes(base64.b64decode(client.request("GET", "/screenshot")))
+                    client.request("POST", "/actions", {"actions": [{"type": "key", "id": "keyboard", "actions": [
+                        {"type": "keyDown", "value": "\ue009"}, {"type": "keyDown", "value": "c"},
+                        {"type": "keyUp", "value": "c"}, {"type": "keyUp", "value": "\ue009"},
+                    ]}]})
+                    wait_for(lambda: "validation_line_one" not in client.screen(codex_tab) and "validation_line_two" not in client.screen(codex_tab), "Ctrl+C clears Codex multiline draft")
+                    mark("Codex native multiline Unicode paste remains editable; Ctrl+C clears the unsent draft")
                 client.keys("validation_draft")
                 wait_for(lambda: "validation_draft" in client.screen(codex_tab), "Codex unsent draft")
                 client.keys("\ue012\ue003")  # Left, Backspace: remove f before the final t.
@@ -405,7 +449,7 @@ def run(args):
                 (run_dir / "codex-screen.txt").write_text(client.screen(codex_tab))
                 screenshot = client.request("GET", "/screenshot")
                 (run_dir / "codex.png").write_bytes(base64.b64decode(screenshot))
-                report["codex"] = "Interactive prompt editing, slash menu, resize/reload and unsent draft preservation passed. Approval prompts and multiline paste remain manual. No task dispatched."
+                report["codex"] = "Interactive prompt editing, slash menu, resize/reload and unsent draft preservation passed. Multiline paste/draft Ctrl+C ran only when clipboard backup was available. Approval prompts, active-task interruption and scrolling remain manual. No task dispatched."
                 mark("Interactive Codex prompt editing, slash menu and resize/reload retain an unsent draft")
                 close_tab(codex_tab)
             else:
@@ -435,7 +479,7 @@ def run(args):
             if client.session:
                 try:
                     client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                    wait_for(lambda: not any(process["name"].startswith("terminal-work") for process in owned_processes(run_dir)), "native application exit", timeout=5)
+                    wait_for(lambda: not any(process["name"] == "devcenter-gui" for process in owned_processes(run_dir)), "native application exit", timeout=5)
                     client.request("DELETE", "")
                 except Exception as error:
                     report["cleanupError"] = str(error)
@@ -467,6 +511,7 @@ if __name__ == "__main__":
     parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/devcenter-gui"))
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--skip-codex", action="store_true")
+    parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive minimize/restore (known XWayland restore failure)")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")
     parser.add_argument("--report")
     raise SystemExit(run(parser.parse_args()))
