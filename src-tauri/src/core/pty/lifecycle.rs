@@ -171,6 +171,10 @@ impl SessionRegistry {
         }
         self.terminals.get_mut(&key).unwrap().close()?;
         self.terminals.remove(&key);
+        if self.codex_activity.remove(&key).is_some() {
+            let owner = self.tab_session_mut(key)?.id;
+            self.refresh_codex_tag(owner)?;
+        }
         Ok(key)
     }
 
@@ -205,6 +209,17 @@ impl SessionRegistry {
                 tab.resume_on_start = false;
                 self.persist()?;
             }
+        }
+        if matches!(status, Status::Exited { .. })
+            && self
+                .codex_activity
+                .get(&tab_id)
+                .is_some_and(|s| *s != crate::codex::Activity::Stopped)
+        {
+            self.codex_activity
+                .insert(tab_id, crate::codex::Activity::Stopped);
+            let owner = self.tab_session_mut(tab_id)?.id;
+            self.refresh_codex_tag(owner)?;
         }
         Ok(status)
     }

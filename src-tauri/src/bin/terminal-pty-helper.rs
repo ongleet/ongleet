@@ -4,6 +4,9 @@ mod codex;
 #[path = "../containment.rs"]
 #[allow(dead_code)]
 mod containment;
+#[allow(dead_code)]
+#[path = "../control/mod.rs"]
+mod control;
 fn main() {
     if codex::run_if_requested() {
         return;

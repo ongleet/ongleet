@@ -23,6 +23,8 @@ pub use projects::Project;
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     #[serde(default)]
+    pub tags: Vec<SessionTag>,
+    #[serde(default)]
     pub plugin_data: PluginData,
     pub pull_request: Option<crate::core::pull_request_compat::Association>,
     pub project_id: u64,
@@ -39,6 +41,8 @@ pub use crate::core::pty::TabConfig;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginTab {
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub codex_activity: Option<crate::codex::Activity>,
     #[serde(default)]
     pub plugin_data: PluginData,
     pub config_version: u32,
@@ -78,6 +82,7 @@ pub struct SessionRegistry {
     next_tab_id: u64,
     // Keyed by tab ID, never by navigation selection or session position.
     pub terminals: HashMap<u64, TerminalSession>,
+    codex_activity: HashMap<u64, crate::codex::Activity>,
     pub file_watches: HashMap<u64, crate::core::fs::watch::Watch>,
     pub sdk_attachments: HashMap<u64, String>,
     pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
@@ -107,6 +112,7 @@ impl SessionRegistry {
             actions_directory: None,
             next_terminal_id: 0,
             terminals: HashMap::new(),
+            codex_activity: HashMap::new(),
             sdk_attachments: HashMap::new(),
             file_watches: HashMap::new(),
             plugin_jobs: HashMap::new(),
@@ -146,7 +152,24 @@ impl SessionRegistry {
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             projects: self.projects.clone(),
-            sessions: self.sessions.clone(),
+            sessions: self
+                .sessions
+                .iter()
+                .cloned()
+                .map(|mut session| {
+                    session.tags = session.session_tags();
+                    for tab in &mut session.tabs {
+                        tab.codex_activity = self.codex_activity.get(&tab.id).map(|activity| {
+                            if !tab.resume_on_start {
+                                crate::codex::Activity::Stopped
+                            } else {
+                                *activity
+                            }
+                        });
+                    }
+                    session
+                })
+                .collect(),
             selected_id: self.selected_id,
         }
     }
@@ -209,6 +232,7 @@ impl SessionRegistry {
         validate_directory(&directory)?;
         self.next_id += 1;
         self.sessions.push(Session {
+            tags: vec![],
             plugin_data: Default::default(),
             pull_request: None,
             project_id,
@@ -526,5 +550,209 @@ impl SessionRegistry {
         }
         self.persist()?;
         Ok(namespace)
+    }
+}
+
+/// Host-owned metadata, stored alongside namespaces for archive compatibility.
+const TAG_NAMESPACE: &str = "devcenter.session-tags";
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SessionTag {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(default, alias = "color", skip_serializing_if = "Option::is_none")]
+    pub dot: Option<String>,
+    #[serde(default)]
+    pub priority: i32,
+}
+impl Session {
+    pub fn session_tags(&self) -> Vec<SessionTag> {
+        let mut tags: Vec<SessionTag> = self
+            .plugin_data
+            .get(TAG_NAMESPACE)
+            .and_then(|n| serde_json::from_value(n.value.clone()).ok())
+            .unwrap_or_default();
+        tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+        tags
+    }
+}
+impl SessionRegistry {
+    pub fn add_session_tag(&mut self, id: u64, tag: SessionTag) -> Result<Snapshot, String> {
+        let mut tags = self
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or("Session is unavailable")?
+            .session_tags();
+        if let Some(existing) = tags
+            .iter_mut()
+            .find(|t| t.name.to_lowercase() == tag.name.trim().to_lowercase())
+        {
+            *existing = tag;
+        } else {
+            tags.push(tag);
+        }
+        self.set_session_tags(id, tags)
+    }
+
+    pub fn remove_session_tag(&mut self, id: u64, name: String) -> Result<Snapshot, String> {
+        let mut tags = self
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or("Session is unavailable")?
+            .session_tags();
+        let name = name.trim().to_lowercase();
+        if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
+            return Err("Tag names must contain 1–40 characters without controls".into());
+        }
+        tags.retain(|t| t.name.to_lowercase() != name);
+        self.set_session_tags(id, tags)
+    }
+
+    fn set_session_tags(&mut self, id: u64, mut tags: Vec<SessionTag>) -> Result<Snapshot, String> {
+        if tags.len() > 16 {
+            return Err("At most 16 session tags are allowed".into());
+        }
+        let mut names = std::collections::HashSet::new();
+        for tag in &mut tags {
+            tag.name = tag.name.trim().to_string();
+            if tag.name.is_empty()
+                || tag.name.chars().count() > 40
+                || tag.name.chars().any(char::is_control)
+            {
+                return Err("Tag names must contain 1–40 characters without controls".into());
+            }
+            if !names.insert(tag.name.to_lowercase()) {
+                return Err("Duplicate tag name".into());
+            }
+            for color in [&mut tag.background, &mut tag.dot].into_iter().flatten() {
+                if color.len() != 7
+                    || !color.starts_with('#')
+                    || !color[1..].bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err("Tag colors must use #RRGGBB".into());
+                }
+                color.make_ascii_lowercase();
+            }
+        }
+        tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+        let session = self
+            .sessions
+            .iter()
+            .find(|s| s.id == id)
+            .ok_or("Session is unavailable")?;
+        if session.session_tags() == tags {
+            return Ok(self.snapshot());
+        }
+        let revision = session
+            .plugin_data
+            .get(TAG_NAMESPACE)
+            .map_or(0, |n| n.revision);
+        self.replace_plugin_data(
+            id,
+            None,
+            TAG_NAMESPACE,
+            revision,
+            1,
+            serde_json::to_value(tags).map_err(|e| e.to_string())?,
+        )?;
+        Ok(self.snapshot())
+    }
+}
+
+impl SessionRegistry {
+    pub fn update_codex_activity(
+        &mut self,
+        session_id: u64,
+        tab_id: u64,
+        launch: &str,
+    ) -> Result<(), String> {
+        if launch.len() != 32 || !launch.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("Invalid Codex launch token".into());
+        }
+        let session = self
+            .sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .ok_or("Session is unavailable")?;
+        if !session.tabs.iter().any(|t| t.id == tab_id && t.is_open)
+            || !self.terminals.contains_key(&tab_id)
+        {
+            return Err("Terminal tab is unavailable".into());
+        }
+        let data = self
+            .data_directory
+            .as_ref()
+            .ok_or("Application data is unavailable")?;
+        if let Some(activity) = crate::codex::activity_for_launch(data, session_id, tab_id, launch)?
+        {
+            self.codex_activity.insert(tab_id, activity);
+            self.refresh_codex_tag(session_id)?;
+        }
+        Ok(())
+    }
+}
+
+impl SessionRegistry {
+    fn refresh_codex_tag(&mut self, session_id: u64) -> Result<(), String> {
+        use crate::codex::Activity;
+        let session = self
+            .sessions
+            .iter()
+            .find(|s| s.id == session_id)
+            .ok_or("Session is unavailable")?;
+        let states: Vec<_> = session
+            .tabs
+            .iter()
+            .filter(|t| t.is_open)
+            .filter_map(|t| self.codex_activity.get(&t.id))
+            .copied()
+            .collect();
+        let state = [
+            Activity::Question,
+            Activity::Approval,
+            Activity::Working,
+            Activity::Idle,
+            Activity::Stopped,
+        ]
+        .into_iter()
+        .find(|state| states.contains(state));
+        if let Some(state) = state {
+            let dot = match state {
+                Activity::Working => "#60a5fa",
+                Activity::Question => "#f59e0b",
+                Activity::Approval => "#f97316",
+                Activity::Idle => "#22c55e",
+                Activity::Stopped => "#94a3b8",
+            };
+            let existing = session
+                .session_tags()
+                .into_iter()
+                .find(|tag| tag.name.eq_ignore_ascii_case("Codex"));
+            self.add_session_tag(
+                session_id,
+                SessionTag {
+                    name: "Codex".into(),
+                    dot: Some(dot.into()),
+                    background: existing.as_ref().and_then(|t| t.background.clone()),
+                    priority: existing.map_or(100, |t| t.priority),
+                },
+            )?;
+        } else {
+            self.remove_session_tag(session_id, "Codex".into())?;
+        }
+        Ok(())
+    }
+}
+
+impl SessionRegistry {
+    pub fn tags_for_tab(&self, id: u64) -> Result<Vec<SessionTag>, String> {
+        self.sessions
+            .iter()
+            .find(|s| s.tabs.iter().any(|t| t.id == id))
+            .map(Session::session_tags)
+            .ok_or("Tab is unavailable".into())
     }
 }

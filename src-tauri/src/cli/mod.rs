@@ -99,6 +99,9 @@ fn parse_with_context(
                 | "config"
                 | "configure"
                 | "pull-request"
+                | "tags"
+                | "tag-add"
+                | "tag-remove"
         ) | (
             "project",
             "rename" | "directory" | "fold" | "unfold" | "close" | "config" | "configure"
@@ -180,6 +183,25 @@ fn parse_with_context(
             .ok_or_else(|| invalid(format!("Required option: {key}")))
     };
     let command = match (resource, verb) {
+        ("session", "tag-add") => Command::SessionTagAdd {
+            id,
+            name: take("--name")?,
+            background: options.remove("--background"),
+            dot: options.remove("--dot"),
+            priority: options
+                .remove("--priority")
+                .map(|v| {
+                    v.parse::<i32>()
+                        .map_err(|_| invalid("Priority must be a 32-bit integer"))
+                })
+                .transpose()?
+                .unwrap_or(0),
+        },
+        ("session", "tag-remove") => Command::SessionTagRemove {
+            id,
+            name: take("--name")?,
+        },
+        ("session", "tags") => Command::SessionTags { id },
         ("session", "config") => Command::SessionConfig { id },
         ("session", "configure") => {
             let name = options.remove("--name");

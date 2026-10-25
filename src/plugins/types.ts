@@ -1,5 +1,7 @@
+export type CodexActivity = 'working' | 'question' | 'approval' | 'idle' | 'stopped';
 import type { ProcessStatus } from '../terminal';
 export type PluginTab = {
+  codexActivity?: CodexActivity;
   id: number;
   kind: string;
   configVersion: number;

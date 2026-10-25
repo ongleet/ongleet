@@ -92,6 +92,7 @@ impl SessionRegistry {
         }
         self.next_tab_id += 1;
         session.tabs.push(PluginTab {
+            codex_activity: None,
             plugin_data: Default::default(),
             kind,
             config_version,

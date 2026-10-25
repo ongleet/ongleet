@@ -24,6 +24,16 @@ const LIMIT: u64 = 64 * 1024;
 struct State {
     launch: String,
     conversation: Option<String>,
+    #[serde(default)]
+    activity: Activity,
+    #[serde(default)]
+    pending_questions: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pending_approvals: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    turn: Option<String>,
+    #[serde(default)]
+    active_turn: bool,
 }
 
 fn nonce() -> Result<String, String> {
@@ -64,6 +74,10 @@ fn valid_id(id: &str) -> bool {
 }
 
 fn write_state(path: &Path, state: &State) -> Result<(), String> {
+    let bytes = serde_json::to_vec(state).map_err(|e| e.to_string())?;
+    if bytes.len() > LIMIT as usize {
+        return Err("Codex session file is too large".into());
+    }
     let temp = path.with_extension(format!("{}.tmp", nonce()?));
     let result = (|| {
         let mut file = OpenOptions::new()
@@ -72,8 +86,7 @@ fn write_state(path: &Path, state: &State) -> Result<(), String> {
             .mode(0o600)
             .open(&temp)
             .map_err(|e| e.to_string())?;
-        file.write_all(&serde_json::to_vec(state).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
         fs::rename(&temp, path).map_err(|e| e.to_string())?;
         File::open(path.parent().unwrap())
@@ -87,6 +100,13 @@ fn write_state(path: &Path, state: &State) -> Result<(), String> {
 // Serialize generation changes and hook writes, so a stale hook cannot race a
 // newer launch between reading its generation and replacing the file.
 fn locked<T>(path: &Path, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    locked_for(path, std::time::Duration::ZERO, operation)
+}
+fn locked_for<T>(
+    path: &Path,
+    timeout: std::time::Duration,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
     struct Lock(File);
     impl Drop for Lock {
         fn drop(&mut self) {
@@ -104,8 +124,12 @@ fn locked<T>(path: &Path, operation: impl FnOnce() -> Result<T, String>) -> Resu
         .mode(0o600)
         .open(path.with_extension("lock"))
         .map_err(|e| e.to_string())?;
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err("Codex session mapping is busy; retry the launch".into());
+    let deadline = std::time::Instant::now() + timeout;
+    while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if std::time::Instant::now() >= deadline {
+            return Err("Codex session mapping is busy; retry the launch".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let _guard = Lock(lock);
     operation()
@@ -117,6 +141,7 @@ fn begin(path: &Path, fresh: bool) -> Result<State, String> {
         let state = State {
             launch: nonce()?,
             conversation: if fresh { None } else { old.conversation },
+            ..State::default()
         };
         write_state(path, &state)?;
         Ok(state)
@@ -124,6 +149,14 @@ fn begin(path: &Path, fresh: bool) -> Result<State, String> {
 }
 
 fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
+    record_with(path, launch, input, report_activity)
+}
+fn record_with(
+    path: &Path,
+    launch: &str,
+    input: impl Read,
+    notify: impl Fn(&str),
+) -> Result<(), String> {
     let mut bytes = Vec::new();
     input
         .take(LIMIT + 1)
@@ -132,28 +165,189 @@ fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
     if bytes.len() > LIMIT as usize {
         return Err("Codex hook payload is too large".into());
     }
-    #[derive(Deserialize)]
-    struct Event {
-        session_id: String,
-        hook_event_name: String,
-    }
-    let event: Event =
+    let event: HookEvent =
         serde_json::from_slice(&bytes).map_err(|e| format!("Invalid Codex hook event: {e}"))?;
-    if !matches!(
-        event.hook_event_name.as_str(),
-        "SessionStart" | "UserPromptSubmit"
-    ) || !valid_id(&event.session_id)
-    {
-        return Err("Expected SessionStart or UserPromptSubmit with a valid session_id".into());
+    if !valid_id(&event.session_id) {
+        return Err("Invalid Codex session_id".into());
     }
-    locked(path, || {
+    let changed = locked_for(path, std::time::Duration::from_millis(500), || {
+        let mut state = read_state(path)?;
+        if state.launch != launch || event.agent_id.is_some() {
+            return Ok(false);
+        }
+        if !apply_event(&mut state, &event)? {
+            return Ok(false);
+        }
+        write_state(path, &state)?;
+        Ok(true)
+    })?;
+    // Never hold the mapping lock while waiting for the GUI. Every notification
+    // reads the latest committed state, so concurrent delivery cannot regress it.
+    if changed {
+        notify(launch);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Activity {
+    Working,
+    Question,
+    Approval,
+    #[default]
+    Idle,
+    Stopped,
+}
+
+#[derive(Deserialize)]
+struct HookEvent {
+    session_id: String,
+    hook_event_name: String,
+    agent_id: Option<String>,
+    turn_id: Option<String>,
+    tool_name: Option<String>,
+    tool_use_id: Option<String>,
+}
+
+fn apply_event(state: &mut State, event: &HookEvent) -> Result<bool, String> {
+    let name = event.hook_event_name.as_str();
+    if !matches!(
+        name,
+        "SessionStart"
+            | "UserPromptSubmit"
+            | "PreToolUse"
+            | "PostToolUse"
+            | "PermissionRequest"
+            | "Stop"
+            | "Interrupt"
+            | "SessionEnd"
+    ) {
+        return Err("Unsupported Codex hook event".into());
+    }
+    if matches!(name, "PreToolUse" | "PostToolUse" | "PermissionRequest") && !state.active_turn {
+        return Ok(false);
+    }
+    if name == "UserPromptSubmit" {
+        state.active_turn = true;
+        if state.turn != event.turn_id {
+            state.pending_questions.clear();
+            state.pending_approvals.clear();
+        }
+        state.turn = event.turn_id.clone();
+    } else if event.turn_id.is_some() && state.turn.is_some() && event.turn_id != state.turn {
+        return Ok(false);
+    }
+    match name {
+        "SessionStart" => {
+            state.conversation = Some(event.session_id.clone());
+        }
+        "UserPromptSubmit" => {
+            state.conversation = Some(event.session_id.clone());
+            state.activity = Activity::Working;
+        }
+        "PreToolUse" if event.tool_name.as_deref() == Some("request_user_input") => {
+            state
+                .pending_questions
+                .insert(event.tool_use_id.clone().ok_or("Missing tool_use_id")?);
+        }
+        "PermissionRequest" => {
+            state
+                .pending_approvals
+                .insert(event.tool_use_id.clone().ok_or("Missing tool_use_id")?);
+        }
+        "PostToolUse" => {
+            if let Some(id) = &event.tool_use_id {
+                state.pending_questions.remove(id);
+                state.pending_approvals.remove(id);
+            }
+            state.activity = Activity::Working;
+        }
+        "Stop" | "Interrupt" | "SessionEnd" => {
+            state.active_turn = false;
+            state.pending_questions.clear();
+            state.pending_approvals.clear();
+            state.activity = if name == "SessionEnd" {
+                Activity::Stopped
+            } else {
+                Activity::Idle
+            };
+        }
+        _ => {}
+    }
+    if !state.pending_questions.is_empty() {
+        state.activity = Activity::Question;
+    } else if !state.pending_approvals.is_empty() {
+        state.activity = Activity::Approval;
+    }
+    Ok(true)
+}
+
+// Read only our bounded mapping format, never Codex's private transcript.
+#[allow(dead_code)] // The standalone wrapper only sends updates; the GUI reads them.
+pub fn activity_for_launch(
+    data: &Path,
+    session: u64,
+    tab: u64,
+    launch: &str,
+) -> Result<Option<Activity>, String> {
+    let state = read_state(
+        &data
+            .join("codex-sessions")
+            .join(session.to_string())
+            .join(format!("{tab}.json")),
+    )?;
+    Ok((state.launch == launch).then_some(state.activity))
+}
+
+fn report_activity(launch: &str) {
+    let result = (|| -> Result<(), String> {
+        let data = PathBuf::from(required("DEVCENTER_CODEX_DATA")?);
+        let socket = crate::control::paths::socket_path(&data)?;
+        let id = |key| {
+            required(key)?
+                .parse::<u64>()
+                .map_err(|_| format!("Invalid {key}"))
+        };
+        let response = crate::control::client::call_with_timeout(
+            &socket,
+            crate::control::protocol::Command::CodexActivity {
+                session_id: id("DEVCENTER_SESSION_ID")?,
+                tab_id: id("DEVCENTER_TAB_ID")?,
+                launch: launch.into(),
+            },
+            std::time::Duration::from_secs(1),
+        )
+        .map_err(|e| e.message)?;
+        if let Some(error) = response.error {
+            return Err(error.message);
+        }
+        Ok(())
+    })();
+    if std::env::var_os("DEVCENTER_DEBUG").is_some_and(|v| v == "1") {
+        if let Err(error) = result {
+            eprintln!("Codex activity update: {error}");
+        }
+    }
+}
+
+fn stopped(path: &Path, launch: &str) -> Result<(), String> {
+    let changed = locked_for(path, std::time::Duration::from_millis(500), || {
         let mut state = read_state(path)?;
         if state.launch != launch {
-            return Ok(());
+            return Ok(false);
         }
-        state.conversation = Some(event.session_id);
-        write_state(path, &state)
-    })
+        state.active_turn = false;
+        state.activity = Activity::Stopped;
+        state.pending_questions.clear();
+        state.pending_approvals.clear();
+        write_state(path, &state)?;
+        Ok(true)
+    })?;
+    if changed {
+        report_activity(launch);
+    }
+    Ok(())
 }
 
 fn required(name: &str) -> Result<String, String> {
@@ -214,10 +408,29 @@ fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
             serde_json::to_string(DEVCENTER_INSTRUCTIONS).unwrap()
         ),
     ];
-    for event in ["SessionStart", "UserPromptSubmit"] {
+    for event in [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+    ] {
+        let matcher = if event == "PreToolUse" {
+            "matcher=\"^request_user_input$\","
+        } else {
+            ""
+        };
+        let timeout = if matches!(event, "Interrupt" | "SessionEnd") {
+            3
+        } else {
+            5
+        };
         args.extend([
             "-c".into(),
-            format!("hooks.{event}=[{{hooks=[{{type=\"command\",command={command},timeout=5}}]}}]"),
+            format!("hooks.{event}=[{{{matcher}hooks=[{{type=\"command\",command={command},timeout={timeout}}}]}}]"),
         ]);
     }
     if let Some(id) = &state.conversation {
@@ -280,6 +493,7 @@ pub fn run(flag: &str, args: Vec<String>) {
             if let Some(id) = &state.conversation {
                 eprintln!("Resuming Codex conversation {id}. If unavailable, use --fresh to start a new conversation.");
             }
+            report_activity(&state.launch);
             let started = std::time::Instant::now();
             let mut command = Command::new("codex");
             command
@@ -292,9 +506,9 @@ pub fn run(flag: &str, args: Vec<String>) {
                     Ok(())
                 });
             }
-            let status = command
-                .status()
-                .map_err(|error| format!("Cannot start Codex: {error}"))?;
+            let status = command.status();
+            let _ = stopped(&path, &state.launch);
+            let status = status.map_err(|error| format!("Cannot start Codex: {error}"))?;
             if !restart {
                 std::process::exit(
                     status

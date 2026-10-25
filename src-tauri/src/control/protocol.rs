@@ -53,6 +53,11 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
+    CodexActivity {
+        session_id: u64,
+        tab_id: u64,
+        launch: String,
+    },
     SessionList,
     SessionConfig {
         id: u64,
@@ -62,6 +67,21 @@ pub enum Command {
         name: Option<String>,
         directory: Option<String>,
         project_id: Option<u64>,
+    },
+    SessionTagAdd {
+        id: u64,
+        name: String,
+        background: Option<String>,
+        dot: Option<String>,
+        #[serde(default)]
+        priority: i32,
+    },
+    SessionTagRemove {
+        id: u64,
+        name: String,
+    },
+    SessionTags {
+        id: u64,
     },
     SessionPullRequest {
         id: u64,

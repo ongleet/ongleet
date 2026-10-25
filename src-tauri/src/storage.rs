@@ -120,6 +120,7 @@ impl MetadataStore {
                         .map(serde_json::from_str)
                         .transpose()?;
                     Ok(Session {
+                        tags: vec![],
                         id: read_id(row.id)?,
                         name: row.name,
                         base_directory: row.base_directory,
@@ -148,6 +149,7 @@ impl MetadataStore {
                     .map(|(row, opening)| {
                         let stored: StoredConfig = serde_json::from_str(&row.config_json)?;
                         Ok(PluginTab {
+                            codex_activity: None,
                             id: read_id(row.id)?,
                             name: row.name,
                             kind: row.kind,

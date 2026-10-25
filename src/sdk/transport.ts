@@ -13,6 +13,7 @@ import {
   type ProcessStatus,
   type PtyOutput,
   type Scope,
+  type SessionTag,
   type SortOrder,
   type TextDocument,
 } from './types';
@@ -59,6 +60,11 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
   }
   return {
     ready,
+    session: {
+      addTag: (tag: SessionTag) => request<SessionTag[]>('addSessionTag', { tag }),
+      removeTag: (name: string) => request<SessionTag[]>('removeSessionTag', { name }),
+      listTags: () => request<SessionTag[]>('sessionTags'),
+    },
     tab: {
       setTitle: (title: string | null) => {
         if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');

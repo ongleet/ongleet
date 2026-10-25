@@ -60,7 +60,7 @@ Object.assign(window, {
     ready: (id: number) => sdks.has(id),
     call: (
       id: number,
-      service: 'fs' | 'storage' | 'process' | 'pty' | 'desktop',
+      service: 'session' | 'fs' | 'storage' | 'process' | 'pty' | 'desktop',
       method: string,
       args: unknown[],
     ) => {

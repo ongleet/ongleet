@@ -36,10 +36,10 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
         } else {
             json!({"state": if !crate::plugins::has_runtime(&tab.kind) { "open" } else if tab.resume_on_start { "starting" } else { "stopped" }})
         };
-        tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status}));
+        tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status,"codexActivity":tab.codex_activity}));
     }
     Ok(
-        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"runningTerminals":running,"tabs":tabs}),
+        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"tags":session.session_tags(),"runningTerminals":running,"tabs":tabs}),
     )
 }
 
@@ -89,6 +89,17 @@ pub fn handle(
     let mut changed = false;
     let mut effect = Effect::None;
     let data = match command {
+        Command::CodexActivity {
+            session_id,
+            tab_id,
+            launch,
+        } => {
+            registry
+                .update_codex_activity(session_id, tab_id, &launch)
+                .map_err(failed)?;
+            changed = true;
+            Value::Null
+        }
         Command::Show => unreachable!(),
         Command::Status => {
             let mut running = 0;
@@ -179,6 +190,39 @@ pub fn handle(
                 .map_err(failed)?;
             changed = true;
             serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
+        }
+        Command::SessionTagAdd {
+            id,
+            name,
+            background,
+            dot,
+            priority,
+        } => {
+            session(&snapshot, id)?;
+            let next = registry
+                .add_session_tag(
+                    id,
+                    crate::session::SessionTag {
+                        name,
+                        background,
+                        dot,
+                        priority,
+                    },
+                )
+                .map_err(|e| RpcError::new("invalid_argument", e))?;
+            changed = true;
+            serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
+        }
+        Command::SessionTagRemove { id, name } => {
+            session(&snapshot, id)?;
+            let next = registry
+                .remove_session_tag(id, name)
+                .map_err(|e| RpcError::new("invalid_argument", e))?;
+            changed = true;
+            serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
+        }
+        Command::SessionTags { id } => {
+            json!({"tags": session(&snapshot, id)?.session_tags()})
         }
         Command::SessionPullRequest { id, target, number } => {
             session(&snapshot, id)?;

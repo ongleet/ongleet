@@ -21,6 +21,7 @@ export type Project = {
   collapsed: boolean;
 };
 export type Session = {
+  tags: import('./sdk').SessionTag[];
   pullRequest: { repository: string; number: number } | null;
   projectId: number;
   id: number;

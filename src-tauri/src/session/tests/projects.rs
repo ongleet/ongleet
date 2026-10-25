@@ -443,3 +443,150 @@ fn session_configuration_and_pr_association_persist_without_opening_tabs() {
         .is_none());
     assert!(!root.0.join("missing").exists());
 }
+
+#[test]
+fn session_tags_persist_and_invalid_replacements_preserve_existing_tags() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let project = registry.projects[0].id;
+    let id = registry
+        .create_in_project(project, "Tagged".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let tag = |name: &str, color: &str| SessionTag {
+        name: name.into(),
+        dot: Some(color.into()),
+        background: None,
+        priority: 0,
+    };
+    let snapshot = registry
+        .set_session_tags(id, vec![tag(" Ready ", "#AAbb22")])
+        .unwrap();
+    assert_eq!(snapshot.sessions[0].tags, vec![tag("Ready", "#aabb22")]);
+    for invalid in [
+        vec![tag("Bad", "red")],
+        vec![tag("", "#112233")],
+        vec![tag("Ready", "#112233"), tag("ready", "#445566")],
+        vec![tag("Too many", "#112233"); 17],
+    ] {
+        assert!(registry.set_session_tags(id, invalid).is_err());
+        assert_eq!(
+            registry.snapshot().sessions[0].tags,
+            vec![tag("Ready", "#aabb22")]
+        );
+    }
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(
+        registry.snapshot().sessions[0].tags,
+        vec![tag("Ready", "#aabb22")]
+    );
+    registry.close(id, true).unwrap();
+    let archive_id = registry.archives[0].id;
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let restored = registry.restore_archive(archive_id).unwrap();
+    assert_eq!(restored.sessions[0].tags, vec![tag("Ready", "#aabb22")]);
+    registry.set_session_tags(id, vec![]).unwrap();
+    drop(registry);
+    assert!(
+        SessionRegistry::open(&data.0).unwrap().snapshot().sessions[0]
+            .tags
+            .is_empty()
+    );
+}
+
+#[test]
+fn individual_tag_updates_preserve_siblings_and_persist() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let project = registry.projects[0].id;
+    let id = registry
+        .create_in_project(project, "Tags".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let tag = |name: &str, color: &str| SessionTag {
+        name: name.into(),
+        dot: Some(color.into()),
+        background: None,
+        priority: 0,
+    };
+    registry
+        .add_session_tag(id, tag("Backend", "#112233"))
+        .unwrap();
+    registry
+        .add_session_tag(id, tag("Ready", "#445566"))
+        .unwrap();
+    let updated = registry
+        .add_session_tag(id, tag(" READY ", "#AABBCC"))
+        .unwrap();
+    assert_eq!(
+        updated.sessions[0].tags,
+        vec![tag("Backend", "#112233"), tag("READY", "#aabbcc")]
+    );
+    assert!(registry
+        .add_session_tag(id, tag("Ready", "invalid"))
+        .is_err());
+    assert!(registry.remove_session_tag(id, "".into()).is_err());
+    registry.remove_session_tag(id, "missing".into()).unwrap();
+    registry.remove_session_tag(id, " ready ".into()).unwrap();
+    drop(registry);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(
+        restored.snapshot().sessions[0].tags,
+        vec![tag("Backend", "#112233")]
+    );
+}
+
+#[test]
+fn tag_styles_priority_and_name_uniqueness_share_one_persisted_list() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let project = registry.projects[0].id;
+    let id = registry
+        .create_in_project(project, "Tags".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let tag = |name: &str, background: Option<&str>, dot: Option<&str>, priority| SessionTag {
+        name: name.into(),
+        background: background.map(Into::into),
+        dot: dot.map(Into::into),
+        priority,
+    };
+    registry
+        .add_session_tag(id, tag("Dot", None, Some("#112233"), 0))
+        .unwrap();
+    registry
+        .add_session_tag(id, tag("Background", Some("#FFFFFF"), None, 5))
+        .unwrap();
+    registry
+        .add_session_tag(id, tag("Both", Some("#112233"), Some("#AABBCC"), 10))
+        .unwrap();
+    registry
+        .add_session_tag(id, tag(" DOT ", None, Some("#445566"), 20))
+        .unwrap();
+    let tags = registry.snapshot().sessions[0].tags.clone();
+    assert_eq!(
+        tags,
+        vec![
+            tag("DOT", None, Some("#445566"), 20),
+            tag("Both", Some("#112233"), Some("#aabbcc"), 10),
+            tag("Background", Some("#ffffff"), None, 5)
+        ]
+    );
+    assert!(registry
+        .add_session_tag(id, tag("Both", Some("red"), None, 100))
+        .is_err());
+    assert_eq!(registry.snapshot().sessions[0].tags, tags);
+    drop(registry);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(restored.snapshot().sessions[0].tags, tags);
+    let legacy: SessionTag = serde_json::from_str(r##"{"name":"Old","color":"#abcdef"}"##).unwrap();
+    assert_eq!(legacy, tag("Old", None, Some("#abcdef"), 0));
+}

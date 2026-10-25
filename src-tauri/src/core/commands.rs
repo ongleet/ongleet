@@ -61,6 +61,13 @@ pub enum Request {
         text: String,
         revision: String,
     },
+    AddSessionTag {
+        tag: crate::session::SessionTag,
+    },
+    RemoveSessionTag {
+        name: String,
+    },
+    SessionTags,
     Configure {
         patch: serde_json::Value,
     },
@@ -168,7 +175,10 @@ pub async fn sdk_request(
     }
     let changed = matches!(
         &request,
-        Request::Configure { .. } | Request::ReplaceData { .. }
+        Request::Configure { .. }
+            | Request::ReplaceData { .. }
+            | Request::AddSessionTag { .. }
+            | Request::RemoveSessionTag { .. }
     );
     // Register jobs before releasing ownership; close/detach can then cancel them.
     let job = if matches!(&request, Request::Process { .. }) {
@@ -264,6 +274,37 @@ pub async fn sdk_request(
                     text,
                     revision,
                 } => serde_json::to_value(super::fs::editor::save(&path, &text, &revision)?),
+                Request::AddSessionTag { tag } => {
+                    let snapshot = guard.add_session_tag(session_id, tag)?;
+                    serde_json::to_value(
+                        snapshot
+                            .sessions
+                            .iter()
+                            .find(|s| s.id == session_id)
+                            .ok_or("Session unavailable")?
+                            .session_tags(),
+                    )
+                }
+                Request::RemoveSessionTag { name } => {
+                    let snapshot = guard.remove_session_tag(session_id, name)?;
+                    serde_json::to_value(
+                        snapshot
+                            .sessions
+                            .iter()
+                            .find(|s| s.id == session_id)
+                            .ok_or("Session unavailable")?
+                            .session_tags(),
+                    )
+                }
+                Request::SessionTags => {
+                    let snapshot = guard.snapshot();
+                    let session = snapshot
+                        .sessions
+                        .iter()
+                        .find(|s| s.id == session_id)
+                        .ok_or("Session unavailable")?;
+                    serde_json::to_value(session.session_tags())
+                }
                 Request::Configure { patch } => {
                     guard.patch_plugin_config(id, patch)?;
                     Ok(serde_json::Value::Null)
@@ -417,15 +458,17 @@ pub enum PtyRequest {
 }
 #[tauri::command]
 pub async fn sdk_pty(
+    app: tauri::AppHandle,
     state: State<'_, AppRegistry>,
     id: u64,
     attachment: String,
     request: PtyRequest,
 ) -> Result<serde_json::Value, SdkError> {
-    pty_operation(state, id, attachment, request, None).await
+    pty_operation(app, state, id, attachment, request, None).await
 }
 #[tauri::command]
 pub async fn sdk_pty_connect(
+    app: tauri::AppHandle,
     state: State<'_, AppRegistry>,
     id: u64,
     attachment: String,
@@ -435,6 +478,7 @@ pub async fn sdk_pty_connect(
     output: tauri::ipc::Channel<crate::terminal_session::Output>,
 ) -> Result<serde_json::Value, SdkError> {
     pty_operation(
+        app,
         state,
         id,
         attachment,
@@ -448,6 +492,7 @@ pub async fn sdk_pty_connect(
     .await
 }
 async fn pty_operation(
+    app: tauri::AppHandle,
     state: State<'_, AppRegistry>,
     id: u64,
     attachment: String,
@@ -475,6 +520,14 @@ async fn pty_operation(
                 return Err("PTY belongs to an unavailable tab/runtime".into());
             }
         }
+        let previous_tags = if matches!(
+            &request,
+            PtyRequest::Status { .. } | PtyRequest::Close { .. }
+        ) {
+            Some(guard.tags_for_tab(id)?)
+        } else {
+            None
+        };
         let json = match request {
             PtyRequest::Connect {
                 cols,
@@ -510,9 +563,17 @@ async fn pty_operation(
                 drop(guard);
                 // A blocked writer must not block ACK, close or registry operations.
                 result.recv().map_err(|e| e.to_string())??;
-                Ok(serde_json::Value::Null)
+                return Ok(serde_json::Value::Null);
             }
         };
+        if let Some(previous) = previous_tags {
+            if guard
+                .tags_for_tab(id)
+                .is_ok_and(|current| current != previous)
+            {
+                let _ = app.emit("session-changed", ());
+            }
+        }
         json.map_err(|e| e.to_string())
     })
     .await

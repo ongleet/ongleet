@@ -463,3 +463,34 @@ fn archive_commands_expose_recovery_and_require_confirmation_for_permanent_remov
     assert!(help.contains("--confirm"));
     assert!(help.contains("Working") || help.contains("working"));
 }
+
+#[test]
+fn tag_commands_only_list_add_and_remove_with_explicit_targets() {
+    assert!(matches!(
+        parse(args(&["session", "tags", "12"])).unwrap(),
+        Invocation::Request(Command::SessionTags { id: 12 })
+    ));
+    assert!(parse(args(&["session", "tags", "12", "--tags", "[]"])).is_err());
+    assert!(
+        matches!(parse(args(&["session", "tag-add", "12", "--name", "Ready", "--dot", "#22c55e", "--background", "#ffffff", "--priority", "50"])).unwrap(), Invocation::Request(Command::SessionTagAdd { id: 12, name, dot: Some(dot), background: Some(bg), priority: 50 }) if name == "Ready" && dot == "#22c55e" && bg == "#ffffff")
+    );
+    assert!(
+        matches!(parse(args(&["session", "tag-remove", "12", "--name", "Ready"])).unwrap(), Invocation::Request(Command::SessionTagRemove { id: 12, name }) if name == "Ready")
+    );
+    for input in [
+        vec!["session", "tag-add", "12"],
+        vec!["session", "tag-remove", "12"],
+        vec!["session", "tags"],
+        vec![
+            "session",
+            "tag-add",
+            "12",
+            "--name",
+            "Ready",
+            "--priority",
+            "1.5",
+        ],
+    ] {
+        assert!(parse(args(&input)).is_err());
+    }
+}

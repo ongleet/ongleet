@@ -47,3 +47,5 @@ export type SortOrder =
   | 'dateDescending'
   | 'sizeAscending'
   | 'sizeDescending';
+
+export type SessionTag = { name: string; background?: string; dot?: string; priority?: number };

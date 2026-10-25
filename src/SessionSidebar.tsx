@@ -2,6 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project, Session } from './main';
 
+function tagForeground(background: string) {
+  const channels = [1, 3, 5].map((offset) => {
+    const value = parseInt(background.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2] > 0.179
+    ? '#000000'
+    : '#ffffff';
+}
+
 const sidebarWidthKey = 'devcenter.sidebarWidth';
 
 function savedSidebarWidth() {
@@ -377,6 +387,31 @@ export function SessionSidebar({
                         >
                           <span className="session-name">{session.name}</span>
                           <span className="session-directory">{session.baseDirectory}</span>
+                          {session.tags.length > 0 && (
+                            <span className="session-tags">
+                              {session.tags.map((tag) => (
+                                <span
+                                  key={tag.name}
+                                  className="session-tag"
+                                  title={tag.name}
+                                  style={{
+                                    backgroundColor: tag.background,
+                                    color: tag.background
+                                      ? tagForeground(tag.background)
+                                      : undefined,
+                                  }}
+                                >
+                                  {tag.dot && (
+                                    <span
+                                      className="session-tag-dot"
+                                      style={{ backgroundColor: tag.dot }}
+                                    />
+                                  )}
+                                  {tag.name}
+                                </span>
+                              ))}
+                            </span>
+                          )}
                         </button>
                         <button
                           id={`session-menu-${session.id}`}

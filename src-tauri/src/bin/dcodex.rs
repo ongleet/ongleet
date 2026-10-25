@@ -1,6 +1,9 @@
 #[path = "../codex.rs"]
 mod codex;
 #[allow(dead_code)]
+#[path = "../control/mod.rs"]
+mod control;
+#[allow(dead_code)]
 #[path = "../control/paths.rs"]
 mod paths;
 

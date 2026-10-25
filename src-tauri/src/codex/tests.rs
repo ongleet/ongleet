@@ -1,4 +1,7 @@
 use super::*;
+fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
+    super::record_with(path, launch, input, |_| {})
+}
 
 struct Fixture(PathBuf);
 impl Fixture {
@@ -88,4 +91,138 @@ fn malformed_state_fails_without_resetting_the_file() {
     fs::write(&path, b"broken").unwrap();
     assert!(begin(&path, false).is_err());
     assert_eq!(fs::read(&path).unwrap(), b"broken");
+}
+
+fn hook(name: &str, turn: &str, tool: &str, call: &str) -> HookEvent {
+    serde_json::from_value(serde_json::json!({
+        "session_id": "conversation", "hook_event_name": name,
+        "turn_id": turn, "tool_name": tool, "tool_use_id": call,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn activity_tracks_questions_approvals_and_ignores_unrelated_completions() {
+    let mut state = State::default();
+    apply_event(&mut state, &hook("UserPromptSubmit", "turn-1", "", "")).unwrap();
+    assert_eq!(state.activity, Activity::Working);
+    apply_event(
+        &mut state,
+        &hook("PreToolUse", "turn-1", "request_user_input", "question"),
+    )
+    .unwrap();
+    assert_eq!(state.activity, Activity::Question);
+    apply_event(
+        &mut state,
+        &hook("PermissionRequest", "turn-1", "Bash", "approval"),
+    )
+    .unwrap();
+    apply_event(
+        &mut state,
+        &hook("PostToolUse", "turn-1", "Bash", "unrelated"),
+    )
+    .unwrap();
+    assert_eq!(state.activity, Activity::Question);
+    apply_event(
+        &mut state,
+        &hook("PostToolUse", "turn-1", "request_user_input", "question"),
+    )
+    .unwrap();
+    assert_eq!(state.activity, Activity::Approval);
+    apply_event(
+        &mut state,
+        &hook("PostToolUse", "turn-1", "Bash", "approval"),
+    )
+    .unwrap();
+    assert_eq!(state.activity, Activity::Working);
+    apply_event(&mut state, &hook("Stop", "turn-1", "", "")).unwrap();
+    assert_eq!(state.activity, Activity::Idle);
+    assert!(!apply_event(&mut state, &hook("PostToolUse", "turn-1", "Bash", "late")).unwrap());
+    assert_eq!(state.activity, Activity::Idle);
+    apply_event(&mut state, &hook("UserPromptSubmit", "turn-2", "", "")).unwrap();
+    assert!(!apply_event(&mut state, &hook("Stop", "turn-1", "", "")).unwrap());
+    assert_eq!(state.activity, Activity::Working);
+    apply_event(&mut state, &hook("Interrupt", "turn-2", "", "")).unwrap();
+    assert_eq!(state.activity, Activity::Idle);
+    apply_event(&mut state, &hook("SessionEnd", "turn-2", "", "")).unwrap();
+    assert_eq!(state.activity, Activity::Stopped);
+}
+
+#[test]
+fn activity_reports_only_current_main_agent_and_keeps_mappings_separate() {
+    let fixture = Fixture::new();
+    let path = fixture.path();
+    let old = begin(&path, false).unwrap();
+    let launch = begin(&path, false).unwrap();
+    let notifications = std::cell::Cell::new(0);
+    let notify = |_: &str| notifications.set(notifications.get() + 1);
+    let input = serde_json::to_vec(&serde_json::json!({"session_id":"conversation", "hook_event_name":"UserPromptSubmit", "turn_id":"turn"})).unwrap();
+    record_with(&path, &old.launch, input.as_slice(), notify).unwrap();
+    assert_eq!(notifications.get(), 0);
+    let subagent = br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","agent_id":"child","turn_id":"turn"}"#;
+    record_with(&path, &launch.launch, subagent.as_slice(), notify).unwrap();
+    assert_eq!(notifications.get(), 0);
+    record_with(&path, &launch.launch, input.as_slice(), notify).unwrap();
+    assert_eq!(notifications.get(), 1);
+    assert_eq!(read_state(&path).unwrap().activity, Activity::Working);
+    let other = fixture.0.join("codex-sessions/1");
+    fs::create_dir_all(&other).unwrap();
+    fs::copy(&path, other.join("2.json")).unwrap();
+    assert_eq!(
+        activity_for_launch(&fixture.0, 1, 2, &launch.launch).unwrap(),
+        Some(Activity::Working)
+    );
+    assert_eq!(
+        activity_for_launch(&fixture.0, 1, 2, &old.launch).unwrap(),
+        None
+    );
+    assert_eq!(
+        activity_for_launch(&fixture.0, 1, 3, &launch.launch).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn activity_hook_configuration_is_scoped_and_bounded() {
+    let args = codex_args(&State::default(), "/app/dcodex", &[]);
+    for name in [
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PermissionRequest",
+        "Stop",
+        "Interrupt",
+        "SessionEnd",
+    ] {
+        assert!(args
+            .iter()
+            .any(|arg| arg.starts_with(&format!("hooks.{name}="))));
+    }
+    let pre = args
+        .iter()
+        .find(|arg| arg.starts_with("hooks.PreToolUse="))
+        .unwrap();
+    assert!(pre.contains("matcher=\"^request_user_input$\""));
+    assert!(args
+        .iter()
+        .filter(|arg| arg.starts_with("hooks.Interrupt=") || arg.starts_with("hooks.SessionEnd="))
+        .all(|arg| arg.contains("timeout=3")));
+}
+
+#[test]
+fn hook_notifications_release_mapping_lock_before_waiting_for_gui() {
+    let fixture = Fixture::new();
+    let path = fixture.path();
+    let state = begin(&path, false).unwrap();
+    let prompt =
+        br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","turn_id":"turn"}"#;
+    record_with(&path, &state.launch, prompt.as_slice(), |_| {
+        let path = path.clone();
+        let launch = state.launch.clone();
+        std::thread::spawn(move || {
+            record_with(&path, &launch, br#"{"session_id":"conversation","hook_event_name":"PreToolUse","turn_id":"turn","tool_name":"request_user_input","tool_use_id":"question"}"#.as_slice(), |_| {})
+        }).join().unwrap().unwrap();
+    }).unwrap();
+    assert_eq!(read_state(&path).unwrap().activity, Activity::Question);
 }

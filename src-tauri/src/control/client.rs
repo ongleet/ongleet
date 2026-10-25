@@ -61,6 +61,14 @@ pub fn read_message(
 }
 
 pub fn call(path: &Path, command: Command) -> Result<Response, RpcError> {
+    call_with_timeout(path, command, Duration::from_secs(30))
+}
+
+pub fn call_with_timeout(
+    path: &Path,
+    command: Command,
+    timeout: Duration,
+) -> Result<Response, RpcError> {
     let bytes = serde_json::to_vec(&Request {
         version: VERSION,
         command,
@@ -82,13 +90,13 @@ pub fn call(path: &Path, command: Command) -> Result<Response, RpcError> {
     })?;
     verify_peer(&stream)?;
     stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
+        .set_write_timeout(Some(timeout.min(Duration::from_secs(2))))
         .map_err(|e| RpcError::new("operation_failed", e.to_string()))?;
     stream
         .write_all(&bytes)
         .and_then(|_| stream.shutdown(std::net::Shutdown::Write))
         .map_err(|e| RpcError::new("operation_failed", e.to_string()))?;
-    let bytes = read_message(&mut stream, RESPONSE_LIMIT, Duration::from_secs(30))?;
+    let bytes = read_message(&mut stream, RESPONSE_LIMIT, timeout)?;
     let response: Response = serde_json::from_slice(&bytes).map_err(|_| RpcError::new("protocol_error", "Invalid application response. Restart the application to load the current socket protocol."))?;
     if response.ok == response.error.is_some() {
         return Err(RpcError::new(
