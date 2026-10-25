@@ -11,6 +11,7 @@ mod control;
 mod control_dispatch;
 mod core;
 use crate::core::desktop as desktop_input;
+mod input_diagnostics;
 mod instance;
 mod plugins;
 mod session;
@@ -514,6 +515,7 @@ fn run() -> Result<(), String> {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            input_diagnostics::install(app)?;
             app.state::<AppRegistry>()
                 .0
                 .lock()

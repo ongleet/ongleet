@@ -1,5 +1,13 @@
 # Validation guide
 
+For unexplained native keyboard warnings, launch with
+`DEVCENTER_DEBUG=1 mise exec -- npm run tauri -- dev`.
+The opt-in stderr trace records GTK key/focus events, elapsed and GDK timestamps,
+hardware codes, key values, modifiers, layout group, window focus/visibility and
+the GTK `send_event` flag. Key values can reveal typed input. The flag alone
+does not establish whether an event came from a physical device. Logging leaves
+event propagation unchanged; reproduce the warning and retain adjacent trace lines.
+
 The full terminal compatibility gate remains open. Pass only observed checks; skipped checks and unavailable desktop access are limitations.
 
 ## Recorded evidence
@@ -88,3 +96,21 @@ Observed native evidence with isolated metadata:
 - `terminal-native-validation-68ay2kvg`: twelve Wayland terminal checks pass through the SDK, including native clipboard, mouse/curses, resize, raw-byte replay, hidden floods and terminal reuse. Interactive Codex was explicitly skipped. Two WebKit worker processes were observed at harness cleanup and killed by the harness; no application or PTY process was listed as a survivor.
 
 These runs do not close the full terminal-stack gate. Live GitHub, the native 32-job saturation boundary, interactive Codex, remaining X11/Xorg input cases, IME and power-loss behavior remain unverified. The existing manual checklist still applies. Production frontend assets were restored after native validation.
+
+## Files refresh and overwrite confirmation (2026-10-25)
+
+Production frontend and native debug builds pass. Native WebKitGTK/X11 editor run `devcenter-editor-validation-ufbwwfue` passes fifteen checks with no cleanup survivors: clean-file automatic refresh, retained drafts, cancelled overwrite, renewed confirmation after another external write, confirmed overwrite, and existing editor/archive regression coverage. Refresh pauses for hidden tabs and resumes when visible; focus-triggered refresh and edits arriving during an in-flight read remain unverified by dedicated native scenarios. Physical keyboard shortcut limitations documented above still apply.
+
+## Files inotify notifications (2026-10-25)
+
+Replaced one-second file polling with an attachment-owned Linux inotify parent-directory watch, filtered by basename. Notifications coalesce until read acknowledgement; closing/detaching/removing the owner or quitting stops and joins the worker. Production frontend/native builds, formatting, plugin boundaries and the complete Rust suite pass outside the socket-restricted sandbox. The real-inotify Rust test covers sibling filtering, event coalescing, atomic replacement, deletion/recreation and worker disposal.
+
+Native WebKitGTK/X11 run `devcenter-editor-validation-ca7m4bqt` passes sixteen editor/archive checks with no cleanup survivors. It verifies repeated atomic replacements, deletion/recreation, no filesystem reads during 1.5 seconds idle (using IN_ACCESS with a positive control), retained drafts and revision-bound overwrite confirmation. An earlier run exposed a missing asynchronous Back-navigation wait in the harness; another rejected ineffective instrumentation of Tauri's immutable invoke property. The final harness observes actual filesystem access. Focus-triggered refresh, in-flight editing races, notification queue overflow and the global watch limit have no dedicated native acceptance scenario. Parent-directory relocation requires reopening; remote network-filesystem and mmap writes remain outside inotify coverage.
+
+## Persistent drafts and three-way save conflicts (2026-10-25)
+
+Edits persist synchronously in WebView localStorage with the original text/revision, scoped by tab ID and canonical path. The editor detail bar highlights unsaved changes and local draft availability. Reload/restart and GUI closure retain drafts; save, reverting to the baseline, and explicit Reload/Back discard remove them. Missing source files can recover their draft without recreation. Quota/storage failures retain live edits and show a visible error. Storage clearing and power-loss durability are not guaranteed.
+
+Conflicting saves offer Cancel, Force save and Merge into editor. The line-based three-way merge uses node-diff3 in a disposable Web Worker, with bounded input/matching work and a five-second timeout. It rereads the current disk version, updates the editor and draft baseline without writing, and preserves competing edits plus original context in conflict markers. Concurrent editor changes reject the result; a subsequent disk change is revision-checked again at save. Large or highly repetitive changes can require manual merging or explicit force save.
+
+Production frontend/native builds, plugin boundaries and formatting pass. `npm run check:editor-merge` passes seven behavior tests covering independent/overlapping/identical edits, whitespace/Unicode/EOF preservation, deletion/insertion, empty originals and bounded repetitive work. Native WebKitGTK/X11 report `devcenter-editor-validation-3e9zcmm4` passes 22 checks with no cleanup survivors, including persisted drafts across reload/restart, conflict cancellation/forcing, explicit discard, simulated quota failure and recovery, missing-file draft recovery, native worker merging, marker restoration and resolved save. The prior merge run reached the worker result but failed on a multiline expected-value escaping error in the harness; the final harness passes that value as a WebDriver argument. In-flight typing during merge, worker timeout, simultaneous editors for one file, and power-loss durability have no dedicated native acceptance scenario. Physical keyboard shortcut limitations remain as previously documented.

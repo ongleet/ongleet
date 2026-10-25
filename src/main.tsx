@@ -304,6 +304,16 @@ function SessionPane({
 }) {
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
   const active = openTabs.find((tab) => tab.id === session.selectedTabId);
+  const [tabTitles, setTabTitles] = useState<Record<number, string>>({});
+  const reportTitle = useCallback((id: number, title: string | null) => {
+    setTabTitles((previous) => {
+      if ((previous[id] ?? null) === title) return previous;
+      const next = { ...previous };
+      if (title === null) delete next[id];
+      else next[id] = title;
+      return next;
+    });
+  }, []);
   const [dragTabId, setDragTabId] = useState<number | null>(null);
   const [tabDrop, setTabDrop] = useState<{ id: number; after: boolean } | null>(null);
   function navigate(event: React.KeyboardEvent, index: number) {
@@ -388,7 +398,7 @@ function SessionPane({
                 draggable={!disabled}
                 onKeyDown={(event) => navigate(event, index)}
                 onClick={() => void mutate('select_tab', { id: tab.id })}
-                title={`${tab.name} — ${tab.kind === 'terminal' ? (statuses[tab.id]?.state ?? 'stopped') : tab.kind} · Drag to reorder · Alt+← / Alt+→`}
+                title={`${tabTitles[tab.id] ?? tab.name} — ${tab.kind === 'terminal' ? (statuses[tab.id]?.state ?? 'stopped') : tab.kind} · Drag to reorder · Alt+← / Alt+→`}
                 onDragStart={(event) => {
                   setDragTabId(tab.id);
                   event.dataTransfer.effectAllowed = 'move';
@@ -400,7 +410,7 @@ function SessionPane({
                   setTabDrop(null);
                 }}
               >
-                <span className="tab-name">{tab.name}</span>
+                <span className="tab-name">{tabTitles[tab.id] ?? tab.name}</span>
                 {statuses[tab.id]?.state === 'exited' && (
                   <span>({(statuses[tab.id] as { code: number }).code})</span>
                 )}
@@ -409,7 +419,7 @@ function SessionPane({
                 className="tab-icon tab-close"
                 disabled={disabled}
                 tabIndex={tab.id === active?.id ? 0 : -1}
-                aria-label={`Close ${tab.name}`}
+                aria-label={`Close ${tabTitles[tab.id] ?? tab.name}`}
                 title="Close and archive tab for 30 days"
                 onClick={() => closeTab(tab)}
               >
@@ -437,6 +447,7 @@ function SessionPane({
       )}
       {openTabs.map((tab) => (
         <TabHost
+          reportTitle={reportTitle}
           key={tab.id}
           session={session}
           tab={tab}

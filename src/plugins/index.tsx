@@ -41,7 +41,8 @@ export const plugins: TabPlugin[] = Object.entries(manifests).flatMap(
 export async function flushPlugins() {
   await Promise.all(plugins.map((plugin) => plugin.beforeQuit?.()));
 }
-export function TabHost(props: PluginContentProps) {
+type HostProps = PluginContentProps & { reportTitle: (id: number, title: string | null) => void };
+export function TabHost(props: HostProps) {
   const plugin = plugins.find((plugin) => plugin.id === props.tab.kind);
   if (plugin && plugin.configVersion === props.tab.configVersion)
     return <AttachedPlugin key={props.tab.id} plugin={plugin} props={props} />;
@@ -71,11 +72,11 @@ export function actionEditor(kind: string) {
   return kind === 'command' ? commandEditor : plugins.find((plugin) => plugin.id === kind);
 }
 
-function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: PluginContentProps }) {
+function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps }) {
   const [sdk, setSdk] = useState<PluginSdk>();
   const [error, setError] = useState('');
   useEffect(() => {
-    const instance = createSdk(props.tab.id);
+    const instance = createSdk(props.tab.id, (title) => props.reportTitle(props.tab.id, title));
     let active = true;
     let unregister: (() => void) | undefined;
     if (import.meta.env.MODE === 'native-validation')

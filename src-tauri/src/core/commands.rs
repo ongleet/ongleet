@@ -46,6 +46,13 @@ pub enum Request {
     OpenFile {
         path: String,
     },
+    WatchText {
+        path: String,
+        token: String,
+    },
+    UnwatchText {
+        token: String,
+    },
     ReadText {
         path: String,
     },
@@ -122,7 +129,11 @@ pub async fn sdk_request(
         }
         let tab = guard.open_plugin_tab(id).map_err(SdkError::from)?;
         let capability = match &request {
-            Request::List { .. } | Request::ReadText { .. } | Request::SaveText { .. } => "fs",
+            Request::List { .. }
+            | Request::ReadText { .. }
+            | Request::SaveText { .. }
+            | Request::WatchText { .. }
+            | Request::UnwatchText { .. } => "fs",
             Request::Process { .. } | Request::Cancel => "process",
             Request::OpenFile { .. } => "desktop",
             _ => "storage",
@@ -178,6 +189,7 @@ pub async fn sdk_request(
     } else {
         None
     };
+    let watch_app = app.clone();
     let result =
         tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
             if let Request::Process { request } = request {
@@ -216,7 +228,37 @@ pub async fn sdk_request(
                     show_hidden,
                     &query,
                 )?),
-                Request::ReadText { path } => serde_json::to_value(super::fs::editor::load(&path)?),
+                Request::WatchText { path, token } => {
+                    if token.is_empty() || token.len() > 128 {
+                        return Err("Invalid watch token".into());
+                    }
+                    if !guard.file_watches.contains_key(&id) && guard.file_watches.len() >= 128 {
+                        return Err("File watch limit 128".into());
+                    }
+                    let event = format!("fs-changed-{id}-{attachment}");
+                    let notification = token.clone();
+                    let watch = super::fs::watch::Watch::start(path, token, move || {
+                        let _ = watch_app.emit(&event, &notification);
+                    })?;
+                    guard.file_watches.insert(id, watch);
+                    Ok(serde_json::Value::Null)
+                }
+                Request::UnwatchText { token } => {
+                    if guard
+                        .file_watches
+                        .get(&id)
+                        .is_some_and(|w| w.token == token)
+                    {
+                        guard.file_watches.remove(&id);
+                    }
+                    Ok(serde_json::Value::Null)
+                }
+                Request::ReadText { path } => {
+                    if let Some(watch) = guard.file_watches.get(&id).filter(|w| w.path == path) {
+                        watch.acknowledge();
+                    }
+                    serde_json::to_value(super::fs::editor::load(&path)?)
+                }
                 Request::SaveText {
                     path,
                     text,

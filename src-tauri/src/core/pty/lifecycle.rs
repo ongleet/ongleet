@@ -221,6 +221,7 @@ impl SessionRegistry {
         }
         let plugin_tabs: Vec<_> = self.plugin_jobs.keys().copied().collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
+        self.file_watches.clear();
         self.sdk_attachments.clear();
         // Persist the last running set before killing processes for app exit.
         // Explicit Stop and tab close clear the flag through their own paths.

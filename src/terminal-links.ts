@@ -1,7 +1,7 @@
 import type { Terminal } from 'ghostty-web';
 
 // ghostty-web 0.4.0 exposes hyperlink IDs in cells, but getHyperlinkUri is a
-// stub. Retain only bounded OSC 8 metadata; Ghostty still parses all VT bytes
+// stub. Retain bounded OSC 8 and title metadata; Ghostty still parses all VT bytes
 // and remains authoritative for cell positions, wrapping and scrollback.
 export class TerminalLinks {
   private state: 'ground' | 'escape' | 'csi' | 'osc' | 'oscEscape' | 'string' | 'stringEscape' =
@@ -11,10 +11,16 @@ export class TerminalLinks {
   private pendingUri?: string;
   private uris = new Map<number, string>();
   private uriBytes = 0;
+  private titleChanged: (title: string | null) => void;
   private term: Terminal;
   private consume: (bytes: number[]) => void;
 
-  constructor(term: Terminal, consume: (bytes: number[]) => void) {
+  constructor(
+    term: Terminal,
+    consume: (bytes: number[]) => void,
+    titleChanged: (title: string | null) => void = () => {},
+  ) {
+    this.titleChanged = titleChanged;
     this.term = term;
     this.consume = consume;
     if (term.wasmTerm) term.wasmTerm.getHyperlinkUri = (id) => this.uris.get(id) ?? null;
@@ -60,6 +66,7 @@ export class TerminalLinks {
         else if ([80, 88, 94, 95].includes(byte)) this.state = 'string';
         else {
           if (byte === 99) {
+            this.titleChanged(null);
             this.uris.clear();
             this.uriBytes = 0;
             this.pendingUri = undefined;
@@ -96,6 +103,10 @@ export class TerminalLinks {
 
   private oscComplete() {
     const text = new TextDecoder().decode(new Uint8Array(this.osc));
+    if (text.startsWith('0;') || text.startsWith('2;')) {
+      this.titleChanged(text.slice(2).slice(0, 256));
+      return;
+    }
     if (!text.startsWith('8;')) return;
     const separator = text.indexOf(';', 2);
     if (separator >= 0) this.pendingUri = text.slice(separator + 1) || undefined;

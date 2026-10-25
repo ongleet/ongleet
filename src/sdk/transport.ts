@@ -29,7 +29,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
     throw sdkError(error);
   }
 }
-export function createSdk(id: number) {
+export function createSdk(id: number, setTitle: (title: string | null) => void) {
   const attachment = crypto.randomUUID();
   let disposed = false;
   const ready = call<void>('sdk_attach', { id, attachment });
@@ -59,6 +59,14 @@ export function createSdk(id: number) {
   }
   return {
     ready,
+    tab: {
+      setTitle: (title: string | null) => {
+        if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+        if (title !== null && (typeof title !== 'string' || title.length > 256))
+          throw new SdkError('limit_exceeded', 'Tab title must contain at most 256 characters');
+        setTitle(title?.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim() || null);
+      },
+    },
     fs: {
       list: (options: {
         folder: string;
@@ -67,6 +75,45 @@ export function createSdk(id: number) {
         showHidden: boolean;
         query: string;
       }) => request<Listing>('list', options),
+      watchText: async (path: string, changed: () => void) => {
+        await ready;
+        if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
+        const token = crypto.randomUUID();
+        let active = true;
+        const unlisten = await listen<string>(`fs-changed-${id}-${attachment}`, (event) => {
+          if (active && !disposed && event.payload === token) changed();
+        });
+        const dispose = () => {
+          if (!active) return;
+          active = false;
+          subscriptions.delete(dispose);
+          unlisten();
+          void call('sdk_request', {
+            id,
+            attachment,
+            request: { operation: 'unwatchText', token },
+          }).catch(() => {});
+        };
+        if (disposed) {
+          dispose();
+          throw new SdkError('unavailable', 'Plugin attachment disposed');
+        }
+        subscriptions.add(dispose);
+        try {
+          await request<void>('watchText', { path, token });
+          if (!active || disposed) {
+            await call('sdk_request', {
+              id,
+              attachment,
+              request: { operation: 'unwatchText', token },
+            });
+          }
+          return dispose;
+        } catch (error) {
+          dispose();
+          throw sdkError(error);
+        }
+      },
       readText: (path: string) => request<TextDocument | null>('readText', { path }),
       saveText: (options: { path: string; text: string; revision: string }) =>
         request<TextDocument>('saveText', options),
@@ -134,6 +181,7 @@ export function createSdk(id: number) {
     },
     dispose: async () => {
       disposed = true;
+      setTitle(null);
       for (const unsubscribe of [...subscriptions]) unsubscribe();
       for (const channel of channels) channel.onmessage = () => {};
       channels.clear();

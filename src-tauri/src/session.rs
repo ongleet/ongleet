@@ -78,6 +78,7 @@ pub struct SessionRegistry {
     next_tab_id: u64,
     // Keyed by tab ID, never by navigation selection or session position.
     pub terminals: HashMap<u64, TerminalSession>,
+    pub file_watches: HashMap<u64, crate::core::fs::watch::Watch>,
     pub sdk_attachments: HashMap<u64, String>,
     pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
 }
@@ -107,6 +108,7 @@ impl SessionRegistry {
             next_terminal_id: 0,
             terminals: HashMap::new(),
             sdk_attachments: HashMap::new(),
+            file_watches: HashMap::new(),
             plugin_jobs: HashMap::new(),
         };
         registry.run_archive_maintenance();
@@ -325,6 +327,7 @@ impl SessionRegistry {
         let plugin_tabs: Vec<_> = self.sessions[index].tabs.iter().map(|t| t.id).collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
         for id in &plugin_tabs {
+            self.file_watches.remove(id);
             self.sdk_attachments.remove(id);
         }
         self.sessions.remove(index);
@@ -426,6 +429,7 @@ impl SessionRegistry {
         Ok(self.snapshot())
     }
     pub fn cancel_plugin_work(&mut self, tab: u64) -> Result<(), String> {
+        self.file_watches.remove(&tab);
         self.cancel_plugin_jobs(&[tab])
     }
     pub fn cancel_plugin_jobs(&mut self, tabs: &[u64]) -> Result<(), String> {

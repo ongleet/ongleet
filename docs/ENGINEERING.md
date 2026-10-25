@@ -20,7 +20,7 @@ Use native clipboard and Ghostty paste APIs. Await the in-app destructive confir
 - Use transactional migrations in standard user-data SQLite; never reset a failed database. Store explicit overrides only, never inherited environment or credentials.
 - Merge inherited environment, project root `env`, then action overrides. Existing processes/configurations stay independent. Only the `actions` YAML schema is supported; configuration lives outside project roots.
 - External commands launch explicitly, independently of tabs/PTYs. Reap bounded children, discard output and report failures. Preserve literal placeholders; shell context uses quoted reserved environment variables.
-- Files folder updates preserve `editorFile`; Back clears only that field. Restore disk contents without silently discarding live edits. Missing files produce recoverable errors; drafts remain memory-only.
+- Files folder updates preserve `editorFile`; Back clears only that field. Restore disk contents without silently discarding live edits. Drafts persist in WebView localStorage with their original revision, scoped by tab/path; missing files recover drafts without recreation. Explicit discard clears drafts; close/Quit retain them. Conflicting saves offer cancel, revision-checked force save, or a bounded worker-based three-way merge into the editor, rebasing onto current disk contents without writing.
 - Window close hides; repeated launch/`--show` activates. `--show` never starts an unavailable app. Quit confirms and cleans up. Restart only the last recorded running set; stopped/closed/exited tabs never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
@@ -45,6 +45,7 @@ Run checks appropriate to the change through mise:
 mise exec -- npm run check:host
 mise exec -- npm run build
 mise exec -- npm run check:plugins
+mise exec -- npm run check:editor-merge
 mise exec -- npm run check:wasm
 mise exec -- npm run check:terminal-reuse
 mise exec -- npm run check:rendering

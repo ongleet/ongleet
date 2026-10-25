@@ -1,6 +1,7 @@
 """Exercise the Files editor in isolated native WebKitGTK metadata and fixtures."""
 import argparse
 import base64
+import ctypes
 import importlib.util
 import json
 import os
@@ -9,6 +10,7 @@ import signal
 import socket
 import subprocess
 import tempfile
+import time
 
 spec = importlib.util.spec_from_file_location('native', Path(__file__).with_name('check-native.py'))
 native = importlib.util.module_from_spec(spec)
@@ -85,6 +87,37 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Hello editor')"), 'file editor')
             assert client.js("return !!document.querySelector('.files-browser[hidden]')")
             mark('text opens in place of file browser')
+            file.write_text('Automatically refreshed\n')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Automatically refreshed')"), 'automatic clean-file refresh')
+            mark('clean editor automatically follows external file changes')
+            replacement = folder / 'replacement.tmp'
+            for text in ['First atomic replacement\n', 'Second atomic replacement\n']:
+                replacement.write_text(text)
+                replacement.replace(file)
+                native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes(arguments[0])", text.strip()), 'atomic replacement refresh')
+            file.unlink()
+            native.wait_for(lambda: client.js("return !!document.querySelector('.text-editor [role=alert]')"), 'deleted file error')
+            file.write_text('Recreated file\n')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Recreated file') && !document.querySelector('.text-editor [role=alert]')"), 'recreated file refresh')
+            # Observe actual filesystem reads; Tauri's invoke property is immutable.
+            libc = ctypes.CDLL(None, use_errno=True)
+            access_fd = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+            assert access_fd >= 0
+            try:
+                assert libc.inotify_add_watch(access_fd, os.fsencode(file), 1) >= 0  # IN_ACCESS
+                time.sleep(1.5)
+                try:
+                    os.read(access_fd, 4096)
+                except BlockingIOError:
+                    pass
+                else:
+                    raise AssertionError('Idle editor unexpectedly read the file')
+                file.write_text('Read counter verified\n')
+                native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Read counter verified')"), 'observed notification-driven read')
+                assert os.read(access_fd, 4096)  # Positive control for the read observer.
+            finally:
+                os.close(access_fd)
+            mark('inotify survives repeated atomic replacement and recreation, with no idle reads')
             client.js("window.editorKeys=[];document.addEventListener('keydown',e=>window.editorKeys.push({key:e.key,code:e.code,ctrl:e.ctrlKey,shift:e.shiftKey,target:e.target.className}),true)")
             client.click('.cm-content')
             ctrl('a')
@@ -133,7 +166,22 @@ def run(args):
             button('Save')
             native.wait_for(lambda: client.js("return document.querySelector('.text-editor [role=alert]')?.textContent.includes('changed on disk')"), 'conflict error')
             assert file.read_text() == 'External change\n'
-            mark('external modification blocks overwrite and retains editor')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'overwrite confirmation')
+            assert client.js("return document.querySelector('.cm-content').innerText.includes('unsaved')")
+            client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
+            assert file.read_text() == 'External change\n'
+            button('Save')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'second overwrite confirmation')
+            file.write_text('Changed again while confirming\n')
+            client.click("//dialog[@open]//button[normalize-space()='Force save']", 'xpath')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'renewed overwrite confirmation')
+            assert file.read_text() == 'Changed again while confirming\n'
+            client.click("//dialog[@open]//button[normalize-space()='Force save']", 'xpath')
+            native.wait_for(lambda: 'unsaved' in file.read_text(), 'confirmed overwrite')
+            mark('external changes preserve drafts; overwrite requires confirmation for the current revision')
+            client.click('.cm-content')
+            client.keys(' draft')
+            file.write_text('External change\n')
             button('Reload')
             client.click("//dialog[@open]//button[normalize-space()='Discard changes']", 'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content').innerText.includes('External change')"), 'reload')
@@ -156,6 +204,7 @@ def run(args):
             native.wait_for(lambda: client.js("return !document.querySelector('.editor-menu:popover-open')"), 'outside-click menu dismissal')
             mark('actions menu keyboard/dismissal and wrapping preference survive WebView reload')
             button('← Files')
+            native.wait_for(lambda: client.js("return !document.querySelector('.files-browser').hidden"), 'browser visible before navigation')
             nested = folder / 'nested'
             nested.mkdir()
             second = nested / 'resume.txt'
@@ -169,6 +218,94 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Restored saved contents')"), 'file restored after stop/start')
             assert client.js("return document.querySelector('input[aria-label=Folder]').value === arguments[0]", str(nested))
             mark('stop/start restores nested folder and open text file')
+            draft_key = 'devcenter.editor.draft:' + json.dumps([tab, str(second)], separators=(',', ':'))
+            client.click('.cm-content')
+            ctrl('a')
+            client.keys('Persistent café draft')
+            native.wait_for(lambda: client.js("return document.querySelector('.editor-modified-label')?.textContent.includes('Draft saved locally') && JSON.parse(localStorage.getItem(arguments[0])).text === 'Persistent café draft'", draft_key), 'local draft and modified badge')
+            assert second.read_text() == 'Restored saved contents\n'
+            client.request('POST', '/refresh', {})
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Persistent café draft')"), 'draft restored after WebView reload')
+            second.write_text('External update during draft\n')
+            restart()
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Persistent café draft') && document.querySelector('.text-editor').textContent.includes('file changed on disk')"), 'draft restored after restart with original revision')
+            button('Save')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'restored draft conflict')
+            client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
+            assert second.read_text() == 'External update during draft\n'
+            assert client.js('return localStorage.getItem(arguments[0]) !== null', draft_key)
+            button('Save')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'restored draft overwrite confirmation')
+            client.click("//dialog[@open]//button[normalize-space()='Force save']", 'xpath')
+            native.wait_for(lambda: second.read_text() == 'Persistent café draft' and client.js('return localStorage.getItem(arguments[0]) === null && !document.querySelector(\".editor-modified-label\")', draft_key), 'saved draft removed and badge cleared')
+            mark('local drafts survive reload/restart, retain original revisions and require confirmed overwrite')
+            client.click('.cm-content')
+            client.keys(' discard me')
+            button('← Files')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Unsaved changes\"][open]')"), 'discard draft confirmation')
+            client.click("//dialog[@open]//button[normalize-space()='Discard changes']", 'xpath')
+            native.wait_for(lambda: client.js('return !document.querySelector(\".cm-content\") && localStorage.getItem(arguments[0]) === null', draft_key), 'discarded draft removed')
+            client.click("//button[.//span[text()='resume.txt']]", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Persistent café draft') && !document.querySelector('.editor-modified-label')"), 'discard does not resurrect draft')
+            mark('explicit discard removes the local draft and modified badge')
+            client.js("window.originalDraftSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('devcenter.editor.draft:'))throw new DOMException('Test quota exhausted','QuotaExceededError');return window.originalDraftSetItem.call(this,key,value)}")
+            client.click('.cm-content')
+            client.keys(' quota')
+            native.wait_for(lambda: client.js("return document.querySelector('.text-editor [role=alert]')?.textContent.includes('Could not store') && document.querySelector('.editor-modified-label')?.textContent.includes('unavailable')"), 'draft storage failure is visible')
+            assert second.read_text() == 'Persistent café draft'
+            client.js('Storage.prototype.setItem=window.originalDraftSetItem')
+            client.keys(' recovered')
+            native.wait_for(lambda: client.js('return localStorage.getItem(arguments[0]) !== null && !document.querySelector(\".text-editor [role=alert]\")', draft_key), 'draft storage recovers after failure')
+            button('Reload')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Unsaved changes\"][open]')"), 'reload draft discard confirmation')
+            client.click("//dialog[@open]//button[normalize-space()='Discard changes']", 'xpath')
+            native.wait_for(lambda: client.js('return localStorage.getItem(arguments[0]) === null && !document.querySelector(\".editor-modified-label\")', draft_key), 'reload removes draft')
+            mark('local storage failure preserves edits, reports unavailable backup and recovers')
+            client.click('.cm-content')
+            ctrl('a')
+            client.keys('Missing file draft')
+            second.unlink()
+            restart()
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Missing file draft')"), 'draft restored despite missing file')
+            assert not second.exists()
+            second.write_text('Restored saved contents\n')
+            button('Reload')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Unsaved changes\"][open]')"), 'discard missing-file draft')
+            client.click("//dialog[@open]//button[normalize-space()='Discard changes']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Restored saved contents') && !document.querySelector('.editor-modified-label')"), 'recreated file loaded')
+            mark('drafts remain recoverable when the source file is missing without recreating it')
+            second.write_text('Title\nkeep\nBody\nFooter\n')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Footer')"), 'base version for three-way merge')
+            client.click('.cm-content')
+            ctrl('a')
+            client.keys('New title\nkeep\nBody\nFooter\n')
+            second.write_text('Title\nkeep\nNew body\nFooter\n')
+            button('Save')
+            native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')?.querySelectorAll('button').length === 3"), 'three conflict actions')
+            client.click("//dialog[@open]//button[normalize-space()='Merge into editor']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('New title') && document.querySelector('.cm-content')?.innerText.includes('New body') && document.querySelector('.text-editor').textContent.includes('Review the result')"), 'independent edits merged in native worker')
+            assert second.read_text() == 'Title\nkeep\nNew body\nFooter\n'
+            assert client.js("return JSON.parse(localStorage.getItem(arguments[0])).baseline.text === arguments[1]", draft_key, 'Title\nkeep\nNew body\nFooter\n')
+            ctrl('s')
+            native.wait_for(lambda: second.read_text() == 'New title\nkeep\nNew body\nFooter\n', 'reviewed merge saves against new disk revision')
+            mark('three-way merge applies independent edits to the editor without saving until requested')
+            client.click('.cm-content')
+            ctrl('a')
+            client.keys('Local competing edit\n')
+            second.write_text('Disk competing edit\n')
+            button('Save')
+            native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"File changed on disk\"][open]')"), 'overlapping change conflict')
+            client.click("//dialog[@open]//button[normalize-space()='Merge into editor']", 'xpath')
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('<<<<<<< Local edits') && document.querySelector('.cm-content')?.innerText.includes('>>>>>>> Disk version')"), 'conflict markers in editor')
+            assert second.read_text() == 'Disk competing edit\n'
+            client.request('POST', '/refresh', {})
+            native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('<<<<<<< Local edits') && document.querySelector('.cm-content')?.innerText.includes('Disk competing edit')"), 'merged conflict draft survives reload')
+            client.click('.cm-content')
+            ctrl('a')
+            client.keys('Manually resolved\n')
+            ctrl('s')
+            native.wait_for(lambda: second.read_text() == 'Manually resolved\n' and client.js('return !document.querySelector(\".editor-modified-label\")'), 'resolved merge saves normally')
+            mark('overlapping edits generate recoverable conflict markers and can be resolved and saved')
             button('← Files')
             native.wait_for(lambda: client.js("return !document.querySelector('.cm-content')"), 'editor closed')
             restart()

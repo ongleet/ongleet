@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSdk, type TextDocument } from '../../sdk';
+import { useSdk, SdkError, type TextDocument } from '../../sdk';
 export type { TextDocument } from '../../sdk';
 import { Compartment, EditorState } from '@codemirror/state';
 import {
@@ -20,6 +20,8 @@ import {
 import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
 import { useEditorWrap } from './editor-settings';
 import { fileEditors } from './editor-guards';
+import { readDraft, storeDraft, removeDraft } from './editor-drafts';
+import { startMerge } from './editor-merge';
 
 export function TextEditor({
   id,
@@ -39,27 +41,44 @@ export function TextEditor({
   const view = useRef<EditorView>(null);
   const baseline = useRef(document);
   const saving = useRef(false);
+  const persistDraft = useRef(true);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [draftError, setDraftError] = useState('');
+  const [notice, setNotice] = useState('');
   const [position, setPosition] = useState({ line: 1, column: 1 });
   const [wrap, setWrap] = useEditorWrap();
   const menu = useRef<HTMLDivElement>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuId = `editor-actions-${id}`;
-  const [confirmation, setConfirmation] = useState<'back' | 'reload'>();
+  const [confirmation, setConfirmation] = useState<'back' | 'reload' | 'overwrite'>();
+  const overwriteRevision = useRef<string>(undefined);
+  const mergeJob = useRef<ReturnType<typeof startMerge>>(undefined);
+  const confirmationRef = useRef(confirmation);
+  confirmationRef.current = confirmation;
   const dialog = useRef<HTMLDialogElement>(null);
   const saveRef = useRef<() => void>(() => {});
   const statusRef = useRef({ dirty: false, busy: false });
   function publish(nextDirty: boolean, nextBusy: boolean) {
     if (!view.current) return;
+    if (persistDraft.current) {
+      try {
+        storeDraft(id, baseline.current, view.current.state.doc.toString());
+        setDraftError('');
+      } catch (error) {
+        setDraftError(
+          `Could not store the local draft: ${String(error)}. Keep this editor open or save the file.`,
+        );
+      }
+    }
     statusRef.current = { dirty: nextDirty, busy: nextBusy };
     fileEditors.set(id, { path: baseline.current.path, dirty: nextDirty, busy: nextBusy });
     setDirty(nextDirty);
     setBusy(nextBusy);
   }
-  async function save() {
-    if (!view.current || saving.current) return;
+  async function save(revision?: string) {
+    if (!view.current || saving.current || confirmationRef.current) return;
     saving.current = true;
     const text = view.current.state.doc.toString();
     publish(dirty, true);
@@ -68,13 +87,26 @@ export function TextEditor({
       const saved = await sdk.fs.saveText({
         path: baseline.current.path,
         text,
-        revision: baseline.current.revision,
+        revision: revision ?? baseline.current.revision,
       });
       if (!view.current) return;
       baseline.current = saved;
+      persistDraft.current = true;
+      setNotice('');
       publish(view.current.state.doc.toString() !== saved.text, false);
     } catch (error) {
       setError(String(error));
+      if (error instanceof SdkError && error.code === 'revision_conflict') {
+        try {
+          const current = await sdk.fs.readText(baseline.current.path);
+          if (view.current && current) {
+            overwriteRevision.current = current.revision;
+            setConfirmation('overwrite');
+          }
+        } catch (readError) {
+          setError(String(readError));
+        }
+      }
       publish(statusRef.current.dirty, false);
     } finally {
       saving.current = false;
@@ -86,10 +118,27 @@ export function TextEditor({
   useEffect(() => {
     if (!host.current) return;
     const clipboardError = (error: unknown) => setError(String(error));
+    baseline.current = document;
+    let initialText = document.text;
+    try {
+      const draft = readDraft(id, document.path);
+      if (draft && draft.text !== document.text) {
+        baseline.current = draft.baseline;
+        initialText = draft.text;
+        setNotice(
+          draft.baseline.revision !== document.revision
+            ? 'Local draft restored. The file changed on disk; saving will require confirmation.'
+            : 'Local draft restored. Save to apply your changes to the file.',
+        );
+      }
+    } catch (error) {
+      persistDraft.current = false;
+      setDraftError(`Could not restore the local draft: ${String(error)}`);
+    }
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({
-        doc: document.text,
+        doc: initialText,
         extensions: [
           wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
           lineNumbers(),
@@ -158,8 +207,10 @@ export function TextEditor({
             ...defaultKeymap,
           ]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged)
+            if (update.docChanged) {
+              persistDraft.current = true;
               publish(update.state.doc.toString() !== baseline.current.text, saving.current);
+            }
             if (update.selectionSet || update.docChanged) {
               const head = update.state.selection.main.head;
               const line = update.state.doc.lineAt(head);
@@ -192,10 +243,11 @@ export function TextEditor({
       }),
     });
     view.current = editor;
-    publish(false, false);
+    publish(initialText !== baseline.current.text, false);
     editor.focus();
     return () => {
       view.current = null;
+      mergeJob.current?.cancel();
       editor.destroy();
       fileEditors.delete(id);
     };
@@ -214,6 +266,88 @@ export function TextEditor({
   useEffect(() => {
     if (confirmation) dialog.current?.showModal();
   }, [confirmation]);
+  useEffect(() => {
+    if (!visible || dirty || busy || confirmation) return;
+    let cancelled = false;
+    let pending = false;
+    let queued = false;
+    let unwatch: (() => void) | undefined;
+    async function refresh() {
+      const editor = view.current;
+      if (pending) {
+        queued = true;
+        return;
+      }
+      if (
+        cancelled ||
+        !editor ||
+        saving.current ||
+        statusRef.current.dirty ||
+        confirmationRef.current
+      )
+        return;
+      pending = true;
+      const before = editor.state.doc;
+      const previous = baseline.current;
+      try {
+        const loaded = await sdk.fs.readText(previous.path);
+        if (
+          cancelled ||
+          view.current !== editor ||
+          saving.current ||
+          confirmationRef.current ||
+          baseline.current !== previous ||
+          editor.state.doc !== before ||
+          statusRef.current.dirty
+        )
+          return;
+        if (!loaded) throw new Error('File is no longer supported text.');
+        if (loaded.revision !== previous.revision) {
+          baseline.current = loaded;
+          if (loaded.text !== before.toString()) {
+            const selection = editor.state.selection.main;
+            editor.dispatch({
+              changes: { from: 0, to: before.length, insert: loaded.text },
+              selection: {
+                anchor: Math.min(selection.anchor, loaded.text.length),
+                head: Math.min(selection.head, loaded.text.length),
+              },
+            });
+          }
+          publish(false, false);
+        }
+        setError('');
+      } catch (error) {
+        if (!cancelled && view.current === editor && !saving.current && !statusRef.current.dirty)
+          setError(String(error));
+      } finally {
+        pending = false;
+        if (queued && !cancelled) {
+          queued = false;
+          void refresh();
+        }
+      }
+    }
+    void sdk.fs
+      .watchText(baseline.current.path, () => void refresh())
+      .then((stop) => {
+        if (cancelled) stop();
+        else {
+          unwatch = stop;
+          void refresh();
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setError(String(error));
+      });
+    const focus = () => void refresh();
+    window.addEventListener('focus', focus);
+    return () => {
+      cancelled = true;
+      unwatch?.();
+      window.removeEventListener('focus', focus);
+    };
+  }, [visible, id, document.path, sdk, dirty, busy, confirmation]);
   async function reload() {
     if (saving.current) return;
     saving.current = true;
@@ -226,6 +360,7 @@ export function TextEditor({
       if (view.current?.state.doc !== beforeReload)
         throw new Error('Content changed while reloading; your edits have been kept.');
       baseline.current = loaded;
+      setNotice('');
       view.current?.dispatch({
         changes: { from: 0, to: view.current.state.doc.length, insert: loaded.text },
       });
@@ -237,17 +372,56 @@ export function TextEditor({
       saving.current = false;
     }
   }
+  async function mergeChanges() {
+    const editor = view.current;
+    if (!editor || saving.current) return;
+    saving.current = true;
+    const before = editor.state.doc;
+    const original = baseline.current;
+    publish(statusRef.current.dirty, true);
+    setError('');
+    try {
+      const disk = await sdk.fs.readText(original.path);
+      if (!disk) throw new Error('File is no longer supported text.');
+      if (view.current !== editor) return;
+      const job = startMerge(original.text, before.toString(), disk.text);
+      mergeJob.current = job;
+      const merged = await job.result;
+      if (view.current !== editor) return;
+      if (editor.state.doc !== before || baseline.current !== original)
+        throw new Error('Content changed while merging; your edits have been kept. Try again.');
+      baseline.current = disk;
+      editor.dispatch({ changes: { from: 0, to: before.length, insert: merged.text } });
+      publish(merged.text !== disk.text, false);
+      setNotice(
+        merged.conflict
+          ? 'Changes merged into the editor with conflict markers. Resolve them, then save.'
+          : 'Changes merged into the editor. Review the result, then save.',
+      );
+      editor.focus();
+    } catch (error) {
+      if (view.current === editor) setError(String(error));
+    } finally {
+      mergeJob.current = undefined;
+      saving.current = false;
+      if (view.current === editor)
+        publish(editor.state.doc.toString() !== baseline.current.text, false);
+    }
+  }
   async function leave() {
     if (saving.current) return;
     saving.current = true;
     publish(dirty, true);
+    let left = false;
     try {
+      removeDraft(id, baseline.current.path);
       await back();
+      left = true;
     } catch (error) {
       setError(String(error));
     } finally {
       saving.current = false;
-      publish(dirty, false);
+      if (!left) publish(dirty, false);
     }
   }
   return (
@@ -378,32 +552,63 @@ export function TextEditor({
           {error}
         </p>
       )}
+      {draftError && (
+        <p className="error" role="alert">
+          {draftError}
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
       <div className="editor-surface" ref={host} />
       <div className="editor-status">
         Ln {position.line}, Col {position.column} · UTF-8{baseline.current.bom ? ' BOM' : ''} ·{' '}
-        {baseline.current.lineEnding} · {dirty ? 'Unsaved changes' : 'Saved'}
+        {baseline.current.lineEnding} ·{' '}
+        <span className={dirty ? 'editor-modified-label' : undefined} role="status">
+          {dirty
+            ? draftError
+              ? 'Unsaved changes · Local draft unavailable'
+              : 'Unsaved changes · Draft saved locally'
+            : 'Saved'}
+        </span>
       </div>
       {confirmation && (
         <dialog
           ref={dialog}
-          aria-label="Unsaved changes"
+          aria-label={confirmation === 'overwrite' ? 'File changed on disk' : 'Unsaved changes'}
           onCancel={() => setConfirmation(undefined)}
         >
-          <h2>Unsaved changes</h2>
-          <p>Discard your changes to {document.path}?</p>
+          <h2>{confirmation === 'overwrite' ? 'File changed on disk' : 'Unsaved changes'}</h2>
+          <p>
+            {confirmation === 'overwrite'
+              ? `${document.path} changed on disk. Cancel to manage the changes yourself, force save to replace the disk version, or merge your edits into the latest disk version for review. Merging does not save the file.`
+              : `Discard your changes to ${document.path}?`}
+          </p>
           <div className="dialog-actions">
             <button autoFocus onClick={() => setConfirmation(undefined)}>
               Cancel
             </button>
+            {confirmation === 'overwrite' && (
+              <button
+                onClick={() => {
+                  setConfirmation(undefined);
+                  confirmationRef.current = undefined;
+                  void mergeChanges();
+                }}
+              >
+                Merge into editor
+              </button>
+            )}
             <button
               onClick={() => {
                 const action = confirmation;
                 setConfirmation(undefined);
                 if (action === 'back') void leave();
-                else void reload();
+                else if (action === 'overwrite') {
+                  confirmationRef.current = undefined;
+                  void save(overwriteRevision.current);
+                } else void reload();
               }}
             >
-              Discard changes
+              {confirmation === 'overwrite' ? 'Force save' : 'Discard changes'}
             </button>
           </div>
         </dialog>

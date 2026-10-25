@@ -131,3 +131,30 @@ try {
 } finally {
   screen.free();
 }
+
+// Title metadata follows the same raw, arbitrarily fragmented PTY stream as links.
+const titleScreen = ghostty.createTerminal(80, 24);
+const titles = [];
+const titleStream = new TerminalLinks(
+  { wasmTerm: titleScreen },
+  (bytes) => titleScreen.write(Uint8Array.from(bytes)),
+  (title) => titles.push(title),
+);
+try {
+  const bytes = new TextEncoder().encode('\x1b]0;alice@host: ~/été\x07$ \x1b]2;vim main.ts\x1b\\');
+  for (const byte of bytes) titleStream.write([byte]);
+  assert.deepEqual(titles, ['alice@host: ~/été', 'vim main.ts']);
+  titleStream.write([...new TextEncoder().encode('\x1b]1;icon only\x07\x1b]2;cancelled\x18')]);
+  assert.equal(titles.length, 2, 'Icon titles and cancelled sequences leave the tab unchanged');
+  titleStream.write([...new TextEncoder().encode('\x1b]2;' + 'x'.repeat(8193) + '\x07')]);
+  assert.equal(titles.length, 2, 'Oversized OSC metadata is discarded');
+  titleStream.write([...new TextEncoder().encode('\x1b]2;\x07\x1bc')]);
+  assert.deepEqual(
+    titles.slice(-2),
+    ['', null],
+    'Empty title and reset restore the configured name',
+  );
+  console.log('PASS: fragmented UTF-8 shell titles, BEL/ST, cancellation, bounds and reset');
+} finally {
+  titleScreen.free();
+}

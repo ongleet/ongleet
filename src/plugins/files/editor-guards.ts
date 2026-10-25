@@ -9,6 +9,8 @@ export async function allowEditorClose(
   const dirty = editors.filter((editor) => editor.dirty);
   return (
     dirty.length === 0 ||
-    confirm(`Discard unsaved changes in ${dirty.map((editor) => editor.path).join(', ')}?`)
+    confirm(
+      `Close with unsaved changes in ${dirty.map((editor) => editor.path).join(', ')}? Files on disk will not be updated.`,
+    )
   );
 }

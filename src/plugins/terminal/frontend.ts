@@ -114,7 +114,11 @@ export class TerminalFrontend {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
-    const terminalLinks = new TerminalLinks(term, (bytes) => consumeOutput(term, bytes));
+    const terminalLinks = new TerminalLinks(
+      term,
+      (bytes) => consumeOutput(term, bytes),
+      (title) => this.sdk.tab.setTitle(title),
+    );
     this.subscriptions.push(
       attachTerminalMouse(
         this.host,
@@ -199,6 +203,7 @@ export class TerminalFrontend {
     if (term.wasmTerm) term.renderer?.render(term.wasmTerm, true, term.viewportY, term);
     this.observer = new ResizeObserver(fitVisible);
     this.observer.observe(this.host);
+    this.sdk.tab.setTitle(null);
     this.subscriptions.push(term.onData((text) => this.send(text)));
     this.subscriptions.push(
       term.onResize(({ cols, rows }) => {

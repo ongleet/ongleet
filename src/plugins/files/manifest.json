@@ -13,7 +13,7 @@
       },
       "editorFile": {
         "type": ["string", "null"],
-        "description": "Absolute UTF-8 text file to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores saved file contents, not unsaved edits.",
+        "description": "Absolute UTF-8 text file to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores local drafts when available, otherwise saved file contents.",
         "absolutePath": true,
         "maxBytes": 8192
       }

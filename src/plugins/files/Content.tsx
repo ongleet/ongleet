@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
+import { readDraft } from './editor-drafts';
 import type { PluginContentProps } from '../types';
 export function FilesContent({ tab, visible }: PluginContentProps) {
   const sdk = useSdk();
@@ -9,6 +10,9 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   const [restoringEditor, setRestoringEditor] = useState(!!config?.editorFile);
   const [restoreError, setRestoreError] = useState('');
   const [editing, setEditing] = useState<TextDocument>();
+  useEffect(() => {
+    sdk.tab.setTitle(editing ? editing.path.split('/').pop()! : null);
+  }, [sdk, editing?.path]);
   const opening = useRef(false);
   const [listing, setListing] = useState<Listing>();
   const [path, setPath] = useState(configuredFolder ?? '');
@@ -90,7 +94,17 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
         setEditing(document);
       })
       .catch((error) => {
-        if (!cancelled) setRestoreError(`Could not reopen ${file}: ${String(error)}`);
+        if (cancelled) return;
+        try {
+          const draft = readDraft(tab.id, file);
+          if (draft) {
+            setEditing(draft.baseline);
+            return;
+          }
+        } catch {
+          // Retain the disk error and leave inaccessible draft data untouched.
+        }
+        setRestoreError(`Could not reopen ${file}: ${String(error)}`);
       })
       .finally(() => {
         if (!cancelled) setRestoringEditor(false);

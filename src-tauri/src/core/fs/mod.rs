@@ -1,5 +1,6 @@
 //! Filesystem browsing and bounded text editing; no PTY or terminal-engine dependency.
 pub mod editor;
+pub mod watch;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 

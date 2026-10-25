@@ -817,6 +817,15 @@ dialog[aria-label='Project editor'] > [role='status'] {
   color: #9cabbf;
 }
 
+.editor-modified-label {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid #9b793d;
+  border-radius: 4px;
+  background: #49391f;
+  color: #ffdb98;
+}
+
 .archives-dialog {
   width: min(1000px, 95vw);
   max-height: 85dvh;
