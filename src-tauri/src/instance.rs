@@ -118,8 +118,15 @@ impl Instance {
                                                 .visible
                                                 .store(true, Ordering::Release);
                                         }
-                                        let _ = window.unminimize();
-                                        let _ = window.set_focus();
+                                        // Tao queues unminimize, but drops set_focus while
+                                        // its cached minimized flag is still true. Present
+                                        // the GTK window on this main-thread callback so
+                                        // activation also reaches minimized windows.
+                                        if let Ok(native) = window.gtk_window() {
+                                            gtk::prelude::GtkWindowExt::present_with_time(
+                                                &native, 0,
+                                            );
+                                        }
                                     }
                                 });
                             }

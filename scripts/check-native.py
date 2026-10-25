@@ -248,7 +248,9 @@ def run(args):
                 subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
                 wait_for(lambda: not client.invoke("plugin:window|is_minimized", {"label": "main"}), "native window restored")
                 mark("Custom minimize and --show restore the native window")
-            client.click('[aria-label="Close window"]')
+            # WebDriver's click endpoint can wait forever for a repaint after
+            # this control hides the WebView. Dispatch after the JS reply.
+            client.js("setTimeout(()=>document.querySelector('[aria-label=\"Close window\"]').click(),0)")
             wait_for(lambda: not client.invoke("application_status")["visible"], "custom close hides window")
             subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
             wait_for(lambda: client.invoke("application_status")["visible"], "hidden window reopened")
@@ -511,7 +513,7 @@ if __name__ == "__main__":
     parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/devcenter-gui"))
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--skip-codex", action="store_true")
-    parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive minimize/restore (known XWayland restore failure)")
+    parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive native minimize/restore")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")
     parser.add_argument("--report")
     raise SystemExit(run(parser.parse_args()))

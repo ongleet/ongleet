@@ -153,3 +153,29 @@ Codex screenshots show blank spacing omitted by the current text snapshot
 (`codex-multiline.txt` versus `codex-multiline.png`). Token assertions allow this
 known limitation; exact whitespace fidelity remains open before CLI snapshots.
 Production frontend assets were restored after validation.
+
+## Minimized-window activation (2026-10-25)
+
+`--show` now presents the native GTK window on the main thread. In the pinned
+Tao implementation, unminimize queues a GTK request while set_focus rejects a
+window whose cached minimized flag remains true, so consecutive asynchronous
+requests can omit the presentation needed for activation.
+
+XWayland run `terminal-native-validation-_wk_hi6i` passed sixteen checks,
+including observed native minimization, restoration through `--show`,
+close-to-hide/reopen with unchanged shell PID and the terminal regression suite.
+No cleanup survivors were observed. Codex was explicitly skipped. This supersedes
+the earlier XWayland restore failure for this build.
+
+Wayland runs `tzuis95c` and `m_uuc3ox` timed out waiting for a native minimized
+state, before testing restoration; the latter was rerun after asking the user to
+leave the desktop untouched. An earlier run `jsulfbdm` failed to observe maximize;
+user interaction may have affected that run. Wayland minimize/restore remains
+unverified; these results do not establish a restoration regression. Xorg,
+window dragging and geometry/maximization persistence across restart remain open.
+
+WebDriver's close-button click endpoint also timed out after hiding the window
+in `qvn9_l7t`. The harness now asynchronously activates that DOM button to avoid
+waiting for a hidden WebView repaint; native pointer delivery for that close
+scenario is therefore not established by the successful run. Production frontend
+and native assets were restored after these checks.
