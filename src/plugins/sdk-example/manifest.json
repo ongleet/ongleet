@@ -12,7 +12,12 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "folder": { "type": ["string", "null"], "absolutePath": true, "maxBytes": 8192 }
+      "folder": {
+        "type": ["string", "null"],
+        "absolutePath": true,
+        "maxBytes": 8192,
+        "description": "Absolute folder path for the example file browser. Defaults to the session directory on creation; at most 8192 bytes."
+      }
     }
   },
   "examples": [{}]

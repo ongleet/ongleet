@@ -8,7 +8,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("archive", "prune --confirm", "Permanently purge archives aged at least 30 days and retry pending cleanup. Also runs automatically at startup and when archiving. Requires --confirm for explicit CLI invocation."),
     ("session", "archive ID [--confirm]", "Archive this session and its tabs for 30 days. Stop running processes with --confirm. Equivalent to session close; working files remain untouched."),
     ("tab", "archive ID [--confirm]", "Archive a tab definition for 30 days. Stop running processes with --confirm. Equivalent to tab delete; tab close only closes the opening."),
-    ("tab", "types", "Describe built-in plugin types, configuration schemas, defaults, constraints and valid JSON examples."),
+    ("tab", "types", "Discover built-in plugins with short descriptions and configuration field descriptions, schemas, defaults, constraints and valid JSON examples."),
     ("tab", "actions [--session ID]", "List available tab actions for this session with action IDs, plugin kinds, versions and copied configuration. Excludes external commands and unavailable plugins."),
     ("tab", "list [--session ID]", "List all plugin tab definitions, copied configuration, openings, observed status and restart eligibility."),
     ("tab", "create [--session ID] --action ACTION_ID [--name NAME] [--config JSON]", "Open a fresh plugin tab from a configured project action. Discover action IDs with tab actions --session ID, and configuration fields with tab types. --config replaces the complete action configuration before launch. External command actions cannot open tabs."),

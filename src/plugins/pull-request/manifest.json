@@ -4,7 +4,12 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": { "refreshIntervalSeconds": { "type": "integer" } }
+    "properties": {
+      "refreshIntervalSeconds": {
+        "type": "integer",
+        "description": "Seconds between automatic GitHub status checks, including hidden tabs. Defaults to 120; supported range is 30 to 86400."
+      }
+    }
   },
   "examples": [{}],
   "notes": [
