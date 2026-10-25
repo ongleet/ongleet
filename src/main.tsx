@@ -10,6 +10,7 @@ import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
 import { ProjectEditor } from './ProjectEditor';
+import { WindowTitleBar } from './WindowTitleBar';
 import './style.css';
 
 export type Project = {
@@ -615,6 +616,7 @@ function App() {
   const disabled = busy;
   return (
     <main className="app">
+      <WindowTitleBar report={report} />
       <SessionSidebar
         projects={state.projects}
         sessions={state.sessions}

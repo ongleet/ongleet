@@ -13,6 +13,8 @@
     "windows": [
       {
         "title": "DevCenter — preview",
+        "decorations": false,
+        "transparent": true,
         "width": 1100,
         "height": 760,
         "minWidth": 640,

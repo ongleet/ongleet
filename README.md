@@ -8,6 +8,8 @@ Each session has a vertical **⋮** menu for editing and archiving. Drag its gri
 
 The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git worktree management, automatic Git discovery, or agent orchestration. Explicit session-linked GitHub PR status is supported.
 
+The compact themed window title bar supports dragging and double-clicking to maximize or restore, with minimize, maximize/restore, and close controls. Close hides the window and keeps sessions running; use **Quit** in the footer to shut down.
+
 ## Archives
 
 DevCenter manages archives centrally in SQLite for every plugin. Use **Archives** in the application footer to restore sessions/tabs or permanently delete an archive after confirmation. A tab’s close cross archives its definition; the session menu offers **Archive session**. The CLI’s `tab close` remains a non-archiving operation that only closes an opening.
