@@ -33,7 +33,7 @@ Use native clipboard and Ghostty paste APIs. Await the in-app destructive confir
 - Plugin SDK/core services: `src/sdk/`, `src/plugins/*/manifest.json`, `src-tauri/src/core/`; see [plugin development](PLUGINS.md).
 - Registry/storage/actions: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.
 - Lifecycle/control: Rust `main.rs`, `instance.rs`, `control/`, `cli/`, `bin/`. Codex: `codex.rs`, `bin/dcodex.rs`.
-- Defaults: `config/actions.yaml`; project overrides: `projects/<id>/actions.yaml`.
+- Shipped defaults: `config/actions.yaml`; user template: `$XDG_CONFIG_HOME/devcenter/actions.yaml` (copied on project initialization); project overrides: `projects/<id>/actions.yaml`.
 - Validation: `scripts/check-*.py`, `scripts/check-*.mjs`, `scripts/terminal-probe.py`.
 
 Preserve database sidecars/Codex mappings during branding migration; reject live writers/conflicts. Grant only required frontend capabilities.

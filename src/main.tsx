@@ -5,7 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import type { ProcessStatus } from './terminal';
 import { allowEditorClose, fileEditors } from './plugins/files/editor-guards';
-import { TabHost, flushPlugins, plugins } from './plugins';
+import { TabHost, flushPlugins } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
@@ -199,92 +199,6 @@ function SessionEditor({
   );
 }
 
-function NewTabPicker({
-  sessionId,
-  disabled,
-  create,
-  external = false,
-}: {
-  sessionId: number;
-  disabled: boolean;
-  create: (actionId: string) => Promise<boolean>;
-  external?: boolean;
-}) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  async function open() {
-    setError('');
-    setTypes([]);
-    setLoading(true);
-    dialog.current!.showModal();
-    try {
-      setTypes(
-        (
-          await invoke<{ id: string; name: string; kind: string; configVersion: number }[]>(
-            'actions',
-            { sessionId },
-          )
-        ).filter((action) =>
-          external
-            ? action.kind === 'command'
-            : plugins.some(
-                (plugin) =>
-                  plugin.id === action.kind && plugin.configVersion === action.configVersion,
-              ),
-        ),
-      );
-    } catch (error) {
-      setError(String(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-  return (
-    <>
-      <button disabled={disabled} onClick={() => void open()}>
-        {external ? 'Actions' : '+ New tab'}
-      </button>
-      <dialog ref={dialog} aria-label={external ? 'External actions' : 'New tab'}>
-        <h2>{external ? 'External actions' : 'New tab'}</h2>
-        {external && (
-          <p className="muted">
-            Launch independently without opening a tab. Closing a session or quitting this app does
-            not stop external applications.
-          </p>
-        )}
-        {!loading && !error && types.length === 0 && (
-          <p>No actions configured. Add one in Edit project → Actions.</p>
-        )}
-        {loading && <p role="status">Loading actions…</p>}
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-        <div className="tab-type-options">
-          {types.map((type) => (
-            <button
-              key={type.id}
-              disabled={disabled}
-              onClick={() => {
-                dialog.current!.close();
-                void create(type.id);
-              }}
-            >
-              {type.name}
-            </button>
-          ))}
-        </div>
-        <div className="dialog-actions">
-          <button onClick={() => dialog.current!.close()}>Cancel</button>
-        </div>
-      </dialog>
-    </>
-  );
-}
-
 function SessionPane({
   session,
   visible,
@@ -430,21 +344,10 @@ function SessionPane({
             </div>
           ))}
         </div>
-        <NewTabPicker
-          sessionId={session.id}
-          disabled={disabled}
-          create={(actionId) => mutate('create_tab', { sessionId: session.id, actionId })}
-        />
-        <NewTabPicker
-          external
-          sessionId={session.id}
-          disabled={disabled}
-          create={(actionId) => mutate('run_external_action', { sessionId: session.id, actionId })}
-        />
       </div>
       {!active && (
         <div className="empty-state">
-          <p>No open tabs. Choose New tab to launch a configured type.</p>
+          <p>No open tabs. Open the Session menu to create a tab.</p>
         </div>
       )}
       {openTabs.map((tab) => (
@@ -481,6 +384,8 @@ function App() {
   const [statuses, setStatuses] = useState<Record<number, ProcessStatus | null>>({});
   const [editor, setEditor] = useState<Session | 'new' | null>(null);
   const [newProjectId, setNewProjectId] = useState<number | null>(null);
+  const [groupEditorView, setGroupEditorView] = useState<'general' | 'actions'>('general');
+  const [defaultEditor, setDefaultEditor] = useState(false);
   const [groupEditor, setGroupEditor] = useState<Project | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -617,7 +522,32 @@ function App() {
   const disabled = busy;
   return (
     <main className="app">
-      <WindowTitleBar report={report} />
+      <WindowTitleBar
+        archives={() => setShowArchives(true)}
+        quit={() => void quit()}
+        quitDisabled={!ready || disabled || restoring > 0}
+        configureSession={() => {
+          const session = state.sessions.find((session) => session.id === state.selectedId);
+          const project = state.projects.find((project) => project.id === session?.projectId);
+          if (project) {
+            setError('');
+            setGroupEditorView('actions');
+            setGroupEditor(project);
+          }
+        }}
+        sessionId={state.selectedId}
+        mutate={mutate}
+        report={report}
+        disabled={disabled || !ready}
+        defaults={() => {
+          setError('');
+          setDefaultEditor(true);
+        }}
+        createProject={() => {
+          setError('');
+          setGroupEditor('new');
+        }}
+      />
       <SessionSidebar
         projects={state.projects}
         sessions={state.sessions}
@@ -734,12 +664,6 @@ function App() {
         ))}
         <footer>
           <span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span>
-          <button disabled={!ready || disabled} onClick={() => setShowArchives(true)}>
-            Archives
-          </button>
-          <button disabled={!ready || disabled || restoring > 0} onClick={() => void quit()}>
-            Quit
-          </button>
         </footer>
       </div>
       {showArchives && (
@@ -758,13 +682,26 @@ function App() {
           }}
         />
       )}
+      {defaultEditor && (
+        <ProjectEditor
+          defaults
+          initialDirectory={defaults[0]}
+          externalError=""
+          dismiss={() => setDefaultEditor(false)}
+          save={async () => false}
+        />
+      )}
       {groupEditor && (
         <ProjectEditor
           key={groupEditor === 'new' ? 'new-group' : groupEditor.id}
           project={groupEditor === 'new' ? undefined : groupEditor}
           initialDirectory={defaults[0]}
           externalError={error}
-          dismiss={() => setGroupEditor(null)}
+          initialView={groupEditorView}
+          dismiss={() => {
+            setGroupEditor(null);
+            setGroupEditorView('general');
+          }}
           save={(name, rootDirectory) =>
             mutate(groupEditor === 'new' ? 'create_project' : 'update_project', {
               ...(groupEditor === 'new' ? {} : { id: groupEditor.id }),

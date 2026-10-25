@@ -177,7 +177,8 @@ pub fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
     let path = project_path(directory, id);
     let result = (|| {
         if !path.exists() {
-            let seed = DEFAULTS;
+            let seed = read_default_yaml(directory)?;
+            parse_project_config(&seed)?;
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             match std::fs::OpenOptions::new()
                 .write(true)
@@ -210,11 +211,23 @@ pub fn read_project_yaml(directory: &Path, id: u64) -> Result<String, String> {
 }
 
 pub fn save_project_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
-    if text.len() as u64 > MAX_BYTES {
-        return Err("Configuration exceeds 64 KiB".into());
+    save_yaml(&project_path(directory, id), text)
+}
+
+pub fn read_default_yaml(directory: &Path) -> Result<String, String> {
+    let path = directory.join("actions.yaml");
+    if !path.try_exists().map_err(|e| e.to_string())? {
+        save_yaml(&path, DEFAULTS)?;
     }
+    read_config(&path)
+}
+
+pub fn save_default_yaml(directory: &Path, text: &str) -> Result<(), String> {
+    save_yaml(&directory.join("actions.yaml"), text)
+}
+
+fn save_yaml(path: &Path, text: &str) -> Result<(), String> {
     parse(text)?;
-    let path = project_path(directory, id);
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let stamp = std::time::SystemTime::now()

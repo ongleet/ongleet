@@ -39,12 +39,16 @@ function actionsFrom(draft: Draft[]): Action[] {
 
 export function ProjectEditor({
   project,
+  defaults = false,
+  initialView = 'general',
   initialDirectory,
   save,
   dismiss,
   externalError,
 }: {
   project?: Project;
+  defaults?: boolean;
+  initialView?: View;
   initialDirectory: string;
   save: (name: string, rootDirectory: string) => Promise<boolean>;
   dismiss: () => void;
@@ -54,7 +58,7 @@ export function ProjectEditor({
   const [name, setName] = useState(project?.name ?? '');
   const [directory, setDirectory] = useState(project?.rootDirectory ?? initialDirectory);
   const [configPath, setConfigPath] = useState('');
-  const [view, setView] = useState<View>('general');
+  const [view, setView] = useState<View>(defaults ? 'actions' : initialView);
   const [draft, setDraft] = useState<Draft[]>([]);
   const [yaml, setYaml] = useState('');
   const [commonEnv, setCommonEnv] = useState<EnvRow[]>([]);
@@ -66,13 +70,13 @@ export function ProjectEditor({
   useEffect(() => {
     dialog.current?.showModal();
     let disposed = false;
-    if (project) {
-      void invoke<string>('project_config', { id: project.id })
+    if (project || defaults) {
+      void invoke<string>(defaults ? 'default_config' : 'project_config', { id: project?.id })
         .then((value) => {
           if (!disposed) setConfigPath(value);
         })
         .catch(() => {});
-      void invoke<string>('project_actions', { id: project.id })
+      void invoke<string>(defaults ? 'default_actions' : 'project_actions', { id: project?.id })
         .then(async (text) => {
           if (disposed) return;
           setYaml(text);
@@ -97,7 +101,7 @@ export function ProjectEditor({
     return () => {
       disposed = true;
     };
-  }, [project?.id]);
+  }, [project?.id, defaults]);
 
   function settingsFromForm(): Settings {
     const names = new Set<string>();
@@ -137,7 +141,7 @@ export function ProjectEditor({
     }
   }
   async function saveActions() {
-    if (!project) return;
+    if (!project && !defaults) return;
     setBusy(true);
     setError('');
     setNotice('');
@@ -146,7 +150,10 @@ export function ProjectEditor({
         view === 'actions'
           ? await invoke<string>('format_actions', { config: settingsFromForm() })
           : yaml;
-      await invoke('save_project_actions', { id: project.id, yaml: text });
+      await invoke(defaults ? 'save_default_actions' : 'save_project_actions', {
+        id: project?.id,
+        yaml: text,
+      });
       setYaml(text);
       setDirty(false);
       setNotice('Actions saved. New launches will use these settings.');
@@ -179,30 +186,37 @@ export function ProjectEditor({
   return (
     <dialog
       ref={dialog}
-      aria-label="Project editor"
+      aria-label={defaults ? 'Default actions' : 'Project editor'}
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
-      <h2>{project ? 'Edit project' : 'New project'}</h2>
-      {project && (
+      <h2>{defaults ? 'Default actions' : project ? 'Edit project' : 'New project'}</h2>
+      {defaults && (
+        <p className="muted">
+          Copied to projects when their actions are first initialized. Existing project settings
+          stay unchanged.
+        </p>
+      )}
+      {defaults && configPath && <p className="muted">{configPath}</p>}
+      {(project || defaults) && (
         <div
           role="tablist"
           aria-label="Project settings"
           className="settings-tabs"
           onKeyDown={(event) => {
-            const views: View[] = ['general', 'actions', 'yaml'];
+            const views: View[] = defaults ? ['actions', 'yaml'] : ['general', 'actions', 'yaml'];
             const index = views.indexOf(view);
             const next =
               event.key === 'ArrowRight'
-                ? (index + 1) % 3
+                ? (index + 1) % views.length
                 : event.key === 'ArrowLeft'
-                  ? (index + 2) % 3
+                  ? (index + views.length - 1) % views.length
                   : event.key === 'Home'
                     ? 0
                     : event.key === 'End'
-                      ? 2
+                      ? views.length - 1
                       : null;
             if (next !== null && !busy) {
               event.preventDefault();
@@ -211,21 +225,23 @@ export function ProjectEditor({
             }
           }}
         >
-          {(['general', 'actions', 'yaml'] as View[]).map((item) => (
-            <button
-              key={item}
-              id={`settings-${item}`}
-              type="button"
-              role="tab"
-              aria-selected={view === item}
-              aria-controls={`settings-panel-${item}`}
-              tabIndex={view === item ? 0 : -1}
-              disabled={busy || (item !== 'general' && !loaded)}
-              onClick={() => void switchView(item)}
-            >
-              {item === 'general' ? 'General' : item === 'actions' ? 'Actions' : 'YAML'}
-            </button>
-          ))}
+          {((defaults ? ['actions', 'yaml'] : ['general', 'actions', 'yaml']) as View[]).map(
+            (item) => (
+              <button
+                key={item}
+                id={`settings-${item}`}
+                type="button"
+                role="tab"
+                aria-selected={view === item}
+                aria-controls={`settings-panel-${item}`}
+                tabIndex={view === item ? 0 : -1}
+                disabled={busy || (item !== 'general' && !loaded)}
+                onClick={() => void switchView(item)}
+              >
+                {item === 'general' ? 'General' : item === 'actions' ? 'Actions' : 'YAML'}
+              </button>
+            ),
+          )}
         </div>
       )}
       <section
@@ -319,8 +335,8 @@ export function ProjectEditor({
         <section className="common-env" aria-label="Common environment variables">
           <h3>Common environment variables</h3>
           <p className="muted">
-            Shared by all actions in this project. Action-specific overrides take precedence.
-            Changes apply to future launches.
+            Shared by all actions. Action-specific overrides take precedence. Changes apply to
+            future launches.
           </p>
           {commonEnv.map((row) => (
             <div className="env-row" key={row.id}>

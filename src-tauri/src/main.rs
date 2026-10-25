@@ -76,6 +76,24 @@ fn save_project_actions(state: State<AppRegistry>, id: u64, yaml: String) -> Res
 }
 
 #[tauri::command]
+fn default_actions() -> Result<String, String> {
+    actions::read_default_yaml(&control::paths::config_directory()?)
+}
+
+#[tauri::command]
+fn default_config() -> Result<String, String> {
+    Ok(control::paths::config_directory()?
+        .join("actions.yaml")
+        .to_string_lossy()
+        .into())
+}
+
+#[tauri::command]
+fn save_default_actions(yaml: String) -> Result<(), String> {
+    actions::save_default_yaml(&control::paths::config_directory()?, &yaml)
+}
+
+#[tauri::command]
 fn parse_actions(yaml: String) -> Result<actions::Config, String> {
     actions::parse_config(&yaml)
 }
@@ -150,6 +168,22 @@ fn create_tab(
             template.config_version,
             template.config,
         )
+}
+
+#[tauri::command]
+fn create_custom_tab(
+    state: State<AppRegistry>,
+    session_id: u64,
+    name: String,
+    kind: String,
+    config_version: u32,
+    config: serde_json::Value,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .create_plugin_tab(session_id, name, kind, config_version, config)
 }
 
 #[tauri::command]
@@ -553,6 +587,9 @@ fn run() -> Result<(), String> {
             close_project,
             project_config,
             project_actions,
+            default_actions,
+            default_config,
+            save_default_actions,
             parse_actions,
             format_actions,
             save_project_actions,
@@ -574,6 +611,7 @@ fn run() -> Result<(), String> {
             core::commands::sdk_pty,
             core::commands::sdk_pty_connect,
             create_tab,
+            create_custom_tab,
             run_external_action,
             actions,
             select_tab,

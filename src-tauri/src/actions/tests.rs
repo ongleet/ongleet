@@ -139,3 +139,23 @@ fn unavailable_project_actions_do_not_block_available_actions_or_common_environm
     assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn global_defaults_seed_new_projects_without_changing_existing_projects() {
+    let directory =
+        std::env::temp_dir().join(format!("global-defaults-test-{}", std::process::id()));
+    load_project(&directory, 1).unwrap();
+    let edited = DEFAULTS.replace("name: Bash", "name: Preferred shell");
+    save_default_yaml(&directory, &edited).unwrap();
+    assert_eq!(
+        load_project(&directory, 2).unwrap()[0].name,
+        "Preferred shell"
+    );
+    assert_eq!(load_project(&directory, 1).unwrap()[0].name, "Bash");
+    assert!(save_default_yaml(&directory, "actions: []").is_err());
+    assert_eq!(read_default_yaml(&directory).unwrap(), edited);
+    std::fs::write(directory.join("actions.yaml"), "actions: [").unwrap();
+    assert!(load_project(&directory, 3).is_err());
+    assert!(!project_path(&directory, 3).exists());
+    std::fs::remove_dir_all(directory).unwrap();
+}

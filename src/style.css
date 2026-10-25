@@ -944,3 +944,53 @@ dialog[aria-label='Project editor'] > [role='status'] {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+.window-titlebar > .window-brand-mark {
+  align-self: center;
+  margin: 0 8px 0 12px;
+}
+.titlebar-menu {
+  position: relative;
+  align-self: stretch;
+  flex-shrink: 0;
+}
+.titlebar-menu summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 4px 9px;
+  height: 100%;
+}
+.titlebar-menu summary::-webkit-details-marker {
+  display: none;
+}
+.titlebar-menu summary:hover,
+.titlebar-menu[open] summary {
+  background: #303e50;
+}
+.app-menu-items {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 180px;
+  max-width: 340px;
+  max-height: 70vh;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  background: #191f29;
+  border: 1px solid #45546a;
+  border-radius: 6px;
+}
+.app-menu-items button {
+  text-align: left;
+  white-space: nowrap;
+}
+.app-menu-items > div {
+  display: grid;
+  gap: 4px;
+}
+.app-menu-items p {
+  margin: 4px;
+}

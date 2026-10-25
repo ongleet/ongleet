@@ -1,8 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
+import { SessionMenu } from './SessionMenu';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-export function WindowTitleBar({ report }: { report: (error: unknown) => void }) {
+export function WindowTitleBar({
+  report,
+  quit,
+  quitDisabled,
+  sessionId,
+  mutate,
+  configureSession,
+  archives,
+  defaults,
+  createProject,
+  disabled,
+}: {
+  report: (error: unknown) => void;
+  quit: () => void;
+  quitDisabled: boolean;
+  sessionId: number | null;
+  configureSession: () => void;
+  archives: () => void;
+  mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>;
+  defaults: () => void;
+  createProject: () => void;
+  disabled: boolean;
+}) {
+  const menu = useRef<HTMLDetailsElement>(null);
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
     if (!isTauri()) return;
@@ -22,6 +46,67 @@ export function WindowTitleBar({ report }: { report: (error: unknown) => void })
 
   return (
     <header className="window-titlebar">
+      <span className="window-brand-mark" aria-label="DevCenter">
+        ›_
+      </span>
+      <details
+        className="titlebar-menu"
+        name="titlebar-menu"
+        ref={menu}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            event.currentTarget.open = false;
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector('summary')?.focus();
+          }
+        }}
+      >
+        <summary aria-label="Application menu" title="Application menu">
+          Application
+        </summary>
+        <div className="app-menu-items">
+          <button
+            disabled={disabled}
+            onClick={() => {
+              menu.current!.open = false;
+              defaults();
+            }}
+          >
+            Default actions…
+          </button>
+          <button
+            disabled={disabled}
+            onClick={() => {
+              menu.current!.open = false;
+              createProject();
+            }}
+          >
+            New project…
+          </button>
+          <button
+            disabled={quitDisabled}
+            onClick={() => {
+              menu.current!.open = false;
+              quit();
+            }}
+          >
+            Quit
+          </button>
+        </div>
+      </details>
+      {
+        <SessionMenu
+          key={sessionId}
+          sessionId={sessionId}
+          disabled={disabled}
+          mutate={mutate}
+          configure={configureSession}
+          archives={archives}
+        />
+      }
       <div
         className="window-drag-area"
         onMouseDown={(event) => {
@@ -29,12 +114,7 @@ export function WindowTitleBar({ report }: { report: (error: unknown) => void })
           if (event.detail === 2) void getCurrentWindow().toggleMaximize().catch(report);
           else void getCurrentWindow().startDragging().catch(report);
         }}
-      >
-        <span className="window-brand-mark" aria-hidden="true">
-          ›_
-        </span>
-        <span>DevCenter</span>
-      </div>
+      />
       <div className="window-controls">
         <button
           aria-label="Minimize window"
