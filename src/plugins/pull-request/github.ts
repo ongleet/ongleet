@@ -31,7 +31,7 @@ export async function fetchPullRequest(sdk: PluginSdk, association: Association)
         '--repo',
         association.repository,
         '--json',
-        'number,title,url,state,reviewDecision,statusCheckRollup,updatedAt',
+        'number,title,url,state,reviewDecision,statusCheckRollup,updatedAt,reviews',
       ],
       env: { GH_PROMPT_DISABLED: '1', GH_HOST: 'github.com', GH_PAGER: 'cat' },
       timeoutMs: 20_000,
@@ -49,4 +49,17 @@ export async function fetchPullRequest(sdk: PluginSdk, association: Association)
   } catch (error) {
     throw new Error(`Invalid gh response: ${String(error)}`);
   }
+}
+export async function fetchViewer(sdk: PluginSdk): Promise<string> {
+  const result = await sdk.process.run({
+    executable: 'gh',
+    args: ['api', 'user', '--jq', '.login'],
+    env: { GH_PROMPT_DISABLED: '1', GH_HOST: 'github.com', GH_PAGER: 'cat' },
+    timeoutMs: 20_000,
+    outputLimit: 8192,
+  });
+  if (result.code !== 0) throw new Error(`Cannot identify GitHub user: ${result.stderr}`);
+  const login = result.stdout.trim();
+  if (!/^[A-Za-z0-9-]+(?:\[bot\])?$/.test(login)) throw new Error('Invalid GitHub user response');
+  return login;
 }

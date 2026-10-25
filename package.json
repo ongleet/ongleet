@@ -16,6 +16,7 @@
     "check:terminal-input": "node scripts/check-terminal-input.mjs",
     "check:engine-loader": "node scripts/check-engine-loader.mjs",
     "check:editor-merge": "node scripts/check-editor-merge.mjs",
+    "check:pr-status": "node scripts/check-pr-status.mjs",
     "check:plugins": "node scripts/check-plugin-boundaries.mjs"
   },
   "dependencies": {
