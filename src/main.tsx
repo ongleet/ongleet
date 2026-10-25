@@ -10,6 +10,7 @@ import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
 import { ProjectEditor } from './ProjectEditor';
+import { TabConfiguration } from './TabConfiguration';
 import { WindowTitleBar } from './WindowTitleBar';
 import './style.css';
 
@@ -366,6 +367,7 @@ function SessionPane({
 }
 
 function App() {
+  const [configurationTab, setConfigurationTab] = useState<PluginTab | null>(null);
   const [showArchives, setShowArchives] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     message: string;
@@ -517,12 +519,42 @@ function App() {
     }
   }
 
+  async function archiveTab(tab: PluginTab) {
+    if (!(await allowEditorClose([tab.id], confirm))) return;
+    const confirmed = statuses[tab.id]?.state === 'running';
+    if (
+      confirmed &&
+      !(await confirm(`Archive “${tab.name}” for 30 days and terminate its session and jobs?`))
+    )
+      return;
+    void mutate('archive_tab', { id: tab.id, confirmed }).then((closed) => {
+      if (closed)
+        setStatuses((previous) => {
+          const next = { ...previous };
+          delete next[tab.id];
+          return next;
+        });
+    });
+  }
+
+  const selectedSession = state.sessions.find((session) => session.id === state.selectedId);
+  const selectedTab = selectedSession?.tabs.find(
+    (tab) => tab.isOpen && tab.id === selectedSession.selectedTabId,
+  );
+
   // A pending terminal attachment must not lock navigation or sibling tabs.
   // Quit still waits for attachments so it cannot race a new process launch.
   const disabled = busy;
   return (
     <main className="app">
       <WindowTitleBar
+        activeTabName={selectedTab?.name}
+        configureTab={() => {
+          if (selectedTab) setConfigurationTab(selectedTab);
+        }}
+        archiveTab={() => {
+          if (selectedTab) void archiveTab(selectedTab);
+        }}
         archives={() => setShowArchives(true)}
         quit={() => void quit()}
         quitDisabled={!ready || disabled || restoring > 0}
@@ -641,31 +673,21 @@ function App() {
             reportStatus={reportStatus}
             mutate={mutate}
             markRestoring={markRestoring}
-            closeTab={async (tab) => {
-              if (!(await allowEditorClose([tab.id], confirm))) return;
-              const confirmed = statuses[tab.id]?.state === 'running';
-              if (
-                confirmed &&
-                !(await confirm(
-                  `Archive “${tab.name}” for 30 days and terminate its session and jobs?`,
-                ))
-              )
-                return;
-              void mutate('archive_tab', { id: tab.id, confirmed }).then((closed) => {
-                if (closed)
-                  setStatuses((previous) => {
-                    const next = { ...previous };
-                    delete next[tab.id];
-                    return next;
-                  });
-              });
-            }}
+            closeTab={archiveTab}
           />
         ))}
         <footer>
           <span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span>
         </footer>
       </div>
+      {configurationTab && (
+        <TabConfiguration
+          key={configurationTab.id}
+          tab={configurationTab}
+          dismiss={() => setConfigurationTab(null)}
+          save={(config) => mutate('configure_plugin_tab', { id: configurationTab.id, config })}
+        />
+      )}
       {showArchives && (
         <ArchivesDialog
           dismiss={() => setShowArchives(false)}

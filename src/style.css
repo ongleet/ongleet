@@ -977,20 +977,43 @@ dialog[aria-label='Project editor'] > [role='status'] {
   max-height: 70vh;
   overflow: auto;
   display: grid;
-  gap: 4px;
-  padding: 6px;
+  gap: 0;
+  padding: 4px;
   background: #191f29;
   border: 1px solid #45546a;
   border-radius: 6px;
+  box-shadow: 0 6px 18px #0005;
 }
 .app-menu-items button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   text-align: left;
   white-space: nowrap;
 }
+.app-menu-items button:hover:not(:disabled),
+.app-menu-items button:focus-visible {
+  background: #303e50;
+}
+.app-menu-items button:focus-visible {
+  outline: 2px solid #a3e6cc;
+  outline-offset: -2px;
+}
 .app-menu-items > div {
   display: grid;
-  gap: 4px;
+  gap: 0;
+}
+.app-menu-items > div + div,
+.app-menu-items > div + button {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid #354051;
 }
 .app-menu-items p {
-  margin: 4px;
+  margin: 0;
+  padding: 5px 10px 3px;
+  font-size: 12px;
 }

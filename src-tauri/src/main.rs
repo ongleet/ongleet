@@ -227,6 +227,19 @@ fn rename_tab(state: State<AppRegistry>, id: u64, name: String) -> Result<Snapsh
 }
 
 #[tauri::command]
+fn configure_plugin_tab(
+    state: State<AppRegistry>,
+    id: u64,
+    config: serde_json::Value,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .configure_plugin_tab(id, config)
+}
+
+#[tauri::command]
 fn configure_tab(
     state: State<AppRegistry>,
     id: u64,
@@ -617,6 +630,7 @@ fn run() -> Result<(), String> {
             select_tab,
             rename_tab,
             configure_tab,
+            configure_plugin_tab,
             reorder_tab,
             close_tab,
             open_tab,

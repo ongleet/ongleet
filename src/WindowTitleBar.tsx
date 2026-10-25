@@ -5,6 +5,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function WindowTitleBar({
   report,
+  activeTabName,
+  archiveTab,
+  configureTab,
   quit,
   quitDisabled,
   sessionId,
@@ -16,6 +19,9 @@ export function WindowTitleBar({
   disabled,
 }: {
   report: (error: unknown) => void;
+  activeTabName?: string;
+  archiveTab: () => void;
+  configureTab: () => void;
   quit: () => void;
   quitDisabled: boolean;
   sessionId: number | null;
@@ -72,19 +78,19 @@ export function WindowTitleBar({
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
-              defaults();
+              createProject();
             }}
           >
-            Default actions…
+            New project…
           </button>
           <button
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
-              createProject();
+              defaults();
             }}
           >
-            New project…
+            Configure…
           </button>
           <button
             disabled={quitDisabled}
@@ -107,6 +113,45 @@ export function WindowTitleBar({
           archives={archives}
         />
       }
+      {activeTabName !== undefined && (
+        <details
+          className="titlebar-menu"
+          name="titlebar-menu"
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              event.currentTarget.open = false;
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector('summary')?.focus();
+            }
+          }}
+        >
+          <summary aria-label="Tab menu">Tab</summary>
+          <div className="app-menu-items">
+            <button
+              disabled={disabled}
+              onClick={(event) => {
+                event.currentTarget.closest('details')!.open = false;
+                configureTab();
+              }}
+            >
+              Configure…
+            </button>
+            <button
+              disabled={disabled}
+              title={`Archive “${activeTabName}” for 30 days`}
+              onClick={(event) => {
+                event.currentTarget.closest('details')!.open = false;
+                archiveTab();
+              }}
+            >
+              Archive tab
+            </button>
+          </div>
+        </details>
+      )}
       <div
         className="window-drag-area"
         onMouseDown={(event) => {
