@@ -15,6 +15,8 @@ export type PluginContentProps = {
   tab: PluginTab;
   session: { id: number; pullRequest: { repository: string; number: number } | null };
   visible: boolean;
+  configurationOpen?: boolean;
+  dismissConfiguration?: () => void;
   reportStatus: (id: number, status: ProcessStatus | null) => void;
   markRestoring: (delta: number) => void;
 };

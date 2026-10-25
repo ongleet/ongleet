@@ -1017,3 +1017,56 @@ dialog[aria-label='Project editor'] > [role='status'] {
   padding: 5px 10px 3px;
   font-size: 12px;
 }
+
+.pr-configuration-body,
+.pr-configuration-fields {
+  display: grid;
+  gap: 20px;
+}
+.pr-association-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.pr-configuration-fields label,
+.pr-configuration-fields input {
+  min-width: 0;
+}
+.pr-configuration-fields input {
+  width: 100%;
+}
+@media (max-width: 480px) {
+  .pr-association-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.pr-heading {
+  margin-bottom: 20px;
+}
+.pr-heading h2 {
+  margin: 0;
+  line-height: 1.5;
+}
+.pr-heading p {
+  margin: 4px 0 0;
+}
+.pr-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  padding: 4px;
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+}
+
+.pr-checks {
+  margin-top: 16px;
+}
+.pr-checks > summary {
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+}

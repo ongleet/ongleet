@@ -18,6 +18,7 @@ export type TabPlugin = {
   ConfigurationEditor: ComponentType<ConfigurationEditorProps>;
   toDraft: (config: unknown) => string;
   fromDraft: (draft: string) => unknown;
+  contentConfiguration?: boolean;
   beforeQuit?: () => Promise<void>;
 };
 const manifests = import.meta.glob<{

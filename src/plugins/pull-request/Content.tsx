@@ -58,7 +58,13 @@ export function PullRequestConfigurationEditor({ value, onChange }: Configuratio
     </>
   );
 }
-export function PullRequestContent({ tab, session, visible }: PluginContentProps) {
+export function PullRequestContent({
+  tab,
+  session,
+  visible,
+  configurationOpen = false,
+  dismissConfiguration,
+}: PluginContentProps) {
   const sdk = useSdk();
   const associationKey = JSON.stringify(session.pullRequest);
   const [target, setTarget] = useState(session.pullRequest?.repository ?? '');
@@ -67,6 +73,12 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
   const [lastRefresh, setLastRefresh] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const configurationDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (configurationOpen) configurationDialog.current?.showModal();
+    else configurationDialog.current?.close();
+  }, [configurationOpen]);
   const [unread, setUnread] = useState<Review[]>([]);
   const reviewSnapshot = useRef<{ key: string; reviews: Review[] } | undefined>(undefined);
   let interval = DEFAULT_REFRESH_SECONDS;
@@ -192,16 +204,76 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
     const timer = setInterval(() => refreshRef.current(), interval * 1000);
     return () => clearInterval(timer);
   }, [interval, configurationError]);
-  async function associate() {
+  async function saveConfiguration() {
+    if (saving) return;
+    setSaving(true);
     setError('');
     try {
       const association = parseAssociation(target, number ? Number(number) : undefined);
+      const seconds = refreshSeconds({ refreshIntervalSeconds: Number(intervalDraft) });
       const current = await sdk.storage.read('session');
+      await sdk.storage.configure({ refreshIntervalSeconds: seconds });
       await sdk.storage.replace('session', current?.revision ?? 0, 1, association);
+      dismissConfiguration?.();
     } catch (error) {
       setError(String(error));
+    } finally {
+      setSaving(false);
     }
   }
+  const configuration = (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void saveConfiguration();
+      }}
+      className="pr-configuration-fields"
+    >
+      <div className="pr-association-fields">
+        <label>
+          Repository or PR URL
+          <input
+            placeholder="owner/repository or GitHub PR URL"
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+          />
+        </label>
+        <label>
+          PR number
+          <input
+            type="number"
+            min="1"
+            placeholder="PR number"
+            value={number}
+            onChange={(event) => setNumber(event.target.value)}
+          />
+        </label>
+      </div>
+      <p className="muted">
+        This association belongs to the session. Clear the repository to remove it. Status and
+        session tags refresh every {interval} seconds while this tab is open, including when hidden.
+      </p>
+      <label>
+        Refresh interval (seconds)
+        <input
+          type="number"
+          min="30"
+          max="86400"
+          step="1"
+          value={intervalDraft}
+          onChange={(event) => setIntervalDraft(event.target.value)}
+        />
+      </label>
+      <div className="dialog-actions">
+        {configurationOpen && (
+          <button type="button" disabled={saving} onClick={dismissConfiguration}>
+            Cancel
+          </button>
+        )}
+        <button disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+    </form>
+  );
   return (
     <section
       role="tabpanel"
@@ -210,74 +282,70 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
       hidden={!visible}
       className="plugin-panel"
     >
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void associate();
-        }}
-        className="plugin-toolbar"
-      >
-        <input
-          aria-label="GitHub repository or PR URL"
-          placeholder="owner/repository or GitHub PR URL"
-          value={target}
-          onChange={(event) => setTarget(event.target.value)}
-        />
-        <input
-          aria-label="PR number"
-          type="number"
-          min="1"
-          placeholder="PR number"
-          value={number}
-          onChange={(event) => setNumber(event.target.value)}
-        />
-        <button>Save association</button>
-      </form>
-      <p className="muted">
-        This association belongs to the session. Clear the repository to remove it. Status and
-        session tags refresh every {interval} seconds while this tab is open, including when hidden.
-      </p>
-      <form
-        className="plugin-toolbar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          try {
-            const seconds = refreshSeconds({ refreshIntervalSeconds: Number(intervalDraft) });
-            void sdk.storage
-              .configure({ refreshIntervalSeconds: seconds })
-              .catch((error) => setError(String(error)));
-          } catch (error) {
-            setError(String(error));
-          }
+      {!session.pullRequest && !configurationOpen && configuration}
+      <dialog
+        ref={configurationDialog}
+        aria-label="Pull request configuration"
+        onCancel={(event) => {
+          if (saving) event.preventDefault();
+          else dismissConfiguration?.();
         }}
       >
-        <label>
-          Refresh interval (seconds)
-          <input
-            type="number"
-            min="30"
-            max="86400"
-            step="1"
-            value={intervalDraft}
-            onChange={(event) => setIntervalDraft(event.target.value)}
-          />
-        </label>
-        <button>Save interval</button>
-      </form>
+        {configurationOpen && (
+          <div className="pr-configuration-body">
+            <h2>Configure {tab.name}</h2>
+            {configuration}
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+      </dialog>
+      {session.pullRequest && (
+        <header className="pr-heading">
+          <h2>
+            {data
+              ? `#${data.number} ${data.title}`
+              : `${session.pullRequest.repository} #${session.pullRequest.number}`}{' '}
+            <button
+              type="button"
+              className="pr-refresh"
+              aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
+              title={busy ? 'Refreshing…' : 'Refresh pull request'}
+              disabled={busy}
+              onClick={() => void refresh()}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 7v5h-5M4 17v-5h5" />
+                <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1" />
+              </svg>
+            </button>
+          </h2>
+          {lastRefresh && <p className="muted">Last refresh: {lastRefresh}</p>}
+        </header>
+      )}
       {configurationError && (
         <p role="alert" className="error">
           {configurationError}
         </p>
       )}
-      <button disabled={busy || !session.pullRequest} onClick={() => void refresh()}>
-        {busy ? 'Refreshing…' : 'Refresh'}
-      </button>
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      {lastRefresh && <p className="muted">Last successful refresh: {lastRefresh}</p>}
       {unread.length > 0 && (
         <div role="status">
           <p>
@@ -297,9 +365,6 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
       )}
       {data && (
         <>
-          <h2>
-            #{data.number} {data.title}
-          </h2>
           <p>
             State: {data.state} · Review: {data.reviewDecision || 'No review decision'}
           </p>
@@ -310,19 +375,44 @@ export function PullRequestContent({ tab, session, visible }: PluginContentProps
           >
             Open pull request
           </button>
-          <h3>Checks</h3>
-          {data.statusCheckRollup?.length ? (
-            <ul>
-              {data.statusCheckRollup.map((check, index) => (
-                <li key={index}>
-                  {check.name ?? check.context}:{' '}
-                  {check.conclusion || check.state || check.status || 'Unknown'}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No checks reported.</p>
-          )}
+          <section aria-label="Reviews">
+            <h3>Reviews</h3>
+            {data.reviews?.length ? (
+              <ul>
+                {data.reviews.map((review) => (
+                  <li key={review.id}>
+                    {review.author?.login ?? 'Deleted user'}: {review.state}
+                    {review.submittedAt && Number.isFinite(Date.parse(review.submittedAt)) && (
+                      <>
+                        {' '}
+                        ·{' '}
+                        <time dateTime={review.submittedAt}>
+                          {new Date(review.submittedAt).toLocaleString()}
+                        </time>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No reviews submitted.</p>
+            )}
+          </section>
+          <details className="pr-checks" key={associationKey}>
+            <summary>Checks</summary>
+            {data.statusCheckRollup?.length ? (
+              <ul>
+                {data.statusCheckRollup.map((check, index) => (
+                  <li key={index}>
+                    {check.name ?? check.context}:{' '}
+                    {check.conclusion || check.state || check.status || 'Unknown'}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No checks reported.</p>
+            )}
+          </details>
         </>
       )}
     </section>

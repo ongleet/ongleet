@@ -5,7 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import type { ProcessStatus } from './terminal';
 import { allowEditorClose, fileEditors } from './plugins/files/editor-guards';
-import { TabHost, flushPlugins } from './plugins';
+import { TabHost, flushPlugins, plugins } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
@@ -209,7 +209,11 @@ function SessionPane({
   mutate,
   closeTab,
   markRestoring,
+  configurationTab,
+  dismissConfiguration,
 }: {
+  configurationTab: PluginTab | null;
+  dismissConfiguration: () => void;
   session: Session;
   visible: boolean;
   statuses: Record<number, ProcessStatus | null>;
@@ -353,6 +357,8 @@ function SessionPane({
       )}
       {openTabs.map((tab) => (
         <TabHost
+          configurationOpen={configurationTab?.id === tab.id}
+          dismissConfiguration={dismissConfiguration}
           reportTitle={reportTitle}
           key={tab.id}
           session={session}
@@ -666,6 +672,8 @@ function App() {
         {state.sessions.map((session) => (
           <SessionPane
             key={session.id}
+            configurationTab={configurationTab}
+            dismissConfiguration={() => setConfigurationTab(null)}
             session={session}
             visible={session.id === state.selectedId}
             statuses={statuses}
@@ -680,14 +688,15 @@ function App() {
           <span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span>
         </footer>
       </div>
-      {configurationTab && (
-        <TabConfiguration
-          key={configurationTab.id}
-          tab={configurationTab}
-          dismiss={() => setConfigurationTab(null)}
-          save={(config) => mutate('configure_plugin_tab', { id: configurationTab.id, config })}
-        />
-      )}
+      {configurationTab &&
+        !plugins.find((plugin) => plugin.id === configurationTab.kind)?.contentConfiguration && (
+          <TabConfiguration
+            key={configurationTab.id}
+            tab={configurationTab}
+            dismiss={() => setConfigurationTab(null)}
+            save={(config) => mutate('configure_plugin_tab', { id: configurationTab.id, config })}
+          />
+        )}
       {showArchives && (
         <ArchivesDialog
           dismiss={() => setShowArchives(false)}
