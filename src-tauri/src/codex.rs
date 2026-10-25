@@ -456,7 +456,7 @@ pub fn run(flag: &str, args: Vec<String>) {
     let result = (|| {
         let mut extra = args;
         if extra.first().is_some_and(|a| a == "--help" || a == "-h") {
-            println!("dcodex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically resume after exit; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as dcodex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
+            println!("dcodex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically restart after exit, resuming when an ID is saved; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as dcodex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
             return Ok(());
         }
         let path = session_path()?;
@@ -524,15 +524,11 @@ pub fn run(flag: &str, args: Vec<String>) {
             if rapid_exits >= 5 {
                 return Err("Codex exited too quickly five times; automatic restart stopped. Fix the reported error and reopen the tab.".into());
             }
-            // Never fall back to a fresh conversation, including when hooks
-            // were disabled or Codex failed before recording its first ID.
-            if read_state(&path)?.conversation.is_none() {
-                return Err(
-                    "Codex exited without a saved conversation ID; cannot resume automatically."
-                        .into(),
-                );
+            if read_state(&path)?.conversation.is_some() {
+                eprintln!("Codex exited ({status}); resuming in 2 seconds. Close the tab to stop.");
+            } else {
+                eprintln!("Codex exited ({status}) without a saved conversation ID; starting a new conversation in 2 seconds. Close the tab to stop.");
             }
-            eprintln!("Codex exited ({status}); resuming in 2 seconds. Close the tab to stop.");
             std::thread::sleep(std::time::Duration::from_secs(2));
             state = begin(&path, false)?;
         }

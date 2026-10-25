@@ -34,7 +34,7 @@ if mode:
         log.write(json.dumps(args) + "\\n")
     os.environ["TEST_CONVERSATION"] = "restart-" + str(attempt)
 event = {"session_id": os.environ["TEST_CONVERSATION"], "hook_event_name": "SessionStart"}
-if mode != "missing":
+if mode != "missing" and not (mode == "missing-first" and attempt == 0):
     subprocess.run(command, shell=True, input=json.dumps(event), text=True, check=True)
 if mode and attempt == 1:
     os.kill(os.getpid(), 9)
@@ -87,9 +87,23 @@ sys.exit(23)
     missing = subprocess.run(
         [str(wrapper), "--session-id", "21", "--tab-id", "1"],
         env=dict(env, TEST_RESTART="missing"), cwd=root,
-        text=True, capture_output=True, timeout=5)
-    assert missing.returncode == 1 and "without a saved conversation" in missing.stderr
-    assert len((root / "attempts.jsonl").read_text().splitlines()) == 1
+        text=True, capture_output=True, timeout=15, start_new_session=True)
+    assert missing.returncode == 1 and "five times" in missing.stderr, missing.stderr
+    assert "starting a new conversation" in missing.stderr
+    attempts = [json.loads(line) for line in (root / "attempts.jsonl").read_text().splitlines()]
+    assert len(attempts) == 5
+    assert all("resume" not in args for args in attempts)
+    (root / "attempts.jsonl").unlink()
+    recovered = subprocess.run(
+        [str(wrapper), "--session-id", "22", "--tab-id", "1"],
+        env=dict(env, TEST_RESTART="missing-first"), cwd=root,
+        text=True, capture_output=True, timeout=15, start_new_session=True)
+    assert recovered.returncode == 1 and "five times" in recovered.stderr, recovered.stderr
+    attempts = [json.loads(line) for line in (root / "attempts.jsonl").read_text().splitlines()]
+    assert len(attempts) == 5
+    assert "resume" not in attempts[0] and "resume" not in attempts[1]
+    for index, args in enumerate(attempts[2:], 2):
+        assert args[-2:] == ["resume", f"restart-{index - 1}"], args
     path.write_text("invalid state")
     rejected = subprocess.run([str(wrapper), "--session-id", "12", "--tab-id", "34"],
                               env=env, text=True, capture_output=True, timeout=10)
