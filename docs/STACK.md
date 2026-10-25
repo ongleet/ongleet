@@ -20,6 +20,8 @@ DevCenter is a Linux desktop application using Tauri 2, React/TypeScript, Rust, 
 
 ## Persistence and plugins
 
+Diesel provides typed Rust models and queries over the existing bundled SQLite database. Historical SQL migrations retain `PRAGMA user_version` and run in immediate transactions; adopting the ORM does not change the on-disk schema. `rusqlite` is used only by tests as an independent SQLite reader.
+
 SQLite stores stable IDs, definitions, openings, selections, ordering, explicit launch overrides and restart eligibility. Only previously running commands restart, as new processes. Window close hides; Quit terminates contained processes.
 
 Built-in terminal, Files and PR plugins own versioned configuration. Unknown plugins remain opaque/unavailable. Schema 4 wraps plugin payloads; schema 5 repairs either schema-4 PR-column variant; schema 6 adds archives; schema 7 adds bounded versioned plugin namespaces and migrates PR associations. Archive version 2 preserves namespaces and reads version-1 payloads. Archives retain metadata for 30 days, restore stable IDs and use retryable two-phase artifact purge. They retain neither live processes nor unsaved edits.

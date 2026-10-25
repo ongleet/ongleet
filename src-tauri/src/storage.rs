@@ -6,12 +6,17 @@ struct StoredConfig {
 }
 
 use crate::session::{PluginTab, Project, Session, Snapshot};
-use rusqlite::{params, Connection, TransactionBehavior};
+use diesel::{connection::SimpleConnection, prelude::*};
+use std::sync::Mutex;
+
+mod models;
+mod schema;
+use models::*;
+use schema::*;
 use std::{
     fs::{self, File, OpenOptions},
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::Path,
-    time::Duration,
 };
 
 #[derive(Clone)]
@@ -35,25 +40,26 @@ impl Drop for MetadataLock {
 }
 
 pub struct MetadataStore {
-    connection: Connection,
+    connection: Mutex<SqliteConnection>,
     // A second writer must not overwrite metadata or relaunch commands twice.
     _lock: MetadataLock,
 }
 
 impl MetadataStore {
     pub fn open(directory: &Path) -> Result<Self, String> {
-        fs::create_dir_all(directory)
-            .map_err(|e| format!("Cannot create application data directory: {e}"))?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))
-            .map_err(|e| e.to_string())?;
+        Self::open_inner(directory).map_err(|e| e.to_string())
+    }
+
+    fn open_inner(directory: &Path) -> StorageResult<Self> {
+        fs::create_dir_all(directory)?;
+        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
             .mode(0o600)
-            .open(directory.join("metadata.lock"))
-            .map_err(|e| e.to_string())?;
+            .open(directory.join("metadata.lock"))?;
         lock.try_lock().map_err(|e| {
             format!(
                 "Cannot lock session metadata; another application instance may be running: {e}"
@@ -62,335 +68,231 @@ impl MetadataStore {
         let lock = MetadataLock(lock);
         let path = directory.join("workspaces.sqlite3");
         let mut connection =
-            Connection::open(&path).map_err(|e| format!("Cannot open session database: {e}"))?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-        connection
-            .busy_timeout(Duration::from_millis(500))
-            .map_err(|e| e.to_string())?;
-        connection
-            .execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;")
-            .map_err(|e| e.to_string())?;
-        let version: u32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .map_err(|e| e.to_string())?;
-        if version > 7 {
-            return Err(format!(
-                "Unsupported session database schema version {version}; the database was not reset"
-            ));
-        }
-        if version < 2 {
-            // Rebuild the referenced workspace table without cascading deletion
-            // of its tabs. Verify all relationships before committing migration.
-            connection
-                .execute_batch("PRAGMA foreign_keys=OFF;")
-                .map_err(|e| e.to_string())?;
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            if version == 0 {
-                transaction
-                    .execute_batch(include_str!("../migrations/001_metadata.sql"))
-                    .map_err(|e| e.to_string())?;
-            }
-            transaction
-                .execute_batch(include_str!("../migrations/002_workgroups.sql"))
-                .map_err(|e| format!("Workgroup migration failed: {e}"))?;
-            if transaction
-                .query_row("SELECT COUNT(*) FROM workspaces", [], |r| {
-                    r.get::<_, i64>(0)
-                })
-                .map_err(|e| e.to_string())?
-                == 0
-            {
-                let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
-                transaction
-                    .execute("UPDATE workgroups SET root_directory=?1 WHERE id=1", [home])
-                    .map_err(|e| e.to_string())?;
-            }
-            let violations: i64 = transaction
-                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-                    row.get(0)
-                })
-                .map_err(|e| e.to_string())?;
-            if violations != 0 {
-                return Err("Workgroup migration found invalid metadata relationships; database was not changed".into());
-            }
-            transaction.commit().map_err(|e| e.to_string())?;
-            connection
-                .execute_batch("PRAGMA foreign_keys=ON;")
-                .map_err(|e| e.to_string())?;
-        }
-        if version < 3 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            transaction
-                .execute_batch(include_str!("../migrations/003_projects_sessions.sql"))
-                .map_err(|e| format!("Project/session migration failed: {e}"))?;
-            let violations: i64 = transaction
-                .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-                    row.get(0)
-                })
-                .map_err(|e| e.to_string())?;
-            if violations != 0 {
-                return Err("Project/session migration found invalid metadata relationships; database was not changed".into());
-            }
-            transaction.commit().map_err(|e| e.to_string())?;
-        }
-        if version < 4 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            transaction
-                .execute_batch(include_str!("../migrations/004_plugins.sql"))
-                .map_err(|e| format!("Plugin migration failed: {e}"))?;
-            transaction.commit().map_err(|e| e.to_string())?;
-        }
-        if version < 5 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            // Both intermediate and complete schema-4 builds were used. Never
-            // rerun payload wrapping; only add the association column if absent.
-            let has_association: bool = transaction.query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sessions') WHERE name='pull_request_json')",
-                [], |row| row.get(0),
-            ).map_err(|e| e.to_string())?;
-            if has_association {
-                transaction.execute_batch("PRAGMA user_version = 5;")
-            } else {
-                transaction
-                    .execute_batch(include_str!("../migrations/005_session_pull_requests.sql"))
-            }
-            .map_err(|e| format!("Session PR migration failed: {e}"))?;
-            transaction.commit().map_err(|e| e.to_string())?;
-        }
-        if version < 6 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            transaction
-                .execute_batch(include_str!("../migrations/006_archives.sql"))
-                .map_err(|e| format!("Archive migration failed: {e}"))?;
-            transaction.commit().map_err(|e| e.to_string())?;
-        }
-        if version < 7 {
-            let transaction = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            transaction
-                .execute_batch(include_str!("../migrations/007_plugin_data.sql"))
-                .map_err(|e| format!("Plugin data migration failed: {e}"))?;
-            transaction.commit().map_err(|e| e.to_string())?;
-        }
+            SqliteConnection::establish(path.to_str().ok_or("Session database path is not UTF-8")?)
+                .map_err(|e| format!("Cannot open session database: {e}"))?;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        connection.batch_execute(
+            "PRAGMA busy_timeout=500; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;",
+        )?;
+        migrate(&mut connection)?;
         Ok(Self {
-            connection,
+            connection: Mutex::new(connection),
             _lock: lock,
         })
     }
 
     pub fn load(&self) -> Result<Metadata, String> {
-        let result = (|| -> rusqlite::Result<Metadata> {
-            let (selected_id, session_sequence, tab_sequence, project_sequence) = self.connection.query_row(
-                "SELECT selected_session_id, session_sequence, tab_sequence, project_sequence FROM app_state WHERE singleton=1",
-                [], |row| Ok((optional_id(row, 0)?, read_id(row, 1)?, read_id(row, 2)?, read_id(row, 3)?)))?;
-            let mut groups = self.connection.prepare("SELECT id,name,root_directory,display_order,collapsed FROM projects ORDER BY display_order")?;
-            let projects = groups
-                .query_map([], |row| {
+        let result = (|| -> StorageResult<Metadata> {
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| "Session database lock poisoned")?;
+            let connection = &mut *connection;
+            let state = app_state::table
+                .find(1_i64)
+                .select(AppStateRow::as_select())
+                .first(connection)?;
+            let projects = projects::table
+                .order(projects::display_order)
+                .select(ProjectRow::as_select())
+                .load(connection)?
+                .into_iter()
+                .map(|row| {
                     Ok(Project {
-                        id: read_id(row, 0)?,
-                        name: row.get(1)?,
-                        root_directory: row.get(2)?,
-                        display_order: read_order(row, 3)?,
-                        collapsed: row.get(4)?,
+                        id: read_id(row.id)?,
+                        name: row.name,
+                        root_directory: row.root_directory,
+                        display_order: usize::try_from(row.display_order)?,
+                        collapsed: row.collapsed,
                     })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut statement = self.connection.prepare("SELECT id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json,plugin_data_json FROM sessions ORDER BY display_order")?;
-            let mut sessions = statement
-                .query_map([], |row| {
-                    let association: Option<String> = row.get(6)?;
-                    let pull_request = association
-                        .map(|text| serde_json::from_str(&text))
-                        .transpose()
-                        .map_err(|e| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                6,
-                                rusqlite::types::Type::Text,
-                                Box::new(e),
-                            )
-                        })?;
+                })
+                .collect::<StorageResult<Vec<_>>>()?;
+            let mut sessions = sessions::table
+                .order(sessions::display_order)
+                .select(SessionRow::as_select())
+                .load(connection)?
+                .into_iter()
+                .map(|row| {
+                    // Validate the legacy association even though the namespace is authoritative.
+                    let pull_request = row
+                        .pull_request_json
+                        .as_deref()
+                        .map(serde_json::from_str)
+                        .transpose()?;
                     Ok(Session {
-                        plugin_data: read_json(row, 7)?,
+                        id: read_id(row.id)?,
+                        name: row.name,
+                        base_directory: row.base_directory,
+                        display_order: usize::try_from(row.display_order)?,
+                        selected_tab_id: row.selected_tab_id.map(read_id).transpose()?,
+                        project_id: read_id(row.project_id)?,
                         pull_request,
-                        project_id: read_id(row, 5)?,
-                        id: read_id(row, 0)?,
-                        name: row.get(1)?,
-                        base_directory: row.get(2)?,
-                        display_order: read_order(row, 3)?,
-                        selected_tab_id: optional_id(row, 4)?,
+                        plugin_data: serde_json::from_str(&row.plugin_data_json)?,
                         tabs: vec![],
                     })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+                })
+                .collect::<StorageResult<Vec<_>>>()?;
             for session in &mut sessions {
                 session.pull_request = session
                     .plugin_data
                     .get("pull-request")
                     .and_then(|n| serde_json::from_value(n.value.clone()).ok());
-                let mut statement = self.connection.prepare("SELECT d.id,d.name,d.kind,d.config_json,d.display_order,o.definition_id IS NOT NULL,COALESCE(o.resume_on_start,0),d.plugin_data_json FROM tab_definitions d LEFT JOIN open_tabs o ON o.definition_id=d.id WHERE d.session_id=? ORDER BY d.display_order")?;
-                session.tabs = statement
-                    .query_map([sql_id(session.id)?], |row| {
-                        let json: String = row.get(3)?;
-                        let stored: StoredConfig = serde_json::from_str(&json).map_err(|e| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                3,
-                                rusqlite::types::Type::Text,
-                                Box::new(e),
-                            )
-                        })?;
+                let rows = tab_definitions::table
+                    .left_join(open_tabs::table)
+                    .filter(tab_definitions::session_id.eq(sql_id(session.id)?))
+                    .order(tab_definitions::display_order)
+                    .select(<(TabRow, Option<OpeningRow>)>::as_select())
+                    .load::<(TabRow, Option<OpeningRow>)>(connection)?;
+                session.tabs = rows
+                    .into_iter()
+                    .map(|(row, opening)| {
+                        let stored: StoredConfig = serde_json::from_str(&row.config_json)?;
                         Ok(PluginTab {
-                            plugin_data: read_json(row, 7)?,
+                            id: read_id(row.id)?,
+                            name: row.name,
+                            kind: row.kind,
                             config_version: stored.version,
-                            id: read_id(row, 0)?,
-                            name: row.get(1)?,
-                            kind: row.get(2)?,
                             config: stored.config,
-                            display_order: read_order(row, 4)?,
-                            is_open: row.get(5)?,
-                            resume_on_start: row.get(6)?,
+                            display_order: usize::try_from(row.display_order)?,
+                            is_open: opening.is_some(),
+                            resume_on_start: opening.is_some_and(|o| o.resume_on_start),
+                            plugin_data: serde_json::from_str(&row.plugin_data_json)?,
                         })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                    })
+                    .collect::<StorageResult<Vec<_>>>()?;
             }
-            let archive_sequence = self.connection.query_row(
-                "SELECT sequence FROM archive_state WHERE singleton=1",
-                [],
-                |row| read_id(row, 0),
+            let archive_sequence = read_id(
+                archive_state::table
+                    .find(1_i64)
+                    .select(archive_state::sequence)
+                    .first(connection)?,
             )?;
-            let mut statement = self
-                .connection
-                .prepare("SELECT id,payload_json FROM archives ORDER BY id")?;
-            let archives = statement
-                .query_map([], |row| {
-                    let id = read_id(row, 0)?;
-                    let payload: String = row.get(1)?;
+            let archives = archives::table
+                .order(archives::id)
+                .select(ArchiveRow::as_select())
+                .load(connection)?
+                .into_iter()
+                .map(|row| {
+                    let id = read_id(row.id)?;
                     let mut archive: crate::session::archives::Archive =
-                        serde_json::from_str(&payload).map_err(|e| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                1,
-                                rusqlite::types::Type::Text,
-                                Box::new(e),
-                            )
-                        })?;
+                        serde_json::from_str(&row.payload_json)?;
                     if archive.id != id
                         || id > archive_sequence
                         || !matches!(archive.version, 1 | 2)
                     {
-                        return Err(rusqlite::Error::InvalidQuery);
+                        return Err("Invalid archive metadata".into());
                     }
                     archive.upgrade_plugin_data();
                     Ok(archive)
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+                })
+                .collect::<StorageResult<Vec<_>>>()?;
             Ok(Metadata {
                 archives,
                 archive_sequence,
-                project_sequence,
+                project_sequence: read_id(state.project_sequence)?,
                 snapshot: Snapshot {
                     projects,
                     sessions,
-                    selected_id,
+                    selected_id: state.selected_session_id.map(read_id).transpose()?,
                 },
-                session_sequence,
-                tab_sequence,
+                session_sequence: read_id(state.session_sequence)?,
+                tab_sequence: read_id(state.tab_sequence)?,
             })
         })();
         result.map_err(|e| format!("Cannot read session metadata; database was not reset: {e}"))
     }
 
     pub fn save(&mut self, metadata: &Metadata) -> Result<(), String> {
-        let result = (|| -> rusqlite::Result<()> {
-            let transaction = self
+        let result = (|| -> StorageResult<()> {
+            let connection = self
                 .connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
-            // One small metadata snapshot is committed atomically. No PTY data,
-            // inherited environment, or historical terminal output is stored.
-            transaction.execute_batch(
-                "DELETE FROM open_tabs; DELETE FROM tab_definitions; DELETE FROM sessions; DELETE FROM projects;",
-            )?;
-            for group in &metadata.snapshot.projects {
-                transaction.execute(
-                    "INSERT INTO projects VALUES (?1,?2,?3,?4,?5)",
-                    params![
-                        sql_id(group.id)?,
-                        group.name,
-                        group.root_directory,
-                        sql_order(group.display_order)?,
-                        group.collapsed
-                    ],
-                )?;
-            }
-            for session in &metadata.snapshot.sessions {
-                transaction.execute(
-                    "INSERT INTO sessions VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-                    params![
-                        sql_id(session.id)?,
-                        session.name,
-                        session.base_directory,
-                        sql_order(session.display_order)?,
-                        session.selected_tab_id.map(sql_id).transpose()?,
-                        sql_id(session.project_id)?,
-                        session
-                            .pull_request
-                            .as_ref()
-                            .map(serde_json::to_string)
-                            .transpose()
-                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                        json_sql(&session.plugin_data)?
-                    ],
-                )?;
-                for tab in &session.tabs {
-                    let config = serde_json::to_string(&StoredConfig {
-                        version: tab.config_version,
-                        config: tab.config.clone(),
-                    })
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                    transaction.execute(
-                        "INSERT INTO tab_definitions VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                        params![
-                            sql_id(tab.id)?,
-                            sql_id(session.id)?,
-                            tab.name,
-                            tab.kind,
-                            config,
-                            sql_order(tab.display_order)?,
-                            json_sql(&tab.plugin_data)?
-                        ],
-                    )?;
-                    if tab.is_open {
-                        transaction.execute(
-                            "INSERT INTO open_tabs VALUES (?1,?2)",
-                            params![sql_id(tab.id)?, tab.resume_on_start],
-                        )?;
+                .get_mut()
+                .map_err(|_| "Session database lock poisoned")?;
+            connection.immediate_transaction::<_, StorageError, _>(|connection| {
+                // Commit the metadata snapshot atomically, without PTY data or inherited environment.
+                diesel::delete(open_tabs::table).execute(connection)?;
+                diesel::delete(tab_definitions::table).execute(connection)?;
+                diesel::delete(sessions::table).execute(connection)?;
+                diesel::delete(projects::table).execute(connection)?;
+                for group in &metadata.snapshot.projects {
+                    diesel::insert_into(projects::table)
+                        .values(ProjectRow {
+                            id: sql_id(group.id)?,
+                            name: group.name.clone(),
+                            root_directory: group.root_directory.clone(),
+                            display_order: i64::try_from(group.display_order)?,
+                            collapsed: group.collapsed,
+                        })
+                        .execute(connection)?;
+                }
+                for session in &metadata.snapshot.sessions {
+                    diesel::insert_into(sessions::table)
+                        .values(SessionRow {
+                            id: sql_id(session.id)?,
+                            name: session.name.clone(),
+                            base_directory: session.base_directory.clone(),
+                            display_order: i64::try_from(session.display_order)?,
+                            selected_tab_id: session.selected_tab_id.map(sql_id).transpose()?,
+                            project_id: sql_id(session.project_id)?,
+                            pull_request_json: session
+                                .pull_request
+                                .as_ref()
+                                .map(serde_json::to_string)
+                                .transpose()?,
+                            plugin_data_json: serde_json::to_string(&session.plugin_data)?,
+                        })
+                        .execute(connection)?;
+                    for tab in &session.tabs {
+                        diesel::insert_into(tab_definitions::table)
+                            .values(TabRow {
+                                id: sql_id(tab.id)?,
+                                session_id: sql_id(session.id)?,
+                                name: tab.name.clone(),
+                                kind: tab.kind.clone(),
+                                config_json: serde_json::to_string(&StoredConfig {
+                                    version: tab.config_version,
+                                    config: tab.config.clone(),
+                                })?,
+                                display_order: i64::try_from(tab.display_order)?,
+                                plugin_data_json: serde_json::to_string(&tab.plugin_data)?,
+                            })
+                            .execute(connection)?;
+                        if tab.is_open {
+                            diesel::insert_into(open_tabs::table)
+                                .values(OpeningRow {
+                                    definition_id: sql_id(tab.id)?,
+                                    resume_on_start: tab.resume_on_start,
+                                })
+                                .execute(connection)?;
+                        }
                     }
                 }
-            }
-            transaction.execute("UPDATE app_state SET selected_session_id=?1,session_sequence=?2,tab_sequence=?3,project_sequence=?4 WHERE singleton=1",params![metadata.snapshot.selected_id.map(sql_id).transpose()?,sql_id(metadata.session_sequence)?,sql_id(metadata.tab_sequence)?,sql_id(metadata.project_sequence)?])?;
-            transaction.execute("DELETE FROM archives", [])?;
-            for archive in &metadata.archives {
-                let json = serde_json::to_string(archive)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                transaction.execute(
-                    "INSERT INTO archives VALUES (?1,?2)",
-                    params![sql_id(archive.id)?, json],
-                )?;
-            }
-            transaction.execute(
-                "UPDATE archive_state SET sequence=?1 WHERE singleton=1",
-                [sql_id(metadata.archive_sequence)?],
-            )?;
-            transaction.commit()
+                diesel::update(app_state::table.find(1_i64))
+                    .set((
+                        app_state::selected_session_id.eq(metadata
+                            .snapshot
+                            .selected_id
+                            .map(sql_id)
+                            .transpose()?),
+                        app_state::session_sequence.eq(sql_id(metadata.session_sequence)?),
+                        app_state::tab_sequence.eq(sql_id(metadata.tab_sequence)?),
+                        app_state::project_sequence.eq(sql_id(metadata.project_sequence)?),
+                    ))
+                    .execute(connection)?;
+                diesel::delete(archives::table).execute(connection)?;
+                for archive in &metadata.archives {
+                    diesel::insert_into(archives::table)
+                        .values(ArchiveRow {
+                            id: sql_id(archive.id)?,
+                            payload_json: serde_json::to_string(archive)?,
+                        })
+                        .execute(connection)?;
+                }
+                diesel::update(archive_state::table.find(1_i64))
+                    .set(archive_state::sequence.eq(sql_id(metadata.archive_sequence)?))
+                    .execute(connection)?;
+                Ok(())
+            })
         })();
         result.map_err(|e| format!("Cannot save session metadata: {e}"))
     }
@@ -398,60 +300,117 @@ impl MetadataStore {
     #[cfg(test)]
     pub fn reject_writes(&self) {
         self.connection
-            .execute_batch("PRAGMA query_only=ON;")
+            .lock()
+            .unwrap()
+            .batch_execute("PRAGMA query_only=ON;")
             .unwrap();
     }
 }
 
-fn sql_id(value: u64) -> rusqlite::Result<i64> {
-    i64::try_from(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+type StorageError = Box<dyn std::error::Error + Send + Sync>;
+type StorageResult<T> = Result<T, StorageError>;
+
+fn sql_id(value: u64) -> StorageResult<i64> {
+    Ok(i64::try_from(value)?)
 }
-fn sql_order(value: usize) -> rusqlite::Result<i64> {
-    i64::try_from(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+fn read_id(value: i64) -> StorageResult<u64> {
+    Ok(u64::try_from(value)?)
 }
-fn read_id(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
-    u64::try_from(row.get::<_, i64>(index)?).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            rusqlite::types::Type::Integer,
-            Box::new(e),
+
+// Raw SQL is confined to historical migrations and SQLite-specific pragmas.
+#[derive(diesel::QueryableByName)]
+struct Scalar {
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    value: i64,
+}
+fn scalar(connection: &mut SqliteConnection, sql: &str) -> StorageResult<i64> {
+    Ok(diesel::sql_query(sql)
+        .get_result::<Scalar>(connection)?
+        .value)
+}
+
+fn migrate(connection: &mut SqliteConnection) -> StorageResult<()> {
+    let version = scalar(
+        connection,
+        "SELECT user_version AS value FROM pragma_user_version",
+    )?;
+    if version > 7 {
+        return Err(format!(
+            "Unsupported session database schema version {version}; the database was not reset"
         )
-    })
+        .into());
+    }
+    if version < 2 {
+        // Rebuild the referenced table without cascading deletion of its tabs.
+        connection.batch_execute("PRAGMA foreign_keys=OFF;")?;
+        connection.immediate_transaction::<_, StorageError, _>(|connection| {
+            if version == 0 {
+                connection.batch_execute(include_str!("../migrations/001_metadata.sql"))?;
+            }
+            connection
+                .batch_execute(include_str!("../migrations/002_workgroups.sql"))
+                .map_err(|e| format!("Workgroup migration failed: {e}"))?;
+            if scalar(connection, "SELECT count(*) AS value FROM workspaces")? == 0 {
+                let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+                diesel::sql_query("UPDATE workgroups SET root_directory=? WHERE id=1")
+                    .bind::<diesel::sql_types::Text, _>(home)
+                    .execute(connection)?;
+            }
+            check_relationships(connection, "Workgroup")
+        })?;
+        connection.batch_execute("PRAGMA foreign_keys=ON;")?;
+    }
+    if version < 3 {
+        connection.immediate_transaction::<_, StorageError, _>(|connection| {
+            connection
+                .batch_execute(include_str!("../migrations/003_projects_sessions.sql"))
+                .map_err(|e| format!("Project/session migration failed: {e}"))?;
+            check_relationships(connection, "Project/session")
+        })?;
+    }
+    for (target, name, sql) in [
+        (4, "Plugin", include_str!("../migrations/004_plugins.sql")),
+        (
+            5,
+            "Session PR",
+            include_str!("../migrations/005_session_pull_requests.sql"),
+        ),
+        (6, "Archive", include_str!("../migrations/006_archives.sql")),
+        (
+            7,
+            "Plugin data",
+            include_str!("../migrations/007_plugin_data.sql"),
+        ),
+    ] {
+        if version >= target {
+            continue;
+        }
+        connection.immediate_transaction::<_, StorageError, _>(|connection| {
+            // Both schema-4 variants exist; do not wrap plugin payloads twice.
+            let sql = if target == 5 && scalar(connection,
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('sessions') WHERE name='pull_request_json') AS value")? != 0 {
+                "PRAGMA user_version=5;"
+            } else { sql };
+            connection.batch_execute(sql).map_err(|e| format!("{name} migration failed: {e}"))?;
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
-fn read_order(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<usize> {
-    usize::try_from(row.get::<_, i64>(index)?).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(
-            index,
-            rusqlite::types::Type::Integer,
-            Box::new(e),
+
+fn check_relationships(connection: &mut SqliteConnection, name: &str) -> StorageResult<()> {
+    if scalar(
+        connection,
+        "SELECT count(*) AS value FROM pragma_foreign_key_check",
+    )? != 0
+    {
+        return Err(format!(
+            "{name} migration found invalid metadata relationships; database was not changed"
         )
-    })
-}
-fn optional_id(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Option<u64>> {
-    row.get::<_, Option<i64>>(index)?
-        .map(u64::try_from)
-        .transpose()
-        .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                index,
-                rusqlite::types::Type::Integer,
-                Box::new(e),
-            )
-        })
+        .into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests;
-
-fn json_sql(value: &impl serde::Serialize) -> rusqlite::Result<String> {
-    serde_json::to_string(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
-}
-fn read_json<T: serde::de::DeserializeOwned>(
-    row: &rusqlite::Row<'_>,
-    index: usize,
-) -> rusqlite::Result<T> {
-    let text: String = row.get(index)?;
-    serde_json::from_str(&text).map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(e))
-    })
-}

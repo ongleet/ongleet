@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 
 #[test]
 fn dropping_store_releases_lock_while_a_fork_duplicate_is_still_open() {
@@ -52,15 +53,15 @@ fn version_two_rename_preserves_metadata_and_reopens() {
     assert_eq!(tab.terminal_config().args, ["literal; 日本語"]);
     assert_eq!(tab.terminal_config().env["KEEP"], "yes");
     assert_eq!(
-        store
-            .connection
+        Connection::open(directory.join("workspaces.sqlite3"))
+            .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
         7
     );
     assert_eq!(
-        store
-            .connection
+        Connection::open(directory.join("workspaces.sqlite3"))
+            .unwrap()
             .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r
                 .get::<_, u32>(
                 0
@@ -226,8 +227,8 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
         assert_eq!(tab.config_version, 1);
         assert_eq!(tab.config["args"][0], "literal");
         assert_eq!(
-            store
-                .connection
+            Connection::open(directory.join("workspaces.sqlite3"))
+                .unwrap()
                 .query_row(
                     "SELECT config_json FROM tab_definitions WHERE id=12",
                     [],
@@ -237,8 +238,8 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
             payload
         );
         assert_eq!(
-            store
-                .connection
+            Connection::open(directory.join("workspaces.sqlite3"))
+                .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
             7
@@ -260,7 +261,7 @@ fn archive_migration_failure_rolls_back_and_keeps_existing_metadata() {
     let directory =
         std::env::temp_dir().join(format!("metadata-archive-migration-{}", std::process::id()));
     let store = MetadataStore::open(&directory).unwrap();
-    store.connection.execute_batch("DROP TABLE archives; DROP TABLE archive_state; CREATE TABLE archives(conflicting_column TEXT); PRAGMA user_version=5;").unwrap();
+    Connection::open(directory.join("workspaces.sqlite3")).unwrap().execute_batch("DROP TABLE archives; DROP TABLE archive_state; CREATE TABLE archives(conflicting_column TEXT); PRAGMA user_version=5;").unwrap();
     drop(store);
     assert!(MetadataStore::open(&directory).is_err());
     let db = Connection::open(directory.join("workspaces.sqlite3")).unwrap();
@@ -294,7 +295,7 @@ fn schema_six_pr_namespace_migration_and_schema_one_archives_preserve_opaque_dat
         std::env::temp_dir().join(format!("metadata-sdk-migration-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
     let store = MetadataStore::open(&directory).unwrap();
-    store.connection.execute_batch("ALTER TABLE sessions DROP COLUMN plugin_data_json; ALTER TABLE tab_definitions DROP COLUMN plugin_data_json; INSERT INTO sessions VALUES (11,'Legacy','/missing',0,NULL,1,'{\"repository\":\"example/repo\",\"number\":42}'); UPDATE app_state SET session_sequence=11; PRAGMA user_version=6;").unwrap();
+    Connection::open(directory.join("workspaces.sqlite3")).unwrap().execute_batch("ALTER TABLE sessions DROP COLUMN plugin_data_json; ALTER TABLE tab_definitions DROP COLUMN plugin_data_json; INSERT INTO sessions VALUES (11,'Legacy','/missing',0,NULL,1,'{\"repository\":\"example/repo\",\"number\":42}'); UPDATE app_state SET session_sequence=11; PRAGMA user_version=6;").unwrap();
     drop(store);
     let store = MetadataStore::open(&directory).unwrap();
     let metadata = store.load().unwrap();
@@ -322,6 +323,124 @@ fn schema_six_pr_namespace_migration_and_schema_one_archives_preserve_opaque_dat
         session.plugin_data["pull-request"].value
     );
     assert_eq!(archive.version, 2);
+    drop(store);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn diesel_preserves_wide_ids_and_rolls_back_unsigned_overflow() {
+    let directory = std::env::temp_dir().join(format!("metadata-wide-ids-{}", std::process::id()));
+    let mut store = MetadataStore::open(&directory).unwrap();
+    // SQLite INTEGER is 64-bit, even though Diesel defaults to Int4 for primary keys.
+    let wide_id = 4_294_967_300_u64;
+    let mut metadata = store.load().unwrap();
+    metadata.snapshot.projects[0].id = wide_id;
+    metadata.project_sequence = wide_id;
+    metadata.session_sequence = wide_id + 1;
+    store.save(&metadata).unwrap();
+    drop(store);
+    let mut store = MetadataStore::open(&directory).unwrap();
+    let restored = store.load().unwrap();
+    assert_eq!(restored.snapshot.projects[0].id, wide_id);
+    assert_eq!(restored.project_sequence, wide_id);
+    assert_eq!(restored.session_sequence, wide_id + 1);
+    metadata.snapshot.projects[0].name = "Must roll back".into();
+    metadata.tab_sequence = u64::MAX;
+    assert!(store.save(&metadata).is_err());
+    drop(store);
+    let store = MetadataStore::open(&directory).unwrap();
+    let restored = store.load().unwrap();
+    assert_eq!(restored.snapshot.projects[0].name, "Default");
+    assert_eq!(restored.tab_sequence, 0);
+    drop(store);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn invalid_persisted_ids_and_json_are_rejected_without_resetting_database() {
+    let directory =
+        std::env::temp_dir().join(format!("metadata-invalid-rows-{}", std::process::id()));
+    let store = MetadataStore::open(&directory).unwrap();
+    let db = Connection::open(directory.join("workspaces.sqlite3")).unwrap();
+    db.execute_batch("UPDATE projects SET display_order=-1;")
+        .unwrap();
+    assert!(store
+        .load()
+        .err()
+        .unwrap()
+        .contains("database was not reset"));
+    assert_eq!(
+        db.query_row("SELECT display_order FROM projects", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        -1
+    );
+    db.execute_batch(
+        "UPDATE projects SET display_order=0; UPDATE app_state SET session_sequence=-1;",
+    )
+    .unwrap();
+    assert!(store.load().is_err());
+    db.execute_batch("UPDATE app_state SET session_sequence=0; INSERT INTO sessions VALUES (1,'Invalid','/missing',0,NULL,1,NULL,'invalid-json');").unwrap();
+    assert!(store.load().is_err());
+    assert_eq!(
+        db.query_row("SELECT plugin_data_json FROM sessions", [], |row| row
+            .get::<_, String>(0))
+            .unwrap(),
+        "invalid-json"
+    );
+    drop(store);
+    drop(db);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn deferred_foreign_key_failure_rolls_back_with_durable_connection_settings() {
+    let directory = std::env::temp_dir().join(format!("metadata-deferred-{}", std::process::id()));
+    let mut store = MetadataStore::open(&directory).unwrap();
+    {
+        let mut connection = store.connection.lock().unwrap();
+        assert_eq!(
+            scalar(
+                &mut connection,
+                "SELECT foreign_keys AS value FROM pragma_foreign_keys"
+            )
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            scalar(
+                &mut connection,
+                "SELECT synchronous AS value FROM pragma_synchronous"
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            scalar(
+                &mut connection,
+                "SELECT timeout AS value FROM pragma_busy_timeout"
+            )
+            .unwrap(),
+            500
+        );
+    }
+    let mut metadata = store.load().unwrap();
+    metadata.snapshot.projects[0].name = "Uncommitted rename".into();
+    metadata.snapshot.selected_id = Some(99);
+    assert!(store.save(&metadata).is_err());
+    let restored = store.load().unwrap();
+    assert_eq!(restored.snapshot.selected_id, None);
+    assert_eq!(restored.snapshot.projects[0].name, "Default");
+    // A failed COMMIT must leave the connection usable for a subsequent transaction.
+    metadata.snapshot.selected_id = None;
+    metadata.snapshot.projects[0].name = "Committed rename".into();
+    store.save(&metadata).unwrap();
+    drop(store);
+    let store = MetadataStore::open(&directory).unwrap();
+    assert_eq!(
+        store.load().unwrap().snapshot.projects[0].name,
+        "Committed rename"
+    );
     drop(store);
     std::fs::remove_dir_all(directory).unwrap();
 }

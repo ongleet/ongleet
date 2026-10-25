@@ -17,6 +17,7 @@ Use native clipboard and Ghostty paste APIs. Await the in-app destructive confir
 - Projects contain sessions and plugin tabs. Root changes affect future sessions; session directory changes affect future launches. Never mutate session directories during metadata operations.
 - Validate YAML before creating metadata. A new session launches the first configured terminal action, never a stopped placeholder.
 - Keep definitions separate from openings. CLI closure retains definitions; GUI removal archives them. Persist plugin ID/version/payload and selection. Runtime supplies process status.
+- Use Diesel models and queries in `storage/models.rs` and `storage/schema.rs` for metadata reads/writes. Keep raw SQL confined to historical migrations and SQLite pragmas.
 - Use transactional migrations in standard user-data SQLite; never reset a failed database. Store explicit overrides only, never inherited environment or credentials.
 - Merge inherited environment, project root `env`, then action overrides. Existing processes/configurations stay independent. Only the `actions` YAML schema is supported; configuration lives outside project roots.
 - External commands launch explicitly, independently of tabs/PTYs. Reap bounded children, discard output and report failures. Preserve literal placeholders; shell context uses quoted reserved environment variables.
