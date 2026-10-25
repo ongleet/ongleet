@@ -31,7 +31,7 @@ Full dated reports, paths, migration evidence and earlier failures: [validation 
 
 ## Remaining acceptance
 
-- Codex approvals, scrolling, active-task Ctrl+C, actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
+- Codex actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
 - Function keys beyond F1/F12, combining graphemes, IME, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting.
 - Title-bar dragging, rounded transparent corners, separate Xorg/other compositor window behavior, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
 - Snapshot graphemes/selection and unavailable frontend behavior; CLI input/snapshots when implemented. Input queue saturation, cancellation and stale runtime IDs need complete boundary coverage.
@@ -261,3 +261,56 @@ mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --window-onl
 Wayland restart checks reuse the GNOME native-input fixture described above. Leave
 the test windows untouched during both runs. Production frontend/native assets
 were restored after acceptance; Python syntax and diff whitespace checks pass.
+
+## Live Codex approvals, interruption and scrolling (2026-10-25)
+
+Committed window restart acceptance as `a0add47`, then added
+`scripts/check-codex-interactive.py` for live terminal acceptance. It launches
+Codex 0.164.0 with the configured model (`gpt-6.1-sol` on this host) in a private
+workspace and Codex home, read-only sandbox and on-request approvals, without a
+shared daemon. It copies file-based authentication temporarily and removes the
+entire private Codex home in cleanup. It does not copy or change personal Codex
+configuration, hooks or project files. The fixture session is created through the
+normal backend operation, then displayed after frontend reload. These are live
+model requests using the signed-in account, restricted by the prompts to the
+harness fixtures.
+
+Wayland `devcenter-codex-validation-8vlu8kia` and XWayland
+`devcenter-codex-validation-kudr4nc5` each passed five selected checks with no
+cleanup survivors; private authentication copies were removed. Observed behavior:
+
+- Authenticated interactive Codex starts with isolated metadata.
+- An approval prompt blocks the marker command; Escape rejects it and its marker
+  remains absent.
+- Accepting a later request executes the marker command and completes the turn.
+- Ctrl+C during a bounded active command stops its actual subprocess and displays
+  the current turn's interruption message.
+- Native WebDriver wheel input scrolls a live eighty-line numbered response and
+  returns to its latest line. The validation-only bridge reports viewport offset;
+  assertions also compare numbered terminal rows because Codex handles scrolling
+  inside its alternate screen. Screenshots and text snapshots are retained.
+
+The first exploratory run `8c16ar_l` was invalidated: its assertions could match
+historical interruption text or a completion marker in the prompt. The corrected
+harness waits for actual process termination and a standalone completion reply.
+Wayland `s8uaq6jx` also passed these corrected checks; `gk3b7hf0` stopped during
+session-form setup, before Codex started. The final harness uses backend fixture
+creation and waits for the long response to settle before inspecting scrolling.
+It checks a multi-row change rather than accepting arbitrary screen differences.
+
+After a native-validation build, run with file-based Codex authentication:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-codex-interactive.py --backend wayland --driver /path/to/WebKitWebDriver
+mise exec -- /usr/bin/python3 scripts/check-codex-interactive.py --backend x11 --driver /path/to/WebKitWebDriver
+```
+
+The default auth source is `CODEX_HOME`, falling back to `~/.codex`; use
+`--auth-home PATH` for another file-based profile. Leave the native test window
+untouched while running. Approval settings follow the
+[official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+Physical keyboard/wheel input, actual image attachments, live dcodex activity hook
+delivery, resume/fork/crash scenarios and other Codex versions remain outside this
+coverage. This does not close the full terminal compatibility gate. Production
+frontend/native assets were restored; Python syntax and targeted formatting checks
+pass.

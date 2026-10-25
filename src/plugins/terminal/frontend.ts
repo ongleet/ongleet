@@ -60,6 +60,7 @@ export class TerminalFrontend {
             cols: this.term?.cols,
             rows: this.term?.rows,
             scrollback: this.term?.wasmTerm?.getScrollbackLength(),
+            viewportY: this.term?.viewportY,
             alternate: this.term?.wasmTerm?.isAlternateScreen(),
           }),
           snapshot: () => this.snapshot(),
