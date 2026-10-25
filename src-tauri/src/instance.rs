@@ -112,20 +112,11 @@ impl Instance {
                                 let handle = app.clone();
                                 let _ = app.run_on_main_thread(move || {
                                     if let Some(window) = handle.get_webview_window("main") {
-                                        if window.show().is_ok() {
+                                        if crate::window_state::activate(&window).is_ok() {
                                             handle
                                                 .state::<crate::Lifecycle>()
                                                 .visible
                                                 .store(true, Ordering::Release);
-                                        }
-                                        // Tao queues unminimize, but drops set_focus while
-                                        // its cached minimized flag is still true. Present
-                                        // the GTK window on this main-thread callback so
-                                        // activation also reaches minimized windows.
-                                        if let Ok(native) = window.gtk_window() {
-                                            gtk::prelude::GtkWindowExt::present_with_time(
-                                                &native, 0,
-                                            );
                                         }
                                     }
                                 });

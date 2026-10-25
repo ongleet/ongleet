@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -121,6 +122,42 @@ def owned_processes(marker):
     return result
 
 
+def wayland_minimize(client):
+    """Activate the focused button with compositor input, not a GTK simulation.
+
+    WebDriver's synthetic keys have no Wayland serial. GTK needs a real serial
+    when requesting an activation token later. Use a temporary GNOME session;
+    no desktop settings, clipboard or persistent input services are changed.
+    """
+    from gi.repository import Gio, GLib
+    connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    destination = "org.gnome.Mutter.RemoteDesktop"
+    interface = destination + ".Session"
+    path = connection.call_sync(destination, "/org/gnome/Mutter/RemoteDesktop", destination,
+                                "CreateSession", None, None, Gio.DBusCallFlags.NONE, 3000, None).unpack()[0]
+    started = False
+    pressed = False
+    def call(method, parameters=None):
+        return connection.call_sync(destination, path, interface, method, parameters,
+                                    None, Gio.DBusCallFlags.NONE, 3000, None)
+    try:
+        call("Start")
+        started = True
+        assert client.js("const button=document.querySelector('[aria-label=\"Minimize window\"]'); button.focus(); return document.activeElement===button"), "Minimize button did not receive focus"
+        assert client.invoke("plugin:window|is_focused", {"label": "main"}), "Test window lost focus before native input"
+        call("NotifyKeyboardKeycode", GLib.Variant("(ub)", (28, True)))  # Linux KEY_ENTER.
+        pressed = True
+        call("NotifyKeyboardKeycode", GLib.Variant("(ub)", (28, False)))
+        pressed = False
+    finally:
+        try:
+            if pressed:
+                call("NotifyKeyboardKeycode", GLib.Variant("(ub)", (28, False)))
+        finally:
+            if started:
+                call("Stop")
+
+
 def run(args):
     driver_binary = shutil.which(args.driver) or (str(Path(args.driver).resolve()) if Path(args.driver).is_file() else None)
     if not driver_binary:
@@ -146,6 +183,10 @@ def run(args):
     env = dict(os.environ, XDG_DATA_HOME=str(run_dir / "data"), XDG_CONFIG_HOME=str(run_dir / "config"),
                XDG_CACHE_HOME=str(run_dir / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}",
                TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND=args.backend, TERMINAL_VALIDATION_RUN=str(run_dir))
+    driver_env = dict(env)
+    if args.check_minimize and args.backend == "wayland":
+        # xdg-shell exposes the request, but no minimized state notification.
+        driver_env.update(DEVCENTER_DEBUG="1", WAYLAND_DEBUG="client")
     report = {"backend": args.backend, "artifacts": str(run_dir), "checks": [], "memory": []}
     # A private URI handler records link activation without opening the user's browser.
     applications = run_dir / "data/applications"
@@ -162,7 +203,7 @@ def run(args):
     clipboard_backup = None
     clipboard_touched = False
     with (run_dir / "driver.log").open("w") as log:
-        driver = subprocess.Popen([driver_binary, "--host=127.0.0.1", f"--port={port}"], env=env,
+        driver = subprocess.Popen([driver_binary, "--host=127.0.0.1", f"--port={port}"], env=driver_env,
                                   stdout=log, stderr=log, start_new_session=True)
         try:
             wait_for(lambda: client.request("GET", "/status", session=False), "WebKitGTK driver ready")
@@ -243,11 +284,40 @@ def run(args):
             # Read a standalone output line, not the command echo.
             shell_pid = next(int(line.split("=", 1)[1]) for line in screen.splitlines() if line.startswith("SHELL_PID=") and line.split("=", 1)[1].isdigit())
             if args.check_minimize:
-                client.click('[aria-label="Minimize window"]')
-                wait_for(lambda: client.invoke("plugin:window|is_minimized", {"label": "main"}), "native minimized state")
-                subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
-                wait_for(lambda: not client.invoke("plugin:window|is_minimized", {"label": "main"}), "native window restored")
-                mark("Custom minimize and --show restore the native window")
+                for maximized in (False, True):
+                    if maximized:
+                        client.click('[aria-label="Maximize window"]')
+                        wait_for(lambda: client.find('[aria-label="Restore window"]'), "maximized before minimize")
+                    before_rect = client.request("GET", "/window/rect")
+                    wait_for(lambda: client.invoke("plugin:window|is_focused", {"label": "main"}), "native window focused before minimize")
+                    trace_offset = (run_dir / "driver.log").stat().st_size
+                    if args.backend == "wayland":
+                        wayland_minimize(client)
+                        def minimize_request():
+                            with (run_dir / "driver.log").open() as trace:
+                                trace.seek(trace_offset)
+                                lines = trace.read().splitlines()
+                            return next((line for line in lines if re.search(r"-> xdg_toplevel[@#]\d+\.set_minimized\(\)", line)), None)
+                        request = wait_for(minimize_request, "Wayland xdg_toplevel minimize request")
+                        wait_for(lambda: not client.invoke("plugin:window|is_focused", {"label": "main"}), "Wayland focus lost after minimize request")
+                        report.setdefault("minimize", []).append({"request": request, "focusLost": True, "maximized": maximized, "minimizedState": "Unavailable in xdg-shell"})
+                    else:
+                        client.click('[aria-label="Minimize window"]')
+                        wait_for(lambda: client.invoke("plugin:window|is_minimized", {"label": "main"}), "native minimized state")
+                    subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
+                    wait_for(lambda: client.invoke("plugin:window|is_focused", {"label": "main"}), "native window focused after --show")
+                    if args.backend == "wayland":
+                        report["minimize"][-1]["focusRestored"] = True
+                        mark("Wayland minimize request loses focus; --show reactivates the native window")
+                    else:
+                        wait_for(lambda: not client.invoke("plugin:window|is_minimized", {"label": "main"}), "native window restored")
+                        mark("Custom minimize and --show restore the native window")
+                    label = "Restore window" if maximized else "Maximize window"
+                    wait_for(lambda: client.find(f'[aria-label="{label}"]'), "maximization preserved after activation")
+                    wait_for(lambda: all(client.request("GET", "/window/rect")[key] == before_rect[key] for key in ["width", "height"]), "window dimensions preserved after activation")
+                client.click('[aria-label="Restore window"]')
+                wait_for(lambda: client.find('[aria-label="Maximize window"]'), "normal window restored after checks")
+                mark("Minimize/reactivation preserves normal and maximized window dimensions")
             # WebDriver's click endpoint can wait forever for a repaint after
             # this control hides the WebView. Dispatch after the JS reply.
             client.js("setTimeout(()=>document.querySelector('[aria-label=\"Close window\"]').click(),0)")
@@ -257,6 +327,9 @@ def run(args):
             command(first, "printf 'WINDOW_PID=%s\\n' \"$$\"")
             wait_for(lambda: f"WINDOW_PID={shell_pid}" in client.screen(first).splitlines(), "same shell after minimize/hide")
             mark("Custom close-to-hide and --show preserve the live shell PID")
+            if args.window_only:
+                report["result"] = "passed"
+                return 0
             second = new_tab("Bash")
             command(second, "printf 'SECOND_TAB\\n'")
             wait_for(lambda: "SECOND_TAB" in client.screen(second), "second tab marker")
@@ -514,6 +587,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--skip-codex", action="store_true")
     parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive native minimize/restore")
+    parser.add_argument("--window-only", action="store_true", help="Run window controls and shell PID preservation without the terminal stress suite")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")
     parser.add_argument("--report")
     raise SystemExit(run(parser.parse_args()))

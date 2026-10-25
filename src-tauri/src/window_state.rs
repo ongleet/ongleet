@@ -114,3 +114,22 @@ impl WindowState {
         }
     }
 }
+
+/// Activate on the GTK thread; callers need no display-backend knowledge.
+pub fn activate(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    window.show()?;
+    let native = window.gtk_window()?;
+    // Wayland has no unminimize request. Presenting an inactive existing surface
+    // may also be denied by compositor activation policy. An explicit Show
+    // remaps that surface while retaining the GTK window, WebView and PTYs.
+    if gtk::prelude::WidgetExt::display(&native).type_().name() == "GdkWaylandDisplay"
+        && native.is_visible()
+        && !native.is_active()
+    {
+        native.hide();
+    }
+    // Tao queues unminimize but drops set_focus while still marked minimized.
+    // Present directly rather than racing those two asynchronous requests.
+    native.present_with_time(0);
+    Ok(())
+}

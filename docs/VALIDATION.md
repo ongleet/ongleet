@@ -179,3 +179,54 @@ in `qvn9_l7t`. The harness now asynchronously activates that DOM button to avoid
 waiting for a hidden WebView repaint; native pointer delivery for that close
 scenario is therefore not established by the successful run. Production frontend
 and native assets were restored after these checks.
+
+## Wayland activation and backend-aware validation (2026-10-25)
+
+Window activation now belongs to `window_state::activate`; socket dispatch only
+requests activation. It uses GTK presentation on both backends. On Wayland, an
+inactive visible GTK window is hidden and presented again to remap its surface,
+retaining the GTK window, WebView, terminal controllers and Rust PTYs. This also
+applies to explicitly showing an inactive, non-minimized window because the
+protocol does not expose minimized state. The compositor can choose its placement.
+Already-active windows do not remap. No GNOME-specific production API is used.
+
+The earlier test incorrectly expected `is_minimized()` to become true under
+Wayland. The [xdg-shell specification](https://raw.githubusercontent.com/wayland-mirror/wayland-protocols/main/stable/xdg-shell/xdg-shell.xml)
+provides a minimize request but no minimized-state notification or unminimize
+request. GTK activation can also be declined by the compositor. The trace in
+`xe2e2513` showed WebDriver's synthetic GTK input yielded activation serial zero.
+Even actual compositor input in `5myyd614` did not restore focus with the previous
+presentation-only implementation; the corrected test therefore catches the bug.
+
+The Wayland minimize check now verifies an outgoing `xdg_toplevel.set_minimized`,
+loss of native focus, restored native focus after `--show`, stable normal/maximized
+window dimensions and the same shell PID. It records protocol evidence instead of
+claiming to observe compositor minimized state. A temporary GNOME Mutter input
+session supplies Enter to the focused minimize button and is stopped after key
+release. This harness path needs Python GI and GNOME Mutter RemoteDesktop access;
+other Wayland compositors need equivalent native/manual acceptance. It does not
+change desktop settings or install a persistent service. Protocol tracing is
+scoped to the test driver/application with `DEVCENTER_DEBUG=1`.
+
+Reproduce the focused window checks after a native-validation build:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland --check-minimize --window-only --skip-codex
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --check-minimize --window-only --skip-codex
+```
+
+Supply `--driver PATH` when WebKitWebDriver is not on PATH. Leave the desktop
+untouched during these input checks. `--window-only` skips terminal stress checks;
+it does not certify the complete terminal compatibility gate.
+
+Wayland full regression run `terminal-native-validation-phyc4qe4` passed eighteen
+checks including normal/maximized minimize/reactivation and terminal regression
+coverage; Codex was skipped. One WebKit WebProcess was listed at cleanup and
+killed by the harness; no GUI or PTY survivor was listed. After moving activation
+behind the window lifecycle abstraction, focused Wayland `piwgnsw5` and XWayland
+`ibhpnfxw` each passed five checks without cleanup survivors. Earlier XWayland
+attempt `mwrkxjcl` stopped at fixture setup because its typed temporary-directory
+path contained an extra final character; it exercised no window controls. These
+results supersede earlier unresolved minimize/restore entries on this GNOME host.
+Other compositors, a separate Xorg session, dragging and restart geometry remain
+outside this evidence. Production frontend/native builds were restored afterward.
