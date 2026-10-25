@@ -32,7 +32,7 @@ Full dated reports, paths, migration evidence and earlier failures: [validation 
 ## Remaining acceptance
 
 - Codex actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
-- Function keys beyond F1/F12, combining graphemes, IME, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting.
+- Japanese/Chinese candidate-selection IMEs and complex grapheme shaping, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting. Basic function-key, combining-input and native Unicode-composition evidence is recorded below.
 - Title-bar dragging, rounded transparent corners, separate Xorg/other compositor window behavior, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
 - Snapshot graphemes/selection and unavailable frontend behavior; CLI input/snapshots when implemented. Input queue saturation, cancellation and stale runtime IDs need complete boundary coverage.
 - Physical editor shortcuts, native editor clipboard and Wayland editor/archive interaction. WebDriver Ctrl-letter remapping required DOM shortcut events in editor checks.
@@ -314,3 +314,61 @@ delivery, resume/fork/crash scenarios and other Codex versions remain outside th
 coverage. This does not close the full terminal compatibility gate. Production
 frontend/native assets were restored; Python syntax and targeted formatting checks
 pass.
+
+## Function keys, Unicode input and native composition (2026-10-25)
+
+Added `scripts/check-keyboard.py` and a temporary compositor-input helper in
+`scripts/native_input.py`. A real raw-mode PTY receiver records exact input bytes
+independently of terminal snapshots. Literal escape-sequence expectations cover
+F1–F12. Combining sequences `é`, `Å`, `ñ` and `👩‍💻` must reach the PTY as exact
+UTF-8, including combining marks and the zero-width joiner. A final aggregate
+comparison detects unexpected, missing or duplicated input across the sequence.
+
+Composition checks use [GTK Unicode input](https://docs.gtk.org/gtk3/class.IMContextSimple.html)
+with the input method selected only for the isolated test process. Real compositor
+key symbols enter preedit for `日`, commit it, then enter and cancel `あ`. Assertions
+require no raw preedit leakage, exactly one UTF-8 commit, and normal `x` input after
+cancellation. Trusted WebKit composition/key events and screenshots are retained.
+XWayland and IBus may expose DOM composition only on commit, so cancellation is
+verified by native Escape processing and PTY byte outcomes rather than requiring
+a DOM compositionend when no DOM composition began. Layout-independent key symbols
+preserve the desktop's existing Bépo configuration; settings and engine selection
+are never changed. Early invalid artifact directories from a physical-key-position
+assumption were deleted. A temporary GNOME Mutter input session releases its keys
+and stops on exit; no input service is installed.
+
+Each of these native runs passed four selected checks with no cleanup survivors:
+
+| Backend  | Input method  | Report suffix |
+| -------- | ------------- | ------------- |
+| Wayland  | GTK simple    | `qobd_zgg`    |
+| XWayland | GTK simple    | `tip29iil`    |
+| Wayland  | Existing IBus | `k_bs8yhq`    |
+| XWayland | Existing IBus | `nipeyhpb`    |
+
+Reports are under `/tmp/devcenter-keyboard-validation-<suffix>`. The existing IBus
+engine is `xkb:us::eng`; only XKB engines were available. The helper does not install
+or select Japanese/Chinese conversion engines, so candidate selection, conversion,
+reconversion and candidate-popup placement remain untested. Test keyboard events
+are supplied by WebDriver or the compositor input API, not physical hardware.
+
+Screenshot inspection shows combining accents on the fixed PTY output fixture.
+The ZWJ emoji renders as separate woman/laptop symbols even though the input bytes
+are correct; complex grapheme shaping remains a known limitation. Text snapshots
+also omit combining/joiner information, so byte acceptance does not establish
+snapshot fidelity. These findings remain in TODO and do not close the full
+terminal compatibility gate. No production input behavior was changed.
+
+After building native-validation assets, reproduce with the appropriate driver:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend wayland --driver /path/to/WebKitWebDriver
+mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend x11 --driver /path/to/WebKitWebDriver
+mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend wayland --input-method ibus --driver /path/to/WebKitWebDriver
+mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend x11 --input-method ibus --driver /path/to/WebKitWebDriver
+```
+
+The harness needs Python GI and GNOME Mutter RemoteDesktop access; IBus runs need
+the existing user's IBus service. Leave the desktop untouched during these checks.
+Native traces use `DEVCENTER_DEBUG=1` and may include typed input. Production
+frontend/native assets were restored; Python syntax and diff whitespace checks pass.
