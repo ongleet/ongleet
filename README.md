@@ -8,7 +8,7 @@ Each session has a vertical **⋮** menu for editing and archiving. Drag its gri
 
 The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git worktree management, automatic Git discovery, or agent orchestration. Explicit session-linked GitHub PR status is supported.
 
-The compact themed window title bar supports dragging and double-clicking to maximize or restore, with minimize, maximize/restore, and close controls. Close hides the window and keeps sessions running; use **Quit** in the footer to shut down.
+The compact themed window title bar supports dragging and double-clicking to maximize or restore, with minimize, maximize/restore, and close controls. Close hides the window and keeps sessions running; use **Quit** in the footer to shut down. Window size and maximized state are saved on close and Quit, then restored on startup. Position is restored when supported by the desktop (Wayland controls window placement). Minimized windows reopen visible. State is stored in `window-state.json` in the application data directory; missing or invalid state uses the default size.
 
 ## Archives
 

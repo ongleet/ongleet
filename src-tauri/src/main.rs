@@ -17,6 +17,7 @@ mod plugins;
 mod session;
 mod storage;
 mod terminal_session;
+mod window_state;
 use session::{SessionRegistry, Snapshot, TabConfig};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -515,6 +516,7 @@ fn run() -> Result<(), String> {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            window_state::WindowState::install(app, directory.clone())?;
             input_diagnostics::install(app)?;
             app.state::<AppRegistry>()
                 .0
@@ -529,6 +531,7 @@ fn run() -> Result<(), String> {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                window.state::<window_state::WindowState>().save();
                 api.prevent_close();
                 if window.hide().is_ok() {
                     window
@@ -590,6 +593,7 @@ fn run() -> Result<(), String> {
                 }
             }
             if let tauri::RunEvent::Exit = event {
+                app.state::<window_state::WindowState>().save();
                 app.state::<instance::Instance>().stop();
                 if let Ok(mut session) = app.state::<AppRegistry>().0.lock() {
                     let _ = session.shutdown(true);
