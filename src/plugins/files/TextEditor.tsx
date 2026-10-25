@@ -22,6 +22,7 @@ import { useEditorWrap } from './editor-settings';
 import { fileEditors } from './editor-guards';
 import { readDraft, storeDraft, removeDraft } from './editor-drafts';
 import { startMerge } from './editor-merge';
+import { editorSyntaxHighlighting, fileLanguage } from './editor-syntax';
 
 export function TextEditor({
   id,
@@ -118,6 +119,8 @@ export function TextEditor({
   useEffect(() => {
     if (!host.current) return;
     const clipboardError = (error: unknown) => setError(String(error));
+    const languageCompartment = new Compartment();
+    const language = fileLanguage(document.path);
     baseline.current = document;
     let initialText = document.text;
     try {
@@ -140,6 +143,8 @@ export function TextEditor({
       state: EditorState.create({
         doc: initialText,
         extensions: [
+          editorSyntaxHighlighting,
+          languageCompartment.of([]),
           wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
           lineNumbers(),
           highlightActiveLine(),
@@ -243,6 +248,20 @@ export function TextEditor({
       }),
     });
     view.current = editor;
+    if (language) {
+      void language.load().then(
+        (support) => {
+          if (view.current === editor)
+            editor.dispatch({ effects: languageCompartment.reconfigure(support) });
+        },
+        () => {
+          if (view.current === editor)
+            setError(
+              `Could not load ${language.name} syntax highlighting. Reopen the file to retry.`,
+            );
+        },
+      );
+    }
     publish(initialText !== baseline.current.text, false);
     editor.focus();
     return () => {
