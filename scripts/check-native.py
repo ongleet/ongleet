@@ -327,6 +327,66 @@ def run(args):
             command(first, "printf 'WINDOW_PID=%s\\n' \"$$\"")
             wait_for(lambda: f"WINDOW_PID={shell_pid}" in client.screen(first).splitlines(), "same shell after minimize/hide")
             mark("Custom close-to-hide and --show preserve the live shell PID")
+            if args.check_window_restart:
+                def alive(pid):
+                    try:
+                        return not Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].lstrip().startswith("Z")
+                    except FileNotFoundError:
+                        return False
+
+                def restart_window(scenario, normal_size, maximized):
+                    nonlocal shell_pid
+                    before = client.request("GET", "/window/rect")
+                    old_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "devcenter-gui")
+                    old_shell = shell_pid
+                    client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
+                    wait_for(lambda: not alive(old_gui) and not alive(old_shell), "Quit terminates GUI and shell")
+                    saved = json.loads((run_dir / "data/devcenter/window-state.json").read_text())
+                    assert (saved["width"], saved["height"]) == normal_size, saved
+                    assert saved["maximized"] is maximized, saved
+                    client.request("DELETE", "")
+                    client.session = None
+                    restarted = client.request("POST", "/session", {"capabilities": {"alwaysMatch": {
+                        "webkitgtk:browserOptions": {"binary": str(Path(args.application).resolve())}
+                    }}}, session=False)
+                    client.session = restarted["sessionId"]
+                    label = "Restore window" if maximized else "Maximize window"
+                    wait_for(lambda: client.find(f'[aria-label="{label}"]'), "persisted maximization after restart")
+                    wait_for(lambda: all(client.request("GET", "/window/rect")[key] == before[key] for key in ["width", "height"]), "persisted dimensions after restart")
+                    if args.backend == "x11" and not maximized:
+                        wait_for(lambda: all(client.request("GET", "/window/rect")[key] == before[key] for key in ["x", "y"]), "persisted XWayland position")
+                    wait_for(lambda: (state := client.state(first)) and state.get("sessionId") and not state["replaying"], "fresh terminal connected after restart")
+                    prefix = f"RESTART_{scenario}_PID="
+                    command(first, f"printf '{prefix}%s\\n' \"$$\"")
+                    value = wait_for(lambda: next((line[len(prefix):] for line in client.screen(first).splitlines() if line.startswith(prefix) and line[len(prefix):].isdigit()), None), "fresh shell PID after restart")
+                    shell_pid = int(value)
+                    new_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "devcenter-gui")
+                    assert shell_pid != old_shell and new_gui != old_gui
+                    assert client.invoke("application_status")["visible"]
+                    (run_dir / f"restart-{scenario}.png").write_bytes(base64.b64decode(client.request("GET", "/screenshot")))
+                    report.setdefault("restarts", []).append({"scenario": scenario, "saved": saved, "before": before,
+                        "after": client.request("GET", "/window/rect"), "oldGui": old_gui, "newGui": new_gui,
+                        "oldShell": old_shell, "newShell": shell_pid})
+                    mark(f"{scenario}: Quit/restart preserves window geometry with fresh GUI and shell PIDs")
+
+                client.request("POST", "/window/rect", {"x": 140, "y": 120, "width": 986, "height": 674})
+                wait_for(lambda: (rect := client.request("GET", "/window/rect")) and (rect["width"], rect["height"]) == (986, 674), "custom normal geometry")
+                restart_window("normal", (986, 674), False)
+                client.click('[aria-label="Maximize window"]')
+                wait_for(lambda: client.find('[aria-label="Restore window"]'), "maximized before restart")
+                # Reactivation remaps Wayland surfaces; retain the normal size too.
+                if args.backend == "wayland":
+                    wayland_minimize(client)
+                    wait_for(lambda: not client.invoke("plugin:window|is_focused", {"label": "main"}), "focus lost before reactivation/restart")
+                else:
+                    client.click('[aria-label="Minimize window"]')
+                    wait_for(lambda: client.invoke("plugin:window|is_minimized", {"label": "main"}), "minimized before reactivation/restart")
+                subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
+                wait_for(lambda: client.invoke("plugin:window|is_focused", {"label": "main"}), "reactivated before restart")
+                restart_window("maximized_after_reactivation", (986, 674), True)
+                client.click('[aria-label="Restore window"]')
+                wait_for(lambda: (rect := client.request("GET", "/window/rect")) and (rect["width"], rect["height"]) == (986, 674), "restored normal size after maximized restart")
+                mark("Unmaximize after restart restores the previous normal dimensions")
             if args.window_only:
                 report["result"] = "passed"
                 return 0
@@ -588,6 +648,10 @@ if __name__ == "__main__":
     parser.add_argument("--skip-codex", action="store_true")
     parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive native minimize/restore")
     parser.add_argument("--window-only", action="store_true", help="Run window controls and shell PID preservation without the terminal stress suite")
+    parser.add_argument("--check-window-restart", action="store_true", help="With --window-only, verify normal/maximized geometry across Quit/restart")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")
     parser.add_argument("--report")
-    raise SystemExit(run(parser.parse_args()))
+    args = parser.parse_args()
+    if args.check_window_restart and not args.window_only:
+        parser.error("--check-window-restart requires --window-only")
+    raise SystemExit(run(args))

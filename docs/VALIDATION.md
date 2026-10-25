@@ -33,7 +33,7 @@ Full dated reports, paths, migration evidence and earlier failures: [validation 
 
 - Codex approvals, scrolling, active-task Ctrl+C, actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
 - Function keys beyond F1/F12, combining graphemes, IME, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting.
-- Minimize/restore, separate Xorg, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
+- Title-bar dragging, rounded transparent corners, separate Xorg/other compositor window behavior, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
 - Snapshot graphemes/selection and unavailable frontend behavior; CLI input/snapshots when implemented. Input queue saturation, cancellation and stale runtime IDs need complete boundary coverage.
 - Physical editor shortcuts, native editor clipboard and Wayland editor/archive interaction. WebDriver Ctrl-letter remapping required DOM shortcut events in editor checks.
 - Sudden power loss, fullscreen/cleared history, live GitHub, clean-system Ubuntu packaging and final resource/directory/state guarantees.
@@ -230,3 +230,34 @@ path contained an extra final character; it exercised no window controls. These
 results supersede earlier unresolved minimize/restore entries on this GNOME host.
 Other compositors, a separate Xorg session, dragging and restart geometry remain
 outside this evidence. Production frontend/native builds were restored afterward.
+
+## Window geometry across Quit/restart (2026-10-25)
+
+Added `--check-window-restart` (requires `--window-only`) to the existing native
+harness. It resizes the actual window to 986 × 674, quits the isolated application,
+verifies GUI/shell termination and saved geometry, and launches a fresh GUI through
+WebDriver using the same private metadata. It then minimizes/reactivates a
+maximized window, quits/restarts again and checks maximization, full window size
+and the previous normal dimensions when restored. Both restarts assert distinct
+GUI and shell PIDs and a visible reopened window. XWayland additionally compares
+normal-window position across restart. Screenshots and structured before/after
+geometry are retained in each report directory.
+
+Wayland report `terminal-native-validation-dmft_6f6` and XWayland report
+`terminal-native-validation-l_5ye7_4` each pass five selected checks with no cleanup
+survivors. The normal window reopens at 986 × 674; maximized restart reopens at
+1920 × 1080 on this host, then restores to 986 × 674. No production code change was
+needed. These checks validate Quit/restart rather than power-loss durability.
+They do not validate position on Wayland, separate Xorg, other compositors,
+dragging or rounded transparent corners. The full terminal gate remains open.
+
+After building native-validation assets, reproduce with the driver path as needed:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland --window-only --check-window-restart --skip-codex
+mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --window-only --check-window-restart --skip-codex
+```
+
+Wayland restart checks reuse the GNOME native-input fixture described above. Leave
+the test windows untouched during both runs. Production frontend/native assets
+were restored after acceptance; Python syntax and diff whitespace checks pass.
