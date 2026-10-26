@@ -37,6 +37,7 @@ fn drain(session: &TerminalSession, receive: &mpsc::Receiver<Output>) -> Vec<u8>
                 session.acknowledge(seq).unwrap();
             }
             Output::Size { seq, .. } | Output::Ready { seq } => session.acknowledge(seq).unwrap(),
+            Output::Exit { .. } => {}
             Output::Eof => return result,
             Output::Error { message } => panic!("PTY read failed: {message}"),
         }
@@ -162,6 +163,7 @@ fn reload_replays_acknowledged_output_after_process_exit() {
                 ready = true;
                 session.acknowledge(seq).unwrap();
             }
+            Output::Exit { code } => assert_eq!(code, 0),
             Output::Eof => break,
             _ => panic!("Unexpected replay event"),
         }
@@ -444,5 +446,39 @@ fn terminal_path_includes_application_directory_and_explicit_override_wins() {
     command.env.insert("PATH".into(), "/usr/bin:/bin".into());
     let mut session = TerminalSession::spawn(902, command, output).unwrap();
     assert_eq!(drain(&session, &receive), b"/usr/bin:/bin");
+    session.close().unwrap();
+}
+
+#[test]
+fn exit_notification_bypasses_pending_output_and_survives_reattachment() {
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn(
+        88,
+        launch("import os; os.write(1, b'final output'); os.read(0, 1); os._exit(23)"),
+        output,
+    )
+    .unwrap();
+    // Deliberately do not ACK: process exit must not depend on painting or EOF.
+    assert!(matches!(
+        receive.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Output::Data { .. }
+    ));
+    session
+        .queue_input(b"\n".to_vec())
+        .unwrap()
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        receive.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Output::Exit { code: 23 }
+    ));
+    let (output, receive) = channel();
+    session.attach(output).unwrap();
+    assert!(matches!(
+        receive.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Output::Exit { code: 23 }
+    ));
+    assert!(drain(&session, &receive).starts_with(b"final output"));
     session.close().unwrap();
 }

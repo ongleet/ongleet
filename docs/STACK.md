@@ -13,7 +13,7 @@ DevCenter is a Linux desktop application using Tauri 2, React/TypeScript, Rust, 
 
 - Output: 16 KiB reads, one unacknowledged IPC envelope, 4 MiB byte/resize replay journal. Overflow discards replay and reports unavailable history. Exit draining permits another 1 MiB; excess is reported/discarded.
 - Input: 64 KiB frontend budget, 8 KiB native writes, one queued native request. A dedicated writer avoids blocking registry/WebView threads.
-- Scrollback: 2,000 lines. Hidden terminals parse/ACK without painting. Upstream cursor polling remains.
+- Scrollback: 2,000 lines. Hidden terminals parse/ACK without painting. A pinned-version adapter replaces the upstream perpetual frame loop with coalesced invalidation on output, selection, hover, scrolling and visibility changes; finite scroll/scrollbar animations remain. Process exit notifications replace per-terminal status polling.
 - Reload reattaches to existing live/exited PTYs. Replay suppresses input/query replies/resizing until ready; selection and scroll position are not restored.
 - New Ghostty handles receive RIS after initial fit, then immediate redraw before output attachment. Never reset live handles during navigation.
 - Frontend screen snapshots: visible screen, 65,536 JavaScript code units. Persistent history: 2,000 lines/~60,000 UTF-16 units, 256 KiB wire/storage bound. History is text, not a process checkpoint or complete transcript.

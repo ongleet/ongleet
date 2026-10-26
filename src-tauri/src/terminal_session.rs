@@ -33,6 +33,7 @@ pub enum Output {
     Data { seq: u64, bytes: Vec<u8> },
     Size { seq: u64, cols: u16, rows: u16 },
     Ready { seq: u64 },
+    Exit { code: u32 },
     Eof,
     Error { message: String },
 }
@@ -72,6 +73,7 @@ struct Flow {
     pending: VecDeque<Record>,
     ended: bool,
     draining: bool,
+    exit_code: Option<u32>,
 }
 
 impl Flow {
@@ -360,17 +362,22 @@ impl TerminalSession {
             };
             let cleanup = reaper_containment.stop();
             reaper_cancel.store(true, Ordering::Release);
+            let code = exit.as_ref().map(|e| e.exit_code()).unwrap_or(1);
             {
                 let mut resources = reaper_resources.0.lock().unwrap();
-                resources.status = Status::Exited {
-                    code: exit.as_ref().map(|e| e.exit_code()).unwrap_or(1),
-                };
+                resources.status = Status::Exited { code };
                 resources.input.take();
                 resources.master.take();
             }
             {
                 let mut flow = reaper_flow.0.lock().unwrap();
                 flow.draining = true;
+                flow.exit_code = Some(code);
+                if let Some(output) = &flow.output {
+                    // A control notification bypasses data ACKs: exit status must
+                    // arrive even when a frontend is still consuming output.
+                    let _ = output.send(Output::Exit { code });
+                }
                 if let Err(error) = &cleanup {
                     if let Some(output) = &flow.output {
                         let _ = output.send(Output::Error {
@@ -415,6 +422,9 @@ impl TerminalSession {
             let _ = flow.output.as_ref().unwrap().send(Output::Error {
                 message: "Previous terminal screen unavailable: the 4 MiB reload replay limit was exceeded. The terminal session is retained; only new output is shown.".into(),
             });
+        }
+        if let Some(code) = flow.exit_code {
+            let _ = flow.output.as_ref().unwrap().send(Output::Exit { code });
         }
         flow.pending.push_back(Record::Ready);
         flow.dispatch();

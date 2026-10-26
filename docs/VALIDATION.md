@@ -498,6 +498,52 @@ behavior tests, Rust formatting/check and complete Rust suite pass. HTTP body
 bounds are tested with and without Content-Length. Wayland authentication UI,
 live GitHub public/private access and real rate-limit acceptance remain untested.
 
+## Idle terminal CPU (2026-10-26)
+
+The terminal adapter replaces ghostty-web 0.4.0's perpetual frame loop with
+coalesced invalidation and retains dirty-row rendering for output. Hidden output
+still parses and ACKs synchronously. Native exit control events replace the
+frontend's 300 ms per-terminal status polling; exit delivery is independent of
+output ACKs and repeats on reattachment.
+
+Run the existing isolated native harness with `--check-idle --skip-codex
+--skip-mouse` to create multiple idle shells, scroll into history, settle finite
+animations, and record three seconds of GUI/WebProcess CPU plus frame, text-paint
+and status-request counts. Use a copied bundled binary named `devcenter-gui` so
+subsequent Cargo builds cannot replace it with a development-server binary.
+
+The final Wayland run `/tmp/terminal-native-validation-wxdroisi/report.json`
+recorded five terminals, zero frames/text paints/status polls, and 1% of one CPU
+core each for GUI and WebProcess. Selected reload, exit display, Unicode, links,
+function keys, alternate screen, resizing, hidden output, 350,000-line flood and
+reuse checks passed. The initial XWayland run
+`/tmp/terminal-native-validation-755mqb0c/report.json` passed the same selected
+checks before the final dirty-row refinement, with zero idle work and about
+1.34% combined CPU. These short fixture samples are not a direct comparison
+with the user's larger live session.
+
+The final XWayland retry
+`/tmp/terminal-native-validation-s5dbkuyc/report.json` recorded five terminals,
+zero idle work and about 1.67% combined CPU. Reload, exit display, links,
+Unicode, function keys, hidden live output and resize/alternate-screen checks
+passed, but the run timed out activating a tab before the flood check. Another
+final XWayland attempt timed out activating a tab before idle measurement
+(`/tmp/terminal-native-validation-ie09gmjf/report.json`). Final XWayland
+flood/reuse acceptance remains incomplete; the earlier full selected XWayland
+run and final Wayland run do not resolve these intermittent activation timeouts.
+
+The real PTY suite, full Rust suite and rendering/input/selection/WASM/reuse
+checks passed. A new PTY regression verifies exit code 23 arrives while data is
+unacknowledged and survives reattachment. The renderer regression uses the
+pinned WASM and renderer with controlled frame/drawing boundaries to check idle
+scrollback, hidden parsing, coalescing, hover invalidation and disposal.
+
+Mouse forwarding, desktop clipboard mutation and interactive Codex were skipped
+in these native runs; the harness reports the skipped mouse check as a blocker.
+It also observed a remaining WebProcess during cleanup and force-cleaned that
+test-owned process. This evidence does not certify general WebKit child cleanup
+or complete the broader native acceptance gate.
+
 ## Launch-environment authentication (2026-10-26)
 
 `scripts/check-pr-auth.py --environment-token` uses dummy `GH_TOKEN` and

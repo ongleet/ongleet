@@ -4,7 +4,7 @@ Read only sections relevant to the change. See [stack](STACK.md), [validation](V
 
 ## Terminal contracts
 
-Keep PTYs in Rust and controllers persistent across renders/navigation. Preserve raw bytes, bounded queues and ACK backpressure through frontend consumption. Hidden terminals must consume output without animation-frame dependencies. Resize only from visible nonzero containers; dispose resources on explicit closure.
+Keep PTYs in Rust and controllers persistent across renders/navigation. Preserve raw bytes, bounded queues and ACK backpressure through frontend consumption. Hidden terminals must consume output without animation-frame dependencies. Keep idle terminals free of recurring render frames and frontend status polls. The pinned Ghostty adapter replaces its private `startRenderLoop`; revalidate writes, cursor notifications, hover, selection, scrolling and visibility when upgrading. Resize only from visible nonzero containers; dispose resources on explicit closure.
 
 Use literal executable/argument arrays; shell syntax requires explicit shell mode. Re-exec `/proc/<app-pid>/exe`, never a replaced pathname. Join delegated cgroup v2 before user exec; require pidfds and `cgroup.kill`. Confirmed close immediately kills the leaf and waits; keep the death watchdog outside it. Deliberate cgroup migration/external services are outside containment.
 
@@ -28,7 +28,7 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 ## Code map
 
 - UI/plugins: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.
-- Terminal frontend: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/render-visibility.ts`.
+- Terminal frontend: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/terminal-rendering.ts`, `src/render-visibility.ts`.
 - Rust PTY/containment: `src-tauri/src/terminal_session.rs`, `containment.rs`.
 - Plugin SDK/core services: `src/sdk/`, `src/plugins/*/manifest.json`, `src-tauri/src/core/`; see [plugin development](PLUGINS.md).
 - Registry/storage/actions: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.

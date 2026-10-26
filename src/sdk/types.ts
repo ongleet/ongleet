@@ -3,6 +3,7 @@ export type PtyOutput =
   | { type: 'data'; seq: number; bytes: number[] }
   | { type: 'size'; seq: number; cols: number; rows: number }
   | { type: 'ready'; seq: number }
+  | { type: 'exit'; code: number }
   | { type: 'eof' }
   | { type: 'error'; message: string };
 export type Attachment = { id: number; cols: number; rows: number; replay: boolean };

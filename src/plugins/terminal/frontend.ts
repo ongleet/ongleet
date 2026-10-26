@@ -9,7 +9,7 @@ import {
 } from 'ghostty-web';
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from '../../byte-transport';
-import { suppressHiddenRendering } from '../../render-visibility';
+import { prepareTerminalRendering } from '../../terminal-rendering';
 import { createEngineLoader } from '../../engine-loader';
 import { attachTerminalMouse } from '../../terminal-mouse';
 import { TerminalLinks } from '../../terminal-links';
@@ -29,7 +29,7 @@ export class TerminalFrontend {
   private observer?: ResizeObserver;
   private subscriptions: { dispose(): void }[] = [];
   private id?: number;
-  private timer?: ReturnType<typeof setTimeout>;
+  private rendering?: ReturnType<typeof prepareTerminalRendering>;
   private inputQueue: Promise<void> = Promise.resolve();
   private queuedInput = 0;
   private pasting = false;
@@ -78,6 +78,7 @@ export class TerminalFrontend {
   setVisible(visible: boolean) {
     const becameVisible = visible && !this.visible;
     this.visible = visible;
+    this.rendering?.visibilityChanged();
     if (!visible || document.hidden) {
       this.term?.blur();
       return;
@@ -117,7 +118,9 @@ export class TerminalFrontend {
     this.term = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
+    this.rendering = prepareTerminalRendering(term, () => this.visible && !document.hidden);
     term.open(this.host);
+    this.rendering.opened();
     this.subscriptions.push(attachTerminalSelection(term));
     const terminalLinks = new TerminalLinks(
       term,
@@ -205,8 +208,6 @@ export class TerminalFrontend {
         links.dispose();
       },
     });
-    if (term.renderer)
-      suppressHiddenRendering(term.renderer, () => this.visible && !document.hidden);
     const fitVisible = () => {
       if (
         !this.replaying &&
@@ -278,6 +279,10 @@ export class TerminalFrontend {
           this.replaying = false;
           fitVisible();
           await this.sdk.pty.acknowledge(id, event.seq);
+        } else if (event.type === 'exit') {
+          // Reconcile restart eligibility and Codex tags once, on actual exit.
+          const status = await this.sdk.pty.status(id);
+          if (this.id === id && this.term === term && !this.disposed) this.changed(status);
         } else if (event.type === 'eof') {
           await this.saveHistory();
         } else if (event.type === 'error') this.error(event.message);
@@ -318,7 +323,6 @@ export class TerminalFrontend {
       if (this.disposed || this.term !== term) return;
       this.changed(status);
       fitVisible();
-      this.poll(this.id);
       if (this.visible) term.focus();
     } catch (error) {
       this.disposeEmulator();
@@ -368,19 +372,6 @@ export class TerminalFrontend {
     } finally {
       this.historySave = undefined;
     }
-  }
-
-  private poll(id: number) {
-    this.timer = setTimeout(() => {
-      void this.sdk.pty
-        .status(id)
-        .then((status) => {
-          if (this.id !== id) return;
-          this.changed(status);
-          if (status.state === 'running') this.poll(id);
-        })
-        .catch(this.error);
-    }, 300);
   }
 
   private send(text: string) {
@@ -456,7 +447,6 @@ export class TerminalFrontend {
     if (this.id === undefined) return;
     await this.sdk.pty.close(this.id);
     this.id = undefined;
-    clearTimeout(this.timer);
     this.changed(null);
     this.disposeEmulator();
   }
@@ -465,6 +455,8 @@ export class TerminalFrontend {
     clearTimeout(this.historyTimer);
     this.historyTimer = undefined;
     this.observer?.disconnect();
+    this.rendering?.dispose();
+    this.rendering = undefined;
     this.subscriptions.splice(0).forEach((s) => s.dispose());
     this.term?.dispose();
     this.term = undefined;
@@ -478,7 +470,6 @@ export class TerminalFrontend {
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.unregisterValidation?.();
     this.id = undefined;
-    clearTimeout(this.timer);
     this.disposeEmulator();
     // Detaching a frontend must not implicitly kill a backend process.
   }

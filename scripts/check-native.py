@@ -285,6 +285,41 @@ def run(args):
             session_id = client.state(first)["sessionId"]
             # Read a standalone output line, not the command echo.
             shell_pid = next(int(line.split("=", 1)[1]) for line in screen.splitlines() if line.startswith("SHELL_PID=") and line.split("=", 1)[1].isdigit())
+            if args.check_idle:
+                idle_tabs = [new_tab("Bash") for _ in range(3)]
+                command(first, "printf 'idle-history-%s\\n' {1..100}")
+                wait_for(lambda: "idle-history-100" in client.screen(first), "idle fixture output")
+                client.js("document.querySelector('#tab-panel-'+arguments[0]+' .terminal').dispatchEvent(new WheelEvent('wheel',{deltaY:-500,bubbles:true,cancelable:true}))", first)
+                wait_for(lambda: client.state(first).get("viewportY", 0) > 0, "idle fixture scrolled into history")
+                # Let finite smooth-scroll and scrollbar fades finish first.
+                time.sleep(3)
+                client.js("""
+                    const probe=window.__idleProbe={frames:0,draws:0,status:0};
+                    const raf=window.requestAnimationFrame;
+                    const fill=CanvasRenderingContext2D.prototype.fillText;
+                    const invoke=window.__TAURI_INTERNALS__.invoke;
+                    probe.restore=()=>{window.requestAnimationFrame=raf;CanvasRenderingContext2D.prototype.fillText=fill;window.__TAURI_INTERNALS__.invoke=invoke};
+                    window.requestAnimationFrame=function(callback){return raf.call(this,t=>{probe.frames++;callback(t)})};
+                    CanvasRenderingContext2D.prototype.fillText=function(...args){probe.draws++;return fill.apply(this,args)};
+                    window.__TAURI_INTERNALS__.invoke=function(command,args,...rest){if(command==='sdk_pty'&&args?.request?.operation==='status')probe.status++;return invoke.call(this,command,args,...rest)};
+                """)
+                processes = [p for p in owned_processes(run_dir) if p["name"] in ("devcenter-gui", "WebKitWebProcess", "WebKitWebProces")]
+                def cpu_ticks(pid):
+                    stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+                    return int(stat[11]) + int(stat[12])
+                start_ticks = {p["pid"]: cpu_ticks(p["pid"]) for p in processes}
+                start_time = time.monotonic()
+                time.sleep(3)
+                elapsed = time.monotonic() - start_time
+                cpu = [{"pid": p["pid"], "name": p["name"], "percent": round((cpu_ticks(p["pid"])-start_ticks[p["pid"]])/os.sysconf("SC_CLK_TCK")/elapsed*100, 2)} for p in processes]
+                counts = client.js("const p=window.__idleProbe;p.restore();return {frames:p.frames,draws:p.draws,status:p.status}")
+                report["idle"] = {"seconds": elapsed, "counts": counts, "cpu": cpu, "terminals": client.js("return document.querySelectorAll('.tab-terminal').length"), "scrolledIntoHistory": True}
+                assert counts == {"frames": 0, "draws": 0, "status": 0}, counts
+                mark("Idle terminals, including scrolled history: zero frames, text paints or status polling")
+                for tab in idle_tabs:
+                    close_tab(tab)
+                command(first, "printf 'IDLE_CHECK_DONE\\nBEFORE_RELOAD café 日本語 🙂\\n'")
+                wait_for(lambda: "IDLE_CHECK_DONE" in client.screen(first), "output resumes after idle")
             if args.check_minimize:
                 for maximized in (False, True):
                     if maximized:
@@ -652,6 +687,7 @@ if __name__ == "__main__":
     parser.add_argument("--window-only", action="store_true", help="Run window controls and shell PID preservation without the terminal stress suite")
     parser.add_argument("--check-window-restart", action="store_true", help="With --window-only, verify normal/maximized geometry across Quit/restart")
     parser.add_argument("--skip-mouse", action="store_true", help="Record unavailable pointer automation; never count mouse reporting as passed")
+    parser.add_argument("--check-idle", action="store_true", help="Measure settled CPU, frame/draw activity and status polling with multiple terminals")
     parser.add_argument("--report")
     args = parser.parse_args()
     if args.check_window_restart and not args.window_only:
