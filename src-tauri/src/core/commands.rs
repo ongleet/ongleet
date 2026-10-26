@@ -148,6 +148,30 @@ pub async fn sdk_request(
     attachment: String,
     request: Request,
 ) -> Result<serde_json::Value, SdkError> {
+    let operation = match &request {
+        Request::List { .. } => "list",
+        Request::OpenFile { .. } => "openFile",
+        Request::WatchText { .. } => "watchText",
+        Request::UnwatchText { .. } => "unwatchText",
+        Request::ReadText { .. } => "readText",
+        Request::SaveText { .. } => "saveText",
+        Request::AddSessionTag { .. } => "addSessionTag",
+        Request::RemoveSessionTag { .. } => "removeSessionTag",
+        Request::SessionTags => "sessionTags",
+        Request::Configure { .. } => "configure",
+        Request::ReadData { .. } => "readData",
+        Request::ReplaceData { .. } => "replaceData",
+        Request::Process { .. } => "process",
+        Request::Cancel => "cancel",
+        Request::EnvironmentGet { .. } => "environmentGet",
+        Request::CredentialGet { .. } => "credentialGet",
+        Request::CredentialSet { .. } => "credentialSet",
+        Request::CredentialDelete { .. } => "credentialDelete",
+        Request::Http { .. } => "http",
+        Request::HttpCancel { .. } => "httpCancel",
+    };
+    let _diagnostic =
+        crate::diagnostics::enabled().then(|| crate::diagnostics::Operation::start(operation, id));
     let registry = state.0.clone();
     let (session_id, plugin) = {
         let guard = registry.lock().map_err(|e| SdkError::from(e.to_string()))?;

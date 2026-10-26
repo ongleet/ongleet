@@ -17,6 +17,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 gtk = "0.18"
+webkit2gtk = "2.0.2"
 serde = { version = "1", features = ["derive"] }
 portable-pty = "0.9"
 libc = "0.2"

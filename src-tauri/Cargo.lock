@@ -814,6 +814,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tokio",
+ "webkit2gtk",
 ]
 
 [[package]]

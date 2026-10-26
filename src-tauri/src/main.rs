@@ -10,6 +10,7 @@ mod control;
 #[path = "control/dispatch.rs"]
 mod control_dispatch;
 mod core;
+mod diagnostics;
 use crate::core::desktop as desktop_input;
 mod input_diagnostics;
 mod instance;
@@ -556,6 +557,9 @@ fn run() -> Result<(), String> {
             return Err(error);
         }
     };
+    if let Err(error) = diagnostics::init(&directory) {
+        eprintln!("Could not initialize diagnostic log: {error}");
+    }
     actions::migrate_projects(&control::paths::config_directory()?)?;
     tauri::Builder::default()
         .manage(AppRegistry(Arc::new(Mutex::new(registry))))
@@ -564,6 +568,7 @@ fn run() -> Result<(), String> {
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             window_state::WindowState::install(app, directory.clone())?;
+            diagnostics::install(app)?;
             input_diagnostics::install(app)?;
             app.state::<AppRegistry>()
                 .0
@@ -577,6 +582,7 @@ fn run() -> Result<(), String> {
             Ok(())
         })
         .on_window_event(|window, event| {
+            diagnostics::record(format_args!("window event={event:?}"));
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 window.state::<window_state::WindowState>().save();
                 api.prevent_close();
@@ -640,6 +646,9 @@ fn run() -> Result<(), String> {
         .build(context)
         .map_err(|e| e.to_string())?
         .run(|app, event| {
+            if !matches!(event, tauri::RunEvent::MainEventsCleared) {
+                diagnostics::record(format_args!("application event={event:?}"));
+            }
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
                 if !app.state::<Lifecycle>().quitting.load(Ordering::Acquire) {
                     api.prevent_exit();
