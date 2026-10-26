@@ -154,9 +154,14 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
     },
     desktop: {
       readText: () => desktop(readText),
-      writeText: (text: string) => desktop(() => writeText(text)),
-      clipboard: () =>
-        native<{ kind: 'text'; text: string } | { kind: 'image' }>('terminal_clipboard'),
+      writeText: (text: string, selection: 'clipboard' | 'primary' = 'clipboard') =>
+        selection === 'primary'
+          ? native<void>('write_primary_selection', { text })
+          : desktop(() => writeText(text)),
+      clipboard: (selection: 'clipboard' | 'primary' = 'clipboard') =>
+        native<{ kind: 'text'; text: string } | { kind: 'image' }>('terminal_clipboard', {
+          primary: selection === 'primary',
+        }),
       selectPath: (directory = false) => desktop(() => open({ directory, multiple: false })),
       openUrl: (uri: string) => native<void>('open_terminal_link', { uri }),
       openFile: (path: string) => request<void>('openFile', { path }),

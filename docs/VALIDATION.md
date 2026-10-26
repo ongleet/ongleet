@@ -372,3 +372,86 @@ The harness needs Python GI and GNOME Mutter RemoteDesktop access; IBus runs nee
 the existing user's IBus service. Leave the desktop untouched during these checks.
 Native traces use `DEVCENTER_DEBUG=1` and may include typed input. Production
 frontend/native assets were restored; Python syntax and diff whitespace checks pass.
+
+## Unicode selection, paste bounds and primary selection (2026-10-26)
+
+The terminal now serializes selected text from the existing Ghostty cells and
+absolute selection endpoints. Wide continuation cells contribute no extra spaces;
+combining graphemes use Ghostty's grapheme lookup, including in scrollback.
+Automatic/browser copy and native copy share this serialization. This compatibility
+adapter uses the pinned ghostty-web 0.4.0 selection manager because its public
+selection range is clipped to the visible viewport; revalidate it on upgrades.
+
+Fixed a second upstream 0.4.0 issue: selection auto-scroll extended an endpoint at
+the screen edge even when the viewport could not move. The adapter prevents edge
+scrolling at boundaries and stops an active timer after it reaches one. It retains
+Ghostty's selection/mouse machinery and restores patched methods on disposal.
+A focus click with no drag no longer copies a single cell over existing selections.
+
+Selections populate both CLIPBOARD and PRIMARY through the SDK/native services.
+Middle-click uses PRIMARY text and Ghostty's paste framing. The mouse adapter runs
+first: application mouse-reporting mode receives middle-button reports instead of
+pasted text. `desktop.clipboard(selection)` and `writeText(text, selection)` default
+to CLIPBOARD, preserving existing plugin callers. Primary text writes and terminal
+text reads retain the 65,500-byte limit and a three-second GTK request timeout.
+Standard clipboard image/file classification remains available.
+
+### Isolation incident and limits
+
+An early live-desktop run (`7qqda88_`) failed rich-text clipboard restoration and
+left fixture text on the user's clipboard. Its original rich-text backup could
+not be recovered. The user was informed; that run is failed evidence. Subsequent
+clipboard validation moved to a private authenticated Xvfb server containing only
+known fixtures. The final harness does not support live desktop clipboard mutation.
+It removes Wayland connection variables, uses a private DISPLAY/Xauthority and
+private application data, and seeds its own HTML/text and primary selections.
+The restoration helper is restricted to that private X11 context and serves all
+fixture data formats from memory. No system package was installed; Xvfb was
+extracted under `/tmp/terminal-native-tools` for these runs.
+
+Separate metadata does not prevent shared-desktop effects. The user's live GUI
+and Vite server were present during development, so source edits could hot-reload
+the live frontend. No input or shutdown command was intentionally sent to that
+GUI. Use a separate source/build copy or stop the live development session before
+future native acceptance if hot reload must be excluded. The harness never stops
+unrelated instances. Restart a development instance when needed to load matching
+frontend and Rust command changes.
+
+### Observed checks
+
+Final WebKitGTK private-X11 report `devcenter-clipboard-validation-ag2ehhy2` passes
+twelve checks. Its report records the private display/data path and disabled
+Wayland connection. Both original fixture selections were restored, and no marked
+cleanup survivors were observed. This is Xvfb integration evidence, not live
+Wayland, XWayland or a separate Xorg desktop acceptance.
+
+- GTK's observed CRLF-to-LF conversion precedes multiline Unicode paste. Bracketed
+  mode adds exactly one delimiter pair; unbracketed mode adds no explicit Enter.
+- Native image paste forwards Ctrl+V; copied local file URIs become quoted paths
+  with spaces/apostrophes preserved, without executing a shell.
+- A 65,500-byte Unicode clipboard crosses the native write chunks intact;
+  oversized text is rejected visibly without partially writing to the PTY.
+- A focus click preserves both selections. Forward/reverse multiline selection
+  preserves combining marks and wide characters. A narrow CJK/emoji selection near
+  the top edge remains stable at mouse release and owns PRIMARY.
+- Middle-click reads PRIMARY independently of CLIPBOARD. With mouse reporting
+  enabled it produces middle-button reports and no primary text paste.
+
+`check:terminal-selection` uses real Ghostty WASM cells for wide boundaries,
+leading spaces, combining text, reversed endpoints and selection spanning
+scrollback/live rows. `check:terminal-input` and the Rust clipboard file-quoting
+regression test pass. Python syntax and targeted formatting checks pass.
+Temporary selection mutation-stack instrumentation was removed.
+
+Build native-validation assets, then reproduce without touching desktop selections:
+
+```bash
+mise exec -- npm run check:terminal-selection
+mise exec -- /usr/bin/python3 scripts/check-clipboard.py --xvfb /path/to/Xvfb --driver /path/to/WebKitWebDriver
+```
+
+The script needs Xvfb, xclip and GTK 3. `scripts/check-native.py` now skips desktop
+clipboard mutation by default; it points to the private-display harness instead.
+The full terminal compatibility gate remains open. Live compositor primary
+selection, physical input, soft wrapping and broader retention still need safe
+acceptance. Production frontend/native assets were restored after validation.

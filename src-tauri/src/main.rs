@@ -616,6 +616,7 @@ fn run() -> Result<(), String> {
             reorder_session,
             reorder_project,
             desktop_input::terminal_clipboard,
+            desktop_input::write_primary_selection,
             desktop_input::open_terminal_link,
             close_session,
             core::commands::sdk_attach,

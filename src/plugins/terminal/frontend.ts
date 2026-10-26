@@ -13,6 +13,7 @@ import { suppressHiddenRendering } from '../../render-visibility';
 import { createEngineLoader } from '../../engine-loader';
 import { attachTerminalMouse } from '../../terminal-mouse';
 import { TerminalLinks } from '../../terminal-links';
+import { terminalSelectionText, attachTerminalSelection } from '../../terminal-selection';
 
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
 
@@ -61,6 +62,8 @@ export class TerminalFrontend {
             rows: this.term?.rows,
             scrollback: this.term?.wasmTerm?.getScrollbackLength(),
             viewportY: this.term?.viewportY,
+            selection: this.term ? terminalSelectionText(this.term).slice(0, 4096) : '',
+            selectionRange: this.term?.getSelectionPosition(),
             alternate: this.term?.wasmTerm?.isAlternateScreen(),
           }),
           snapshot: () => this.snapshot(),
@@ -115,6 +118,7 @@ export class TerminalFrontend {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(this.host);
+    this.subscriptions.push(attachTerminalSelection(term));
     const terminalLinks = new TerminalLinks(
       term,
       (bytes) => consumeOutput(term, bytes),
@@ -151,6 +155,21 @@ export class TerminalFrontend {
       void this.copy().catch(this.error);
     };
     this.host.addEventListener('copy', copy, true);
+    const middlePaste = (event: MouseEvent) => {
+      if (event.button !== 1) return;
+      // The mouse-reporting adapter runs first and consumes application mouse
+      // events. Unconsumed middle clicks use the desktop's PRIMARY selection.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void this.paste('primary').catch(this.error);
+    };
+    const suppressMiddleDefault = (event: MouseEvent) => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    this.host.addEventListener('mousedown', middlePaste, true);
+    this.host.addEventListener('auxclick', suppressMiddleDefault, true);
     const links = new LinkDetector(term);
     links.registerProvider(new OSC8LinkProvider(term));
     links.registerProvider(new UrlRegexProvider(term));
@@ -180,6 +199,8 @@ export class TerminalFrontend {
       dispose: () => {
         this.host.removeEventListener('paste', paste, true);
         this.host.removeEventListener('copy', copy, true);
+        this.host.removeEventListener('mousedown', middlePaste, true);
+        this.host.removeEventListener('auxclick', suppressMiddleDefault, true);
         this.host.removeEventListener('click', click, true);
         links.dispose();
       },
@@ -395,17 +416,21 @@ export class TerminalFrontend {
   }
 
   async copy() {
-    const text = this.term?.getSelection();
-    if (text) await this.sdk.desktop.writeText(text);
+    const text = this.term?.hasSelection() ? terminalSelectionText(this.term) : '';
+    if (text)
+      await Promise.all([
+        this.sdk.desktop.writeText(text),
+        this.sdk.desktop.writeText(text, 'primary'),
+      ]);
   }
 
-  async paste() {
+  async paste(selection: 'clipboard' | 'primary' = 'clipboard') {
     const term = this.term;
     const id = this.id;
     if (!term || id === undefined || this.replaying || this.pasting) return;
     this.pasting = true;
     try {
-      const result = await this.sdk.desktop.clipboard();
+      const result = await this.sdk.desktop.clipboard(selection);
       if (this.term !== term || this.id !== id || this.replaying || this.disposed) return;
       if (result.kind === 'image') this.send('\x16');
       else term.paste(result.text);

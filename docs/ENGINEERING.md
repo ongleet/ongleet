@@ -10,7 +10,7 @@ Use literal executable/argument arrays; shell syntax requires explicit shell mod
 
 Apply RIS only to new emulators after initial fit/redraw, before output attachment. Reload reattaches rather than relaunching. Suppress input/query replies/resizing during replay; report journal overflow. Ghostty frontend state is authoritative for snapshots: no second emulator or ANSI stripping.
 
-Use native clipboard and Ghostty paste APIs. Await the in-app destructive confirmation; synchronous `window.confirm` is unsafe under Tauri.
+Use native clipboard and Ghostty paste APIs. Validate selection mutations only on a private display; clipboard formats alone do not establish safe restoration on Wayland. A running Vite server can hot-reload a live development instance when source files change, even when test metadata/display are isolated. Await the in-app destructive confirmation; synchronous `window.confirm` is unsafe under Tauri.
 
 ## Metadata and actions
 
@@ -49,6 +49,7 @@ mise exec -- npm run check:plugins
 mise exec -- npm run check:editor-merge
 mise exec -- npm run check:wasm
 mise exec -- npm run check:terminal-reuse
+mise exec -- npm run check:terminal-selection
 mise exec -- npm run check:rendering
 mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline

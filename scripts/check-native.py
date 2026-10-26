@@ -220,6 +220,8 @@ def run(args):
             wait_for(lambda: client.js("return !!window.__terminalValidation"), "validation bridge (requires native-validation build)")
 
             try:
+                if env.get("DEVCENTER_PRIVATE_X11") != "1":
+                    raise RuntimeError("Desktop clipboard mutation disabled; use check-clipboard.py on private Xvfb")
                 if shutil.which("wl-paste") and shutil.which("wl-copy"):
                     saved_types = subprocess.run(["wl-paste", "--list-types"], capture_output=True, env=env, timeout=3)
                     if saved_types.returncode != 0:
@@ -235,8 +237,8 @@ def run(args):
                     # Refuse to replace an image/custom clipboard format we cannot restore.
                     original = client.invoke("plugin:clipboard-manager|read_text")
                     clipboard_backup = ("text/plain;charset=utf-8", (original or "").encode())
-            except (RuntimeError, subprocess.SubprocessError):
-                report["clipboard"] = "Skipped: existing desktop clipboard could not be backed up safely."
+            except (RuntimeError, subprocess.SubprocessError) as error:
+                report["clipboard"] = f"Skipped: {error}"
                 clipboard_backup = None
 
             def new_tab(name):

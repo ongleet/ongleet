@@ -13,10 +13,23 @@ pub enum Paste {
 // Request clipboard conversion asynchronously on GTK's thread. Never wait on
 // the WebView thread or hold the terminal registry while another app responds.
 #[tauri::command]
-pub async fn terminal_clipboard(app: tauri::AppHandle) -> Result<Paste, String> {
+pub async fn terminal_clipboard(
+    app: tauri::AppHandle,
+    primary: Option<bool>,
+) -> Result<Paste, String> {
     let (send, receive) = mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
-        let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
+        let clipboard = gtk::Clipboard::get(if primary.unwrap_or(false) {
+            &gdk::SELECTION_PRIMARY
+        } else {
+            &gdk::SELECTION_CLIPBOARD
+        });
+        if primary.unwrap_or(false) {
+            clipboard.request_text(move |_, text| {
+                let _ = send.send(clipboard_text(text.as_deref().unwrap_or_default()));
+            });
+            return;
+        }
         clipboard.request_uris(move |clipboard, uris| {
             if !uris.is_empty() {
                 let result = file_paths(uris.iter().map(|uri| uri.as_str())).map(Paste::Text);
@@ -33,13 +46,7 @@ pub async fn terminal_clipboard(app: tauri::AppHandle) -> Result<Paste, String> 
                     let _ = send.send(Ok(Paste::Image));
                 } else {
                     clipboard.request_text(move |_, text| {
-                        let text = text.unwrap_or_default();
-                        let result = if text.len() > 65500 {
-                            Err("Clipboard exceeds the terminal input limit".into())
-                        } else {
-                            Ok(Paste::Text(text.into()))
-                        };
-                        let _ = send.send(result);
+                        let _ = send.send(clipboard_text(text.as_deref().unwrap_or_default()));
                     });
                 }
             });
@@ -50,6 +57,34 @@ pub async fn terminal_clipboard(app: tauri::AppHandle) -> Result<Paste, String> 
         receive
             .recv_timeout(Duration::from_secs(3))
             .map_err(|_| "Clipboard request timed out".to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn clipboard_text(text: &str) -> Result<Paste, String> {
+    if text.len() > 65500 {
+        Err("Clipboard exceeds the terminal input limit".into())
+    } else {
+        Ok(Paste::Text(text.into()))
+    }
+}
+
+#[tauri::command]
+pub async fn write_primary_selection(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    if text.len() > 65500 {
+        return Err("Primary selection exceeds the terminal input limit".into());
+    }
+    let (send, receive) = mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        gtk::Clipboard::get(&gdk::SELECTION_PRIMARY).set_text(&text);
+        let _ = send.send(());
+    })
+    .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        receive
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|_| "Primary selection request timed out".to_string())
     })
     .await
     .map_err(|error| error.to_string())?

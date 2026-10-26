@@ -9,6 +9,7 @@ type Probe = {
     rows?: number;
     scrollback?: number;
     viewportY?: number;
+    selection?: string;
     alternate?: boolean;
   };
   snapshot: () => string;

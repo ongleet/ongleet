@@ -119,7 +119,7 @@ Schema version 4 wraps existing `config_json` values with a configuration versio
 
 ## Terminal mouse, clipboard and links
 
-Drag to select terminal text; releasing the mouse copies the selection to the native clipboard. Ctrl+Shift+C copies it explicitly. When a program requests mouse reporting, clicks, drags and wheel events go to that program; hold Shift while dragging to select text locally instead.
+Drag to select terminal text; releasing the mouse copies the selection to the native clipboard and the desktop primary selection. Ctrl+Shift+C copies it explicitly. Middle-click pastes the primary selection. A click without a drag preserves existing clipboard contents. When a program requests mouse reporting, clicks, drags and wheel events go to that program; hold Shift while dragging to select text locally instead.
 
 Ctrl+Shift+V pastes native clipboard text with bracketed-paste framing, or quoted local paths when files were copied from a file manager (up to 32 files and the terminal input limit). It does not copy file contents into the terminal. Image clipboard contents forward Ctrl+V to the running program. In Codex, Ctrl+V also reaches its own image-paste handler directly; image decoding and attachment remain Codex's responsibility. In shells, Ctrl+V retains its conventional literal-next-character behavior. File drag-and-drop is not implemented.
 
