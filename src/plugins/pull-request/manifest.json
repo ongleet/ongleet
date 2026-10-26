@@ -21,7 +21,7 @@
   "label": "Pull request",
   "sdkVersion": 1,
   "defaults": { "refreshIntervalSeconds": 120 },
-  "capabilities": ["http", "credentials", "desktop", "storage"],
+  "capabilities": ["env", "http", "credentials", "desktop", "storage"],
   "runtime": null,
   "entrypoint": "entrypoint.tsx"
 }

@@ -65,7 +65,15 @@ Object.assign(window, {
     call: (
       id: number,
       service:
-        'session' | 'fs' | 'storage' | 'process' | 'pty' | 'desktop' | 'http' | 'credentials',
+        | 'session'
+        | 'fs'
+        | 'storage'
+        | 'process'
+        | 'pty'
+        | 'desktop'
+        | 'http'
+        | 'credentials'
+        | 'env',
       method: string,
       args: unknown[],
     ) => {

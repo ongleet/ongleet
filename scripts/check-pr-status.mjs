@@ -101,6 +101,11 @@ const response = (data, status = 200, headers = {}) => ({
 function authFixture(saved = null) {
   const store = { value: saved, loads: 0 };
   const sdk = {
+    env: {
+      async get() {
+        return null;
+      },
+    },
     credentials: {
       async get() {
         ++store.loads;
@@ -397,4 +402,75 @@ test('successful response at zero remaining publishes data and defers following 
     /rate limit/,
   );
   stop();
+});
+
+test('environment precedence bypasses Secret Service and never persists the token', async () => {
+  for (const [values, expected, queried] of [
+    [{ GH_TOKEN: '  primary  ', GITHUB_TOKEN: 'secondary' }, 'primary', ['GH_TOKEN']],
+    [{ GH_TOKEN: '  ', GITHUB_TOKEN: 'secondary' }, 'secondary', ['GH_TOKEN', 'GITHUB_TOKEN']],
+  ]) {
+    const auth = createAuthController();
+    const { sdk, store } = authFixture(JSON.stringify({ token: 'saved', login: 'saved' }));
+    const names = [];
+    sdk.env.get = async (name) => {
+      names.push(name);
+      return values[name] ?? null;
+    };
+    sdk.credentials.get = async () => {
+      throw new Error('Keyring unavailable; environment must work independently');
+    };
+    sdk.credentials.set = sdk.credentials.delete = async () => {
+      throw new Error('Environment tokens must not modify saved credentials');
+    };
+    const stop = auth.subscribe(sdk, () => {});
+    await tick();
+    assert.equal(auth.snapshot().login, expected);
+    assert.deepEqual(names, queried);
+    assert.equal(JSON.parse(store.value).token, 'saved');
+    await auth.disconnect(sdk);
+    assert.equal(auth.snapshot().login, undefined);
+    assert.equal(auth.snapshot().environment, queried.at(-1));
+    await auth.reconnect(sdk);
+    assert.equal(auth.snapshot().login, expected);
+    stop();
+    assert.equal(auth.snapshot().environment, undefined);
+  }
+});
+test('unset environment falls back to saved credentials; invalid environment never silently falls back', async () => {
+  const auth = createAuthController();
+  const { sdk, store } = authFixture(JSON.stringify({ token: 'saved', login: 'saved' }));
+  sdk.env.get = async (name) => (name === 'GH_TOKEN' ? 'invalid' : 'secondary');
+  let stop = auth.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(auth.snapshot().login, undefined);
+  assert.equal(auth.snapshot().environment, 'GH_TOKEN');
+  assert.match(auth.snapshot().error, /invalid/);
+  assert.equal(store.loads, 0);
+  assert.equal(JSON.parse(store.value).token, 'saved');
+  await auth.connect(sdk, 'manual');
+  assert.equal(JSON.parse(store.value).token, 'saved');
+  stop();
+  sdk.env.get = async () => null;
+  stop = auth.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(auth.snapshot().login, 'saved');
+  assert.equal(auth.snapshot().environment, undefined);
+  stop();
+});
+test('environment validation cannot restore credentials after the last tab closes', async () => {
+  const auth = createAuthController();
+  const { sdk, store } = authFixture();
+  sdk.env.get = async () => 'environment';
+  let release;
+  sdk.http.request = async () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  const stop = auth.subscribe(sdk, () => {});
+  await tick();
+  stop();
+  release(response({ data: { viewer: { login: 'stale' } } }));
+  await tick();
+  assert.equal(auth.snapshot().login, undefined);
+  assert.equal(store.value, null);
 });

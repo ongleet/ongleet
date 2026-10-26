@@ -497,3 +497,20 @@ frontend build (restored after native validation), plugin boundaries, 13 PR
 behavior tests, Rust formatting/check and complete Rust suite pass. HTTP body
 bounds are tested with and without Content-Length. Wayland authentication UI,
 live GitHub public/private access and real rate-limit acceptance remain untested.
+
+## Launch-environment authentication (2026-10-26)
+
+`scripts/check-pr-auth.py --environment-token` uses dummy `GH_TOKEN` and
+`GITHUB_TOKEN` values inherited by the native process. The same private D-Bus,
+Secret Service and display requirements apply. Normal fixture runs explicitly
+remove inherited GitHub tokens before launching the app.
+
+Native X11/WebKitGTK report `/tmp/devcenter-pr-auth-w6e3bu9h/report.json` passes
+two checks with zero survivors: arbitrary SDK environment reads and capability
+enforcement, GH_TOKEN precedence, no automatic credential persistence,
+disconnect/reconnect, and app restart while preserving an independently saved
+credential. Sixteen PR behavior checks pass, including GITHUB_TOKEN fallback,
+empty/unset variables, invalid environment tokens, and stale validation after
+tab disposal. Two Rust environment tests cover missing/empty values, name and
+size bounds, and non-UTF-8 rejection. Production frontend build and Rust check
+pass. Live GitHub token acceptance and Wayland environment UI remain untested.

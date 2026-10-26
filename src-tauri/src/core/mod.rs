@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod credentials;
 pub mod desktop;
+pub mod environment;
 pub mod fs;
 pub mod http;
 pub mod process;

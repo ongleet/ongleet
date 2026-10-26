@@ -84,6 +84,9 @@ pub enum Request {
         request: super::process::Request,
     },
     Cancel,
+    EnvironmentGet {
+        name: String,
+    },
     CredentialGet {
         key: String,
     },
@@ -160,6 +163,7 @@ pub async fn sdk_request(
             | Request::UnwatchText { .. } => "fs",
             Request::Process { .. } | Request::Cancel => "process",
             Request::OpenFile { .. } => "desktop",
+            Request::EnvironmentGet { .. } => "env",
             Request::CredentialGet { .. }
             | Request::CredentialSet { .. }
             | Request::CredentialDelete { .. } => "credentials",
@@ -182,6 +186,9 @@ pub async fn sdk_request(
         (session.id, tab.kind.clone())
     };
     match &request {
+        Request::EnvironmentGet { name } => {
+            return super::environment::get(name).map_err(SdkError::from);
+        }
         Request::CredentialGet { key }
         | Request::CredentialSet { key, .. }
         | Request::CredentialDelete { key } => {
@@ -309,7 +316,8 @@ pub async fn sdk_request(
             }
             guard.open_plugin_tab(id)?;
             let json = match request {
-                Request::CredentialGet { .. }
+                Request::EnvironmentGet { .. }
+                | Request::CredentialGet { .. }
                 | Request::CredentialSet { .. }
                 | Request::CredentialDelete { .. }
                 | Request::Http { .. }

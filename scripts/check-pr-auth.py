@@ -37,6 +37,10 @@ def run(args):
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     env = dict(os.environ, XDG_DATA_HOME=str(directory / 'data'), XDG_CONFIG_HOME=str(directory / 'config'), XDG_CACHE_HOME=str(directory / 'cache'), TAURI_WEBVIEW_AUTOMATION='true', GDK_BACKEND='x11', TERMINAL_VALIDATION_RUN=str(directory))
+    env.pop('GH_TOKEN', None)
+    env.pop('GITHUB_TOKEN', None)
+    if args.environment_token:
+        env.update(GH_TOKEN='first-fixture', GITHUB_TOKEN='second-fixture', DEVCENTER_ENV_FIXTURE='custom-value')
     client = native.WebDriver(f'http://127.0.0.1:{port}')
     stalled = socket.socket()
     stalled.bind(('127.0.0.1',0))
@@ -75,6 +79,36 @@ def run(args):
             pr = result['sessions'][0]['selectedTabId']
             client.request('POST','/refresh',{})
             native.wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])',pr),'PR attachment')
+            if args.environment_token:
+                def text(): return client.js('return document.querySelector(arguments[0])?.innerText',f'#tab-panel-{pr}') or ''
+                native.wait_for(lambda: 'Connected as fixture-user' in text() and 'Using GH_TOKEN' in text(),'environment account')
+                assert plugins.sdk(client,pr,'env','get','DEVCENTER_ENV_FIXTURE') == 'custom-value'
+                assert plugins.sdk(client,pr,'env','get','GITHUB_TOKEN') == 'second-fixture'
+                assert plugins.sdk(client,pr,'env','get','DEVCENTER_MISSING_FIXTURE') is None
+                try: plugins.sdk(client,terminal,'env','get','GH_TOKEN')
+                except RuntimeError as error: assert 'capability' in str(error)
+                else: raise AssertionError('Environment capability bypassed')
+                assert plugins.sdk(client,pr,'credentials','get','github-account') is None
+                saved = json.dumps({'token':'saved-only-fixture','login':'stored-user'})
+                plugins.sdk(client,pr,'credentials','set','github-account',saved)
+                client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Disconnect']",'xpath')
+                native.wait_for(lambda: 'Connected as' not in text(),'environment disconnected')
+                assert plugins.sdk(client,pr,'credentials','get','github-account') == saved
+                client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Reconnect']",'xpath')
+                native.wait_for(lambda: 'Connected as fixture-user' in text(),'environment reconnected')
+                mark('Native SDK reads arbitrary launch variables, enforces capability, and PR prioritizes GH_TOKEN without saving it')
+                client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
+                native.wait_for(lambda: not any(p['name'].startswith('devcenter') for p in native.owned_processes(directory)),'Quit',timeout=10)
+                try: client.request('DELETE','')
+                except Exception: pass
+                client.session = None
+                launch()
+                native.wait_for(lambda: 'Connected as fixture-user' in text() and 'Using GH_TOKEN' in text(),'environment after restart')
+                assert plugins.sdk(client,pr,'credentials','get','github-account') == saved
+                plugins.sdk(client,pr,'credentials','delete','github-account')
+                mark('Environment disconnect/reconnect and native restart preserve the separately saved credential')
+                report['passed'] = True
+                return
             for tab, service, method, options in [(terminal,'credentials','get','account'),(pr,'process','run',{'executable':'/bin/true'}),(pr,'http','request',{'url':'http://example.com','method':'GET'})]:
                 try: plugins.sdk(client,tab,service,method,options)
                 except RuntimeError as error: assert 'capability' in str(error) or 'HTTPS' in str(error), str(error)
@@ -153,4 +187,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--application',required=True)
     parser.add_argument('--driver',required=True)
+    parser.add_argument('--environment-token',action='store_true',help='Test dummy launch-environment tokens through the native SDK')
     run(parser.parse_args())

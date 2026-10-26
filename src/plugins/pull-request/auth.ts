@@ -3,6 +3,7 @@ import { fetchViewer, GitHubError } from './github.ts';
 type Credential = { token: string; login: string };
 export type AuthState = {
   login?: string;
+  environment?: 'GH_TOKEN' | 'GITHUB_TOKEN';
   version: number;
   loading: boolean;
   busy: boolean;
@@ -42,40 +43,56 @@ export function createAuthController() {
       retryAt: 0,
     });
   }
+  async function load(sdk: PluginSdk) {
+    const current = ++lifetime;
+    const controller = new AbortController();
+    requests.set(controller, sdk);
+    publish({ loading: true, error: '' });
+    try {
+      for (const name of ['GH_TOKEN', 'GITHUB_TOKEN'] as const) {
+        const token = (await sdk.env.get(name))?.trim();
+        if (current !== lifetime || controller.signal.aborted) return;
+        if (!token) continue;
+        publish({ environment: name });
+        const login = await fetchViewer(sdk, token, controller.signal);
+        if (current !== lifetime || controller.signal.aborted) return;
+        changed({ token, login });
+        return;
+      }
+      publish({ environment: undefined });
+      const raw = await sdk.credentials.get('github-account');
+      if (current !== lifetime || controller.signal.aborted) return;
+      let saved: Credential | undefined;
+      if (raw) {
+        try {
+          saved = JSON.parse(raw);
+        } catch {
+          throw new Error('Invalid saved GitHub credential');
+        }
+        if (typeof saved?.token !== 'string' || !saved.token || typeof saved.login !== 'string')
+          throw new Error('Invalid saved GitHub credential');
+      }
+      changed(saved);
+    } catch (error) {
+      if (current === lifetime) publish({ error: String(error), paused: !!state.environment });
+    } finally {
+      requests.delete(controller);
+      if (current === lifetime) publish({ loading: false });
+    }
+  }
   return {
     snapshot: () => state,
+    async reconnect(sdk: PluginSdk) {
+      if (state.busy || state.loading || !state.environment) return;
+      abort();
+      changed();
+      await load(sdk);
+    },
     subscribe(sdk: PluginSdk, listener: () => void) {
       const first = listeners.size === 0;
       listeners.set(listener, sdk);
       if (first) {
-        const current = ++lifetime;
-        publish({ loading: true });
-        void sdk.credentials
-          .get('github-account')
-          .then((raw) => {
-            if (current !== lifetime) return;
-            let saved: Credential | undefined;
-            if (raw) {
-              try {
-                saved = JSON.parse(raw);
-              } catch {
-                throw new Error('Invalid saved GitHub credential');
-              }
-              if (
-                typeof saved?.token !== 'string' ||
-                !saved.token ||
-                typeof saved.login !== 'string'
-              )
-                throw new Error('Invalid saved GitHub credential');
-            }
-            changed(saved);
-          })
-          .catch((error) => {
-            if (current === lifetime) publish({ error: String(error) });
-          })
-          .finally(() => {
-            if (current === lifetime) publish({ loading: false });
-          });
+        void load(sdk);
       }
       listener();
       return () => {
@@ -104,7 +121,7 @@ export function createAuthController() {
       };
     },
     async connect(sdk: PluginSdk, token: string) {
-      if (state.busy || state.loading) return;
+      if (state.busy || state.loading || state.environment) return;
       token = token.trim();
       if (!token || /\s/.test(token)) throw new Error('Enter a GitHub personal access token');
       const current = lifetime;
@@ -130,7 +147,7 @@ export function createAuthController() {
       publish({ busy: true, error: '' });
       abort();
       try {
-        await sdk.credentials.delete('github-account');
+        if (!state.environment) await sdk.credentials.delete('github-account');
         if (current === lifetime) changed();
       } catch (error) {
         if (current === lifetime) publish({ error: String(error) });

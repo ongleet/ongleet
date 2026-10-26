@@ -308,7 +308,22 @@ export function PullRequestContent({
     >
       <section aria-label="GitHub connection">
         {auth.login && <p>Connected as {auth.login}</p>}
-        {auth.login && !replacing && !auth.paused ? (
+        {auth.environment ? (
+          <>
+            <p className="muted">
+              Using {auth.environment} from DevCenter’s launch environment. Update it and restart
+              DevCenter to change the token.
+            </p>
+            {(!auth.login || auth.paused) && (
+              <button
+                disabled={auth.busy || auth.loading}
+                onClick={() => void githubAuth.reconnect(sdk)}
+              >
+                Reconnect
+              </button>
+            )}
+          </>
+        ) : auth.login && !replacing && !auth.paused ? (
           <button onClick={() => setReplacing(true)} disabled={auth.busy}>
             Replace token
           </button>

@@ -150,6 +150,9 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       replace: <T>(scope: Scope, revision: number, version: number, value: T) =>
         request<Namespace<T>>('replaceData', { scope, revision, version, value }),
     },
+    env: {
+      get: (name: string) => request<string | null>('environmentGet', { name }),
+    },
     credentials: {
       get: (key: string) => request<string | null>('credentialGet', { key }),
       set: (key: string, value: string) => request<void>('credentialSet', { key, value }),
