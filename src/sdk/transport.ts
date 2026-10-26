@@ -181,6 +181,14 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
         return native<Attachment | null>('sdk_pty_connect', { id, attachment, ...options, output });
       },
       acknowledge: (runtimeId: number, seq: number) => pty<void>('acknowledge', { runtimeId, seq }),
+      sendText: (runtimeId: number, text: string, options: { enter?: boolean } = {}) => {
+        const bytes = new TextEncoder().encode(text + (options.enter ? '\r' : ''));
+        if (bytes.length > 8192)
+          return Promise.reject(
+            new SdkError('limit_exceeded', 'Input exceeds 8 KiB including Enter'),
+          );
+        return pty<void>('input', { runtimeId, bytes: Array.from(bytes) });
+      },
       input: (runtimeId: number, bytes: number[]) => pty<void>('input', { runtimeId, bytes }),
       resize: (runtimeId: number, cols: number, rows: number) =>
         pty<void>('resize', { runtimeId, cols, rows }),

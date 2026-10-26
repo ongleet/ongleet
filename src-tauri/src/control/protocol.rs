@@ -133,6 +133,12 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         config: Option<Value>,
     },
+    TabInput {
+        id: u64,
+        text: String,
+        #[serde(default)]
+        enter: bool,
+    },
     TabSelect {
         id: u64,
     },

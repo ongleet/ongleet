@@ -64,6 +64,7 @@ pub fn handle(
     let snapshot = registry.snapshot();
     let tab_id = match &command {
         Command::TabSelect { id }
+        | Command::TabInput { id, .. }
         | Command::TabRename { id, .. }
         | Command::TabReorder { id, .. }
         | Command::TabOpen { id }
@@ -387,6 +388,41 @@ pub fn handle(
                 .map_err(failed)?;
             changed = true;
             serde_json::to_value(updated).map_err(|e| failed(e.to_string()))?
+        }
+        Command::TabInput { id, text, enter } => {
+            let mut bytes = text.into_bytes();
+            if enter {
+                bytes.push(b'\r');
+            }
+            if bytes.len() > 8192 {
+                return Err(RpcError::new(
+                    "limit_exceeded",
+                    "Input exceeds 8 KiB including Enter",
+                ));
+            }
+            let terminal = registry
+                .terminals
+                .get_mut(&id)
+                .ok_or_else(|| RpcError::new("unavailable", "Tab has no running terminal"))?;
+            if !matches!(terminal.status().map_err(failed)?, Status::Running) {
+                return Err(RpcError::new("unavailable", "Terminal is stopped"));
+            }
+            let result = terminal
+                .queue_input(bytes)
+                .map_err(|error| RpcError::new("busy", error))?;
+            // Never hold the registry while waiting for a blocked PTY writer.
+            drop(registry);
+            result
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(|error| match error {
+                    std::sync::mpsc::RecvTimeoutError::Timeout => RpcError::new(
+                        "timeout",
+                        "PTY write timed out; input may still arrive. Inspect the terminal before retrying",
+                    ),
+                    _ => failed(error.to_string()),
+                })?
+                .map_err(failed)?;
+            return Ok((Some(json!({"id": id})), Effect::None));
         }
         Command::TabSelect { id } => {
             registry.select_tab(id).map_err(failed)?;

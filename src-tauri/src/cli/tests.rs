@@ -494,3 +494,35 @@ fn tag_commands_only_list_add_and_remove_with_explicit_targets() {
         assert!(parse(args(&input)).is_err());
     }
 }
+
+#[test]
+fn terminal_input_preserves_text_requires_explicit_enter_and_bounds_utf8() {
+    for enter in [false, true] {
+        let mut values = args(&["tab", "input", "12", "--text", "café 日本語; $(literal)"]);
+        if enter {
+            values.push("--enter".into());
+        }
+        assert!(
+            matches!(parse(values).unwrap(), Invocation::Request(Command::TabInput { id: 12, text, enter: actual }) if text == "café 日本語; $(literal)" && actual == enter)
+        );
+    }
+    assert!(matches!(
+        parse(args(&["tab", "input", "12", "--text", "--literal"])).unwrap(),
+        Invocation::Request(Command::TabInput { text, .. }) if text == "--literal"
+    ));
+    let mut values = args(&["tab", "input", "12", "--text"]);
+    values.push("é".repeat(4096));
+    assert!(parse(values.clone()).is_ok());
+    values.push("--enter".into());
+    assert!(parse(values).is_err());
+    for values in [
+        vec!["tab", "input", "12"],
+        vec!["tab", "input", "0", "--text", "hello"],
+        vec![
+            "tab", "input", "12", "--text", "hello", "--enter", "--enter",
+        ],
+        vec!["tab", "select", "12", "--enter"],
+    ] {
+        assert!(parse(args(&values)).is_err());
+    }
+}

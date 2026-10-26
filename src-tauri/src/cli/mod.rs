@@ -86,7 +86,15 @@ fn parse_with_context(
         (resource, verb),
         (
             "tab",
-            "select" | "rename" | "reorder" | "open" | "close" | "delete" | "archive" | "configure"
+            "select"
+                | "rename"
+                | "reorder"
+                | "open"
+                | "close"
+                | "delete"
+                | "archive"
+                | "configure"
+                | "input"
         ) | (
             "session",
             "rename"
@@ -118,9 +126,18 @@ fn parse_with_context(
     };
     let mut options = BTreeMap::new();
     let mut confirmed = false;
+    let mut enter = false;
     while offset < args.len() {
         let key = &args[offset];
         if key == "--json" {
+            offset += 1;
+            continue;
+        }
+        if key == "--enter" {
+            if enter || (resource, verb) != ("tab", "input") {
+                return Err(invalid("--enter is allowed once, only for tab input"));
+            }
+            enter = true;
             offset += 1;
             continue;
         }
@@ -138,7 +155,7 @@ fn parse_with_context(
         let value = args
             .get(offset + 1)
             .ok_or_else(|| invalid(format!("Missing value for {key}")))?;
-        if value.starts_with("--") {
+        if value.starts_with("--") && key != "--text" {
             return Err(invalid(format!("Missing value for {key}")));
         }
         if options.insert(key.clone(), value.clone()).is_some() {
@@ -286,6 +303,13 @@ fn parse_with_context(
                 })
                 .transpose()?,
         },
+        ("tab", "input") => {
+            let text = take("--text")?;
+            if text.len() + usize::from(enter) > 8192 {
+                return Err(invalid("Input exceeds 8 KiB including Enter"));
+            }
+            Command::TabInput { id, text, enter }
+        }
         ("tab", "select") => Command::TabSelect { id },
         ("tab", "rename") => Command::TabRename {
             id,

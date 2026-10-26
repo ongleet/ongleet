@@ -12,6 +12,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("tab", "actions [--session ID]", "List available tab actions for this session with action IDs, plugin kinds, versions and copied configuration. Excludes external commands and unavailable plugins."),
     ("tab", "list [--session ID]", "List all plugin tab definitions, copied configuration, openings, observed status and restart eligibility."),
     ("tab", "create [--session ID] --action ACTION_ID [--name NAME] [--config JSON]", "Open a fresh plugin tab from a configured project action. Discover action IDs with tab actions --session ID, and configuration fields with tab types. --config replaces the complete action configuration before launch. External command actions cannot open tabs."),
+    ("tab", "input ID --text TEXT [--enter]", "Send literal UTF-8 text to a running terminal, optionally followed by Enter (CR). Maximum 8 KiB including Enter. Embedded control characters/newlines are sent verbatim. Success means PTY write, not command completion. After timeout, inspect the terminal before retrying: input may already have arrived."),
     ("tab", "select ID", "Select an open tab without recreating plugin resources."),
     ("tab", "rename ID --name NAME", "Rename a tab definition."),
     ("tab", "reorder ID --position INDEX", "Move an open tab to a zero-based position."),
@@ -84,7 +85,7 @@ const AUTOMATION: &str = r#"AUTOMATION CONTRACT
   --confirm authorizes termination; use it only when that action is intended.
   A timeout can happen AFTER a change commits. Inspect list/status before
   retrying, especially create: retries can create duplicates.
-  Sending terminal input and reading screens are not implemented.
+  tab input sends text with optional --enter. Reading screens is not implemented.
   Generic tab operations: devcenter tab --help.
 
 EXIT CODES
