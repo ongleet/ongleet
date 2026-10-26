@@ -18,7 +18,8 @@
     "check:engine-loader": "node scripts/check-engine-loader.mjs",
     "check:editor-merge": "node scripts/check-editor-merge.mjs",
     "check:pr-status": "node scripts/check-pr-status.mjs",
-    "check:plugins": "node scripts/check-plugin-boundaries.mjs"
+    "check:plugins": "node scripts/check-plugin-boundaries.mjs",
+    "package:deb": "tauri build --bundles deb"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

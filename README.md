@@ -1,6 +1,6 @@
 # DevCenter
 
-DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple plugin tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls tabs, sessions, projects and the application. Terminal-specific CLI commands and Ubuntu packages remain pending.
+DevCenter is a native Linux terminal session application with a compact sidebar of **projects containing sessions**, and **multiple plugin tabs per session**. Create, edit, reorder, select, and close sessions using a name and an existing directory, with a native directory picker. Create, rename, reorder, select, and close terminal tabs above the terminal. Switching tabs or sessions retains processes and emulator state. SQLite persists metadata and selection. Window close hides the app and its live terminals; launching the same binary again reopens the existing instance. A Unix-socket CLI controls tabs, sessions, projects and the application. Terminal text input is available through the CLI; local Ubuntu packages can be built as described below.
 
 Session/tab metadata, ordering and selection are saved transactionally. Changing a session's base directory affects future launches for tabs without a directory override; it never changes a running process's directory. Session operations never create, move, or delete the directory. Missing saved directories remain in metadata and produce a clear launch error until corrected.
 
@@ -53,6 +53,34 @@ Terminal launch currently also requires Linux cgroup v2, a writable systemd user
 See [Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/). A working graphical desktop session is required. The prototype does not change shell or Codex configuration. Codex must already be installed, available on PATH, and configured by the user.
 
 Open the **Session** menu in the top bar to launch **Bash**, **Codex**, **Files**, or **Pull request** directly. The same menu lists configured external actions. **Custom tab…** opens a name, plugin type and configuration form for a single new tab without changing project actions. Each opening keeps its own launch configuration and runtime state. Launch settings are edited under Edit project → Actions, or in its YAML tab. To replace an exited or legacy stopped tab, close it and open a new tab.
+
+## Install a local Ubuntu package
+
+Build a release package on the computer you want to test, after installing the
+build prerequisites above:
+
+```bash
+mise exec -- npm run package:deb
+sudo apt install ./src-tauri/target/release/bundle/deb/DevCenter_0.1.0_amd64.deb
+```
+
+Use the actual filename emitted by the build if its capitalization or architecture
+is different. Launch **DevCenter** from the desktop application menu or run
+`devcenter-gui`. The package installs `devcenter`, `dcodex` and the compatibility
+commands on PATH. Bundled frontend assets require neither Node nor Vite at runtime.
+Use **Application → Quit** to stop an existing development instance before testing
+the installed build. Both builds use the same saved application data.
+
+This is a local preview build, not a cross-distribution release. Packages built on
+newer Ubuntu versions may require newer system libraries and will not necessarily
+run on older Ubuntu/Debian releases. Terminal launches still require the systemd
+cgroup support described above. Codex and `gh`, when used, must be installed and
+available in the desktop application's environment.
+
+Tauri also supports AppImage for running without package installation, but that
+format has not been validated for DevCenter's process containment requirements.
+Distribution to other machines also requires the applicable third-party notices
+and Ghostty WASM source/build provenance described in [the stack guide](docs/STACK.md).
 
 ## Projects and actions (YAML)
 
@@ -173,7 +201,7 @@ The database is `workspaces.sqlite3` in DevCenter's application data directory, 
 
 DevCenter stores configuration in `$XDG_CONFIG_HOME/devcenter/` (normally `~/.config/devcenter/`) and data in `$XDG_DATA_HOME/devcenter/` (normally `~/.local/share/devcenter/`). On first startup it moves the previous `io.local.terminal-stack-prototype` directories to these paths, preserving project YAML, database sidecars, IDs and Codex conversation mappings. Quit the previous application first. Migration refuses a live legacy writer or an existing destination rather than merging or overwriting files. You can run `devcenter-gui --migrate` to migrate without opening a window. It is safe to repeat after a successful move.
 
-The short commands are `devcenter` for session/application control and `dcodex` for Codex conversation restoration. `terminal-workspace` and `devcenter-codex` remain compatibility aliases, and saved tab definitions using the old wrapper name still work. These commands are available in application terminals after rebuilding/restarting; installation on your personal PATH remains packaging work.
+The short commands are `devcenter` for session/application control and `dcodex` for Codex conversation restoration. `terminal-workspace` and `devcenter-codex` remain compatibility aliases, and saved tab definitions using the old wrapper name still work. These commands are available in application terminals after rebuilding/restarting; the Ubuntu package also installs them in `/usr/bin`.
 
 Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch focuses the first window through a private activation socket. Metadata is saved as changes occur, so this version does not require a manual Save action for session/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
 
@@ -181,7 +209,7 @@ Ordinary React renders do not recreate the terminal. Closing the window hides it
 
 Each terminal joins a private cgroup before the requested executable runs. Confirmed close and Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. There is no graceful shutdown interval: save application work before confirming. A per-session watchdog also cleans up after application death or command-leader exit. It ends with its session; there is no persistent daemon. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
 
-The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID on both ends, and accepts versioned bounded JSON requests. Ubuntu packaging will provide the desktop launcher; launching the same executable already performs activation.
+The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID on both ends, and accepts versioned bounded JSON requests. Ubuntu packaging provides the desktop launcher; launching the same executable already performs activation.
 
 ## External actions
 
@@ -216,7 +244,7 @@ External applications are deliberately independent of managed terminal sessions.
 
 Build the frontend with `mise exec -- npm run build`, then the GUI and command-line executables with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline`. Restart the GUI after updating it to load the control protocol. App-launched terminals automatically prepend the application executable directory to PATH, so `devcenter` is available there when built alongside the GUI. This does not change your personal PATH or shell configuration. Explicit project/action PATH overrides take precedence, and shell startup files may replace PATH. Existing terminals retain their environment; open a new tab after restarting the updated app.
 
-The CLI is `src-tauri/target/debug/devcenter`. Use `--help` for a short resource index, `session --help` for its command list, or `session create --help` for that command’s usage, effects and relevant defaults (`-h` also works). The separate `automation --help` topic documents JSON responses, ID discovery, exit codes and timeout/retry behavior. Help runs without connecting to the application. Outside app terminals, until packaging installs it on PATH, substitute that path for `devcenter` in these examples:
+The CLI is `src-tauri/target/debug/devcenter`. Use `--help` for a short resource index, `session --help` for its command list, or `session create --help` for that command’s usage, effects and relevant defaults (`-h` also works). The separate `automation --help` topic documents JSON responses, ID discovery, exit codes and timeout/retry behavior. Help runs without connecting to the application. Outside app terminals, substitute that path for `devcenter` unless the Ubuntu package is installed:
 
 ```bash
 devcenter project list
