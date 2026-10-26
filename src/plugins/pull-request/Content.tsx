@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../../sdk';
-import { parseAssociation, fetchPullRequest, fetchViewer } from './github';
+import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
+import { githubAuth } from './auth';
 import { updatePullRequestTag } from './status-tag';
 import { refreshSeconds, DEFAULT_REFRESH_SECONDS } from './settings';
 import {
@@ -12,21 +13,6 @@ import {
 } from './reviews';
 import type { PluginContentProps } from '../types';
 import type { ConfigurationEditorProps } from '..';
-type PullRequest = {
-  title: string;
-  url: string;
-  number: number;
-  state: string;
-  reviewDecision: string;
-  reviews: Review[];
-  statusCheckRollup: {
-    name?: string;
-    context?: string;
-    status?: string;
-    conclusion?: string;
-    state?: string;
-  }[];
-};
 export function PullRequestConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
   let config: { refreshIntervalSeconds?: number } = {};
   try {
@@ -66,6 +52,9 @@ export function PullRequestContent({
   dismissConfiguration,
 }: PluginContentProps) {
   const sdk = useSdk();
+  const [auth, setAuth] = useState(githubAuth.snapshot);
+  const [token, setToken] = useState('');
+  const [replacing, setReplacing] = useState(false);
   const associationKey = JSON.stringify(session.pullRequest);
   const [target, setTarget] = useState(session.pullRequest?.repository ?? '');
   const [number, setNumber] = useState(String(session.pullRequest?.number ?? ''));
@@ -137,19 +126,32 @@ export function PullRequestContent({
     }
   }
   async function refresh() {
-    if (pending.current || !session.pullRequest) return;
+    const account = githubAuth.snapshot();
+    if (
+      pending.current ||
+      !session.pullRequest ||
+      !account.login ||
+      account.paused ||
+      account.loading ||
+      account.busy
+    )
+      return;
     const request = generation.current;
     pending.current = true;
     setBusy(true);
     setError('');
     try {
-      const result = (await fetchPullRequest(sdk, session.pullRequest)) as PullRequest;
+      const { result, viewer } = await githubAuth.run(
+        sdk,
+        async (token, viewer, signal, transport) => ({
+          result: await fetchPullRequest(transport, session.pullRequest!, token, signal),
+          viewer,
+        }),
+      );
       if (request === generation.current) {
         setData(result);
         setLastRefresh(new Date().toLocaleString());
         await updatePullRequestTag(sdk.session, result.state, () => request === generation.current);
-        if (request !== generation.current) return;
-        const viewer = await fetchViewer(sdk);
         if (request !== generation.current) return;
         const reviews = otherReviews(result.reviews ?? [], viewer);
         const key = `devcenter.pr-reviews.v1:${session.id}:${associationKey}:${viewer.toLowerCase()}`;
@@ -175,6 +177,28 @@ export function PullRequestContent({
   refreshRef.current = () => {
     void refresh();
   };
+  useEffect(() => {
+    let version = -1;
+    return githubAuth.subscribe(sdk, () => {
+      const next = githubAuth.snapshot();
+      setAuth(next);
+      if (version !== next.version) {
+        version = next.version;
+        ++generation.current;
+        pending.current = false;
+        setBusy(false);
+        setData(undefined);
+        setLastRefresh(undefined);
+        setUnread([]);
+        reviewSnapshot.current = undefined;
+        setError('');
+        setToken('');
+        setReplacing(false);
+        void sdk.session.removeTag('PR: New review').catch((error) => setError(String(error)));
+      }
+      if (!next.loading && !next.busy && next.login && !next.paused) refreshRef.current();
+    });
+  }, [sdk]);
   useEffect(() => {
     setTarget(session.pullRequest?.repository ?? '');
     setNumber(String(session.pullRequest?.number ?? ''));
@@ -282,6 +306,60 @@ export function PullRequestContent({
       hidden={!visible}
       className="plugin-panel"
     >
+      <section aria-label="GitHub connection">
+        {auth.login && <p>Connected as {auth.login}</p>}
+        {auth.login && !replacing && !auth.paused ? (
+          <button onClick={() => setReplacing(true)} disabled={auth.busy}>
+            Replace token
+          </button>
+        ) : (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = token;
+              setToken('');
+              void githubAuth.connect(sdk, value).catch((error) => setError(String(error)));
+            }}
+          >
+            <label>
+              GitHub personal access token
+              <input
+                type="password"
+                autoComplete="off"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                disabled={auth.busy || auth.loading}
+              />
+            </label>
+            <button disabled={auth.busy || auth.loading || !token.trim()}>
+              {auth.login ? 'Replace token' : 'Connect'}
+            </button>
+          </form>
+        )}
+        {auth.login && (
+          <button
+            disabled={auth.busy || auth.loading}
+            onClick={() => void githubAuth.disconnect(sdk)}
+          >
+            Disconnect
+          </button>
+        )}
+        <button
+          onClick={() =>
+            void sdk.desktop
+              .openUrl('https://github.com/settings/tokens')
+              .catch((error) => setError(String(error)))
+          }
+        >
+          GitHub token settings
+        </button>
+        {auth.loading && <p>Loading GitHub connection…</p>}
+        {auth.error && (
+          <p role="alert" className="error">
+            {auth.error}
+          </p>
+        )}
+      </section>
       {!session.pullRequest && !configurationOpen && configuration}
       <dialog
         ref={configurationDialog}
@@ -314,7 +392,7 @@ export function PullRequestContent({
               className="pr-refresh"
               aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
               title={busy ? 'Refreshing…' : 'Refresh pull request'}
-              disabled={busy}
+              disabled={busy || !auth.login || auth.paused || auth.busy || auth.loading}
               onClick={() => void refresh()}
             >
               <svg

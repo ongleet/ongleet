@@ -72,7 +72,7 @@ mise exec -- /usr/bin/python3 scripts/check-file-editor.py \
   --application src-tauri/target/debug/devcenter-gui
 ```
 
-Lifecycle requires X11/XWayland and libX11. For mixed plugins, add `--plugins --application /absolute/copied/devcenter-gui`; optionally add `--projects --actions-editor --cli /absolute/copied/devcenter`. Keep the CLI named `devcenter` beside the copied GUI. Copy the bundled GUI immediately after building; later Cargo builds can replace it with a development-server variant. PR checks use a private `gh` fixture and take about two minutes for real polling intervals. Editor checks accept optional `--cli /absolute/path/to/devcenter` for archive socket checks.
+Lifecycle requires X11/XWayland and libX11. For mixed plugins, add `--plugins --application /absolute/copied/devcenter-gui`; optionally add `--projects --actions-editor --cli /absolute/copied/devcenter`. Keep the CLI named `devcenter` beside the copied GUI. Copy the bundled GUI immediately after building; later Cargo builds can replace it with a development-server variant. PR checks use dummy GraphQL responses and real native credentials. They require a private D-Bus session with an unlocked temporary Secret Service; they refuse the desktop bus. Hidden polling uses real WebKitGTK timers. Editor checks accept optional `--cli /absolute/path/to/devcenter` for archive socket checks.
 
 ## Manual checklist
 
@@ -455,3 +455,45 @@ clipboard mutation by default; it points to the private-display harness instead.
 The full terminal compatibility gate remains open. Live compositor primary
 selection, physical input, soft wrapping and broader retention still need safe
 acceptance. Production frontend/native assets were restored after validation.
+
+## Plugin-owned GitHub authentication (2026-10-26)
+
+The PR plugin now uses native HTTPS and plugin-scoped Secret Service credentials.
+`scripts/check-pr-auth.py --application /absolute/native-validation/devcenter-gui
+--driver /path/to/WebKitWebDriver` exercises the WebKitGTK UI against dummy
+GraphQL responses. Credentials cross the real native boundary. It refuses to
+write credentials unless the caller supplies a private `/tmp/` D-Bus address and
+temporary XDG data directory. Never use real GitHub tokens in fixture mode.
+
+Build/copy the native-validation app using the commands above. Run the harness
+on a private X11 display under `dbus-run-session`, with temporary
+`XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. Preserve `MISE_DATA_DIR`
+and `MISE_CACHE_DIR` before overriding XDG paths. Within that bus, start
+`gnome-keyring-daemon --unlock --components=secrets --control-directory=/tmp/your-private-control`
+with a fixture password on stdin; the control directory must have mode 0700.
+The service must stay alive for the complete UI restart test. The ignored Rust
+`isolated_secret_service_persists_and_isolates_plugin_records` test runs on the
+same private bus **after** UI checks: it intentionally locks the collection.
+It verifies reconnect persistence, replacement, deletion, plugin isolation and
+locked-storage rejection, without touching the desktop keyring.
+
+The native harness covers capability and attachment ownership checks, insecure
+URL rejection, four HTTP jobs per attachment, 32 globally, cancellation during
+stalled TLS I/O, shared connection, invalid replacement, retained snapshots after
+network failure, hidden polling, disconnect and native Quit/restart. GitHub
+responses are fixtures; this does not establish live public/private repository
+access, token permissions under organization policies, or live GitHub rate-limit
+behavior. The TypeScript behavior suite covers authentication failures, storage
+failure, rate-limit/reset headers, account changes, stale responses, review
+cursors, independent pagination and overflow rejection. Rust tests cover request
+and response bounds and transport cancellation. Live GitHub acceptance remains
+pending.
+
+Native X11/Xvfb report `/tmp/devcenter-pr-auth-9tmhgn3h/report.json` passes
+six checks with zero surviving test processes. The separate private Secret
+Service Rust test passes, including locked collection rejection. Fixture tokens
+are absent from application metadata/configuration files. The production
+frontend build (restored after native validation), plugin boundaries, 13 PR
+behavior tests, Rust formatting/check and complete Rust suite pass. HTTP body
+bounds are tested with and without Content-Length. Wayland authentication UI,
+live GitHub public/private access and real rate-limit acceptance remain untested.

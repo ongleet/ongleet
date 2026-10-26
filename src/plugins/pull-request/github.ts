@@ -19,47 +19,294 @@ export function parseAssociation(target: string, number?: number): Association |
     throw new Error('Expected owner/repository and a positive PR number');
   return { repository: target, number: number! };
 }
-export async function fetchPullRequest(sdk: PluginSdk, association: Association): Promise<unknown> {
-  let result;
-  try {
-    result = await sdk.process.run({
-      executable: 'gh',
-      args: [
-        'pr',
-        'view',
-        String(association.number),
-        '--repo',
-        association.repository,
-        '--json',
-        'number,title,url,state,reviewDecision,statusCheckRollup,updatedAt,reviews',
-      ],
-      env: { GH_PROMPT_DISABLED: '1', GH_HOST: 'github.com', GH_PAGER: 'cat' },
-      timeoutMs: 20_000,
-      outputLimit: 512 * 1024,
-    });
-  } catch (error) {
-    throw new Error(
-      `Cannot refresh PR; install/authenticate gh with gh auth login. ${String(error)}`,
-    );
-  }
-  if (result.code !== 0)
-    throw new Error(`gh failed (${result.code}): ${result.stderr.slice(0, 8192)}`);
-  try {
-    return JSON.parse(result.stdout);
-  } catch (error) {
-    throw new Error(`Invalid gh response: ${String(error)}`);
+
+export class GitHubError extends Error {
+  readonly kind: 'authentication' | 'permission' | 'rate' | 'network';
+  readonly retryAt: number;
+  constructor(kind: GitHubError['kind'], message: string, retryAt = 0) {
+    super(message);
+    this.kind = kind;
+    this.retryAt = retryAt;
   }
 }
-export async function fetchViewer(sdk: PluginSdk): Promise<string> {
-  const result = await sdk.process.run({
-    executable: 'gh',
-    args: ['api', 'user', '--jq', '.login'],
-    env: { GH_PROMPT_DISABLED: '1', GH_HOST: 'github.com', GH_PAGER: 'cat' },
-    timeoutMs: 20_000,
-    outputLimit: 8192,
+export async function graphql<T>(
+  sdk: PluginSdk,
+  token: string,
+  query: string,
+  variables: Record<string, unknown> = {},
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await sdk.http.request({
+    url: 'https://api.github.com/graphql',
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'DevCenter',
+      Accept: 'application/vnd.github+json',
+    },
+    body: JSON.stringify({ query, variables }),
+    signal,
   });
-  if (result.code !== 0) throw new Error(`Cannot identify GitHub user: ${result.stderr}`);
-  const login = result.stdout.trim();
-  if (!/^[A-Za-z0-9-]+(?:\[bot\])?$/.test(login)) throw new Error('Invalid GitHub user response');
-  return login;
+  const retry = response.headers['retry-after'];
+  const reset = Number(response.headers['x-ratelimit-reset']) * 1000;
+  const retryAt = retry
+    ? /^\d+$/.test(retry)
+      ? Date.now() + Number(retry) * 1000
+      : Date.parse(retry)
+    : reset;
+  if (response.status === 401)
+    throw new GitHubError(
+      'authentication',
+      'GitHub token expired, revoked or invalid. Replace token to resume.',
+    );
+  if (
+    response.status === 429 ||
+    (response.status === 403 && (retry || response.headers['x-ratelimit-remaining'] === '0'))
+  )
+    throw new GitHubError(
+      'rate',
+      'GitHub rate limit reached; polling will resume after the retry time.',
+      Math.max(Date.now() + 60_000, retryAt || 0),
+    );
+  if (response.status === 403)
+    throw new GitHubError(
+      'permission',
+      'GitHub denied access. Check token repository permissions and organization policies.',
+    );
+  if (response.status !== 200)
+    throw new GitHubError('network', `GitHub request failed (HTTP ${response.status}).`);
+  const result = JSON.parse(response.body) as {
+    data?: T;
+    errors?: { type?: string; message?: string }[];
+  };
+  if (result.errors?.length) {
+    if (result.errors.some((e) => e.type === 'RATE_LIMITED'))
+      throw new GitHubError(
+        'rate',
+        'GitHub rate limit reached; polling paused until reset.',
+        Math.max(Date.now() + 60_000, retryAt || 0),
+      );
+    if (result.errors.some((e) => e.type === 'UNAUTHORIZED'))
+      throw new GitHubError('authentication', 'GitHub token is invalid. Replace token to resume.');
+    throw new GitHubError(
+      'permission',
+      'GitHub could not read the PR or its checks. Check repository access, token permissions and organization policies.',
+    );
+  }
+  if (!result.data) throw new Error('Invalid GitHub response');
+  return result.data;
+}
+export async function fetchViewer(
+  sdk: PluginSdk,
+  token: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const data = await graphql<{ viewer: { login: string } }>(
+    sdk,
+    token,
+    'query { viewer { login } }',
+    {},
+    signal,
+  );
+  if (!/^[A-Za-z0-9-]+(?:\[bot\])?$/.test(data.viewer?.login))
+    throw new Error('Invalid GitHub account response');
+  return data.viewer.login;
+}
+type Connection<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
+type Check = {
+  name?: string;
+  context?: string;
+  status?: string;
+  conclusion?: string;
+  state?: string;
+};
+export type PullRequest = {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  reviewDecision: string;
+  reviews: import('./reviews').Review[];
+  statusCheckRollup: Check[];
+};
+function append<T>(target: T[], connection: Connection<T>) {
+  if (!connection || !Array.isArray(connection.nodes) || !connection.pageInfo)
+    throw new Error('Invalid GitHub collection');
+  target.push(...connection.nodes);
+  if (target.length > 10_000 || (target.length === 10_000 && connection.pageInfo.hasNextPage))
+    throw new Error('GitHub collection exceeds 10,000 entries; incomplete data was discarded.');
+  if (connection.pageInfo.hasNextPage && !connection.pageInfo.endCursor)
+    throw new Error('Invalid GitHub pagination cursor');
+  return connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+}
+export async function fetchPullRequest(
+  sdk: PluginSdk,
+  association: Association,
+  token: string,
+  signal?: AbortSignal,
+): Promise<PullRequest> {
+  const [owner, name] = association.repository.split('/');
+  type Pr = Omit<PullRequest, 'reviews' | 'statusCheckRollup'> & {
+    id: string;
+    reviews: Connection<import('./reviews').Review>;
+    commits: {
+      nodes: {
+        commit: { id: string; statusCheckRollup: { contexts: Connection<Check> } | null };
+      }[];
+    };
+  };
+  const data = await graphql<{ repository: { pullRequest: Pr } | null }>(
+    sdk,
+    token,
+    `
+      query ($owner: String!, $name: String!, $number: Int!) {
+        repository(owner: $owner, name: $name) {
+          pullRequest(number: $number) {
+            id
+            number
+            title
+            url
+            state
+            reviewDecision
+            reviews(first: 100) {
+              nodes {
+                id
+                author {
+                  login
+                }
+                state
+                submittedAt
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+            commits(last: 1) {
+              nodes {
+                commit {
+                  id
+                  statusCheckRollup {
+                    contexts(first: 100) {
+                      nodes {
+                        ... on CheckRun {
+                          name
+                          status
+                          conclusion
+                        }
+                        ... on StatusContext {
+                          context
+                          state
+                        }
+                      }
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `,
+    { owner, name, number: association.number },
+    signal,
+  );
+  const pr = data.repository?.pullRequest;
+  if (!pr)
+    throw new GitHubError(
+      'permission',
+      'PR unavailable. Check its number and token repository access.',
+    );
+  const reviews: PullRequest['reviews'] = [];
+  let cursor = append(reviews, pr.reviews);
+  const seen = new Set<string>();
+  while (cursor) {
+    if (seen.has(cursor)) throw new Error('Repeated GitHub pagination cursor');
+    seen.add(cursor);
+    const page: { node: { reviews: Connection<import('./reviews').Review> } } = await graphql(
+      sdk,
+      token,
+      `
+        query ($id: ID!, $cursor: String!) {
+          node(id: $id) {
+            ... on PullRequest {
+              reviews(first: 100, after: $cursor) {
+                nodes {
+                  id
+                  author {
+                    login
+                  }
+                  state
+                  submittedAt
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          }
+        }
+      `,
+      { id: pr.id, cursor },
+      signal,
+    );
+    cursor = append(reviews, page.node.reviews);
+  }
+  const checks: Check[] = [];
+  const commit = pr.commits.nodes[0]?.commit;
+  cursor = commit?.statusCheckRollup ? append(checks, commit.statusCheckRollup.contexts) : null;
+  seen.clear();
+  while (cursor) {
+    if (seen.has(cursor)) throw new Error('Repeated GitHub pagination cursor');
+    seen.add(cursor);
+    const page: { node: { statusCheckRollup: { contexts: Connection<Check> } } } = await graphql(
+      sdk,
+      token,
+      `
+        query ($id: ID!, $cursor: String!) {
+          node(id: $id) {
+            ... on Commit {
+              statusCheckRollup {
+                contexts(first: 100, after: $cursor) {
+                  nodes {
+                    ... on CheckRun {
+                      name
+                      status
+                      conclusion
+                    }
+                    ... on StatusContext {
+                      context
+                      state
+                    }
+                  }
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
+                }
+              }
+            }
+          }
+        }
+      `,
+      { id: commit!.id, cursor },
+      signal,
+    );
+    cursor = append(checks, page.node.statusCheckRollup.contexts);
+  }
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    state: pr.state,
+    reviewDecision: pr.reviewDecision,
+    reviews,
+    statusCheckRollup: checks,
+  };
 }

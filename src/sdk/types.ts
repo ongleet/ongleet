@@ -49,3 +49,12 @@ export type SortOrder =
   | 'sizeDescending';
 
 export type SessionTag = { name: string; background?: string; dot?: string; priority?: number };
+
+export type HttpRequest = {
+  url: string;
+  method: string;
+  headers?: Record<string, string>;
+  body?: string;
+  signal?: AbortSignal;
+};
+export type HttpResponse = { status: number; headers: Record<string, string>; body: string };

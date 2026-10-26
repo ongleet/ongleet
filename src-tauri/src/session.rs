@@ -85,6 +85,7 @@ pub struct SessionRegistry {
     codex_activity: HashMap<u64, crate::codex::Activity>,
     pub file_watches: HashMap<u64, crate::core::fs::watch::Watch>,
     pub sdk_attachments: HashMap<u64, String>,
+    pub http_jobs: HashMap<(u64, String), std::sync::Arc<crate::plugins::Job>>,
     pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
 }
 
@@ -116,6 +117,7 @@ impl SessionRegistry {
             sdk_attachments: HashMap::new(),
             file_watches: HashMap::new(),
             plugin_jobs: HashMap::new(),
+            http_jobs: HashMap::new(),
         };
         registry.run_archive_maintenance();
         Ok(registry)
@@ -464,12 +466,18 @@ impl SessionRegistry {
         let jobs: Vec<_> = tabs
             .iter()
             .filter_map(|id| self.plugin_jobs.get(id).cloned())
+            .chain(
+                self.http_jobs
+                    .iter()
+                    .filter(|((id, _), _)| tabs.contains(id))
+                    .map(|(_, job)| job.clone()),
+            )
             .collect();
         for job in &jobs {
             job.cancel.store(true, Ordering::Release);
         }
         // Workers signal completion after subprocess cleanup, before acquiring
-        // this registry lock. Quit must not exit with a live gh subprocess.
+        // this registry lock. Quit must not exit with live plugin I/O.
         let deadline = Instant::now() + Duration::from_secs(2);
         while jobs.iter().any(|job| !job.finished.load(Ordering::Acquire)) {
             if Instant::now() >= deadline {
@@ -479,6 +487,7 @@ impl SessionRegistry {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+        self.http_jobs.retain(|(id, _), _| !tabs.contains(id));
         for id in tabs {
             self.plugin_jobs.remove(id);
         }
@@ -487,7 +496,7 @@ impl SessionRegistry {
 }
 impl Drop for SessionRegistry {
     fn drop(&mut self) {
-        for cancel in self.plugin_jobs.values() {
+        for cancel in self.plugin_jobs.values().chain(self.http_jobs.values()) {
             cancel
                 .cancel
                 .store(true, std::sync::atomic::Ordering::Release);

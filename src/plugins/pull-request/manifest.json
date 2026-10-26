@@ -1,6 +1,6 @@
 {
   "configVersion": 1,
-  "description": "Read-only GitHub PR status, using authenticated gh and the session's explicit PR association.",
+  "description": "Read-only GitHub PR status, using a plugin-owned GitHub token and the session's explicit PR association.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -21,7 +21,7 @@
   "label": "Pull request",
   "sdkVersion": 1,
   "defaults": { "refreshIntervalSeconds": 120 },
-  "capabilities": ["process", "desktop", "storage"],
+  "capabilities": ["http", "credentials", "desktop", "storage"],
   "runtime": null,
   "entrypoint": "entrypoint.tsx"
 }

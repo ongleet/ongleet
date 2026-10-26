@@ -89,3 +89,312 @@ test('PR transitions and removal preserve sibling tags and avoid redundant write
   await updatePullRequestTag(service, null);
   assert.deepEqual(tags, [sibling]);
 });
+
+// Only SDK I/O is replaced; authentication and GraphQL pagination use production code.
+const { createAuthController } = await import('../src/plugins/pull-request/auth.ts');
+const { fetchPullRequest, GitHubError } = await import('../src/plugins/pull-request/github.ts');
+const response = (data, status = 200, headers = {}) => ({
+  status,
+  headers,
+  body: JSON.stringify(data),
+});
+function authFixture(saved = null) {
+  const store = { value: saved, loads: 0 };
+  const sdk = {
+    credentials: {
+      async get() {
+        ++store.loads;
+        return store.value;
+      },
+      async set(key, value) {
+        store.value = value;
+      },
+      async delete() {
+        store.value = null;
+      },
+    },
+    http: {
+      async request({ headers }) {
+        if (headers.Authorization === 'Bearer invalid') return response({}, 401);
+        return response({ data: { viewer: { login: headers.Authorization.slice(7) } } });
+      },
+    },
+  };
+  return { sdk, store };
+}
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+test('one account across attachments; replacement failure, restart and final release', async () => {
+  const auth = createAuthController();
+  const { sdk, store } = authFixture();
+  const stopA = auth.subscribe(sdk, () => {});
+  const stopB = auth.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(store.loads, 1);
+  await auth.connect(sdk, 'alice');
+  assert.equal(auth.snapshot().login, 'alice');
+  const saved = store.value;
+  await auth.connect(sdk, 'invalid');
+  assert.equal(auth.snapshot().login, 'alice');
+  assert.equal(store.value, saved);
+  assert.match(auth.snapshot().error, /invalid/);
+  stopA();
+  assert.equal(await auth.run(sdk, async (_, login) => login), 'alice');
+  stopB();
+  assert.equal(auth.snapshot().login, undefined);
+  const restarted = createAuthController();
+  const stop = restarted.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(restarted.snapshot().login, 'alice');
+  await restarted.connect(sdk, 'bob');
+  assert.equal(restarted.snapshot().login, 'bob');
+  await restarted.disconnect(sdk);
+  assert.equal(store.value, null);
+  stop();
+});
+test('disconnect and replacement abort work and reject late responses from old account', async () => {
+  for (const action of ['disconnect', 'replace']) {
+    const auth = createAuthController();
+    const { sdk } = authFixture(JSON.stringify({ token: 'alice', login: 'alice' }));
+    const stop = auth.subscribe(sdk, () => {});
+    await tick();
+    let release, signal;
+    const work = auth.run(sdk, async (_, __, s) => {
+      signal = s;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+    const rejected = assert.rejects(work, /cancelled/);
+    if (action === 'disconnect') await auth.disconnect(sdk);
+    else await auth.connect(sdk, 'bob');
+    assert.equal(signal.aborted, true);
+    release('stale PR');
+    await rejected;
+    stop();
+  }
+});
+test('revoked tokens pause polling; permission errors retain connection; rate limits defer retries', async () => {
+  const auth = createAuthController();
+  const { sdk } = authFixture(JSON.stringify({ token: 'alice', login: 'alice' }));
+  const stop = auth.subscribe(sdk, () => {});
+  await tick();
+  await assert.rejects(
+    auth.run(sdk, async () => {
+      throw new GitHubError('permission', 'access denied');
+    }),
+    /access denied/,
+  );
+  assert.equal(auth.snapshot().paused, false);
+  await assert.rejects(
+    auth.run(sdk, async () => {
+      throw new GitHubError('rate', 'limited', Date.now() + 120_000);
+    }),
+    /limited/,
+  );
+  await assert.rejects(
+    auth.run(sdk, async () => 'unexpected'),
+    /rate limit/,
+  );
+  await auth.connect(sdk, 'bob');
+  await assert.rejects(
+    auth.run(sdk, async () => {
+      throw new GitHubError('authentication', 'revoked');
+    }),
+    /revoked/,
+  );
+  assert.equal(auth.snapshot().paused, true);
+  await assert.rejects(
+    auth.run(sdk, async () => 'unexpected'),
+    /valid GitHub token/,
+  );
+  assert.equal(auth.snapshot().login, 'bob');
+  stop();
+});
+const connection = (nodes, cursor = null) => ({
+  nodes,
+  pageInfo: { hasNextPage: cursor !== null, endCursor: cursor },
+});
+function prPage(reviews, checks) {
+  return {
+    data: {
+      repository: {
+        pullRequest: {
+          id: 'PR_node',
+          number: 42,
+          title: 'Paginated PR',
+          state: 'MERGED',
+          url: 'https://github.com/example/repo/pull/42',
+          reviewDecision: 'APPROVED',
+          reviews,
+          commits: {
+            nodes: [{ commit: { id: 'commit_node', statusCheckRollup: { contexts: checks } } }],
+          },
+        },
+      },
+    },
+  };
+}
+test('reviews and latest commit checks paginate independently; GraphQL IDs and merged state survive', async () => {
+  const requests = [];
+  const sdk = {
+    http: {
+      async request(request) {
+        const { variables } = JSON.parse(request.body);
+        requests.push(variables);
+        if (!variables.id)
+          return response(
+            prPage(
+              connection([review('graph_old', 'alice', '2026-10-25T10:00:00Z')], 'review_cursor'),
+              connection([{ name: 'build', conclusion: 'SUCCESS' }], 'check_cursor'),
+            ),
+          );
+        if (variables.id === 'PR_node')
+          return response({
+            data: {
+              node: { reviews: connection([review('graph_new', 'bob', '2026-10-26T10:00:00Z')]) },
+            },
+          });
+        return response({
+          data: {
+            node: {
+              statusCheckRollup: {
+                contexts: connection([{ context: 'legacy', state: 'SUCCESS' }]),
+              },
+            },
+          },
+        });
+      },
+    },
+  };
+  const result = await fetchPullRequest(sdk, { repository: 'example/repo', number: 42 }, 'dummy');
+  assert.deepEqual(
+    result.reviews.map((r) => r.id),
+    ['graph_old', 'graph_new'],
+  );
+  assert.equal(result.state, 'MERGED');
+  assert.deepEqual(result.statusCheckRollup, [
+    { name: 'build', conclusion: 'SUCCESS' },
+    { context: 'legacy', state: 'SUCCESS' },
+  ]);
+  assert.deepEqual(requests.slice(1), [
+    { id: 'PR_node', cursor: 'review_cursor' },
+    { id: 'commit_node', cursor: 'check_cursor' },
+  ]);
+});
+test('overflow and errors on later pages reject the entire snapshot', async () => {
+  for (const overflow of [true, false]) {
+    const sdk = {
+      http: {
+        async request(request) {
+          const { variables } = JSON.parse(request.body);
+          if (!variables.id)
+            return response(
+              prPage(
+                connection(
+                  overflow ? Array(10_000).fill(review('id', 'alice', '2026-10-25T10:00:00Z')) : [],
+                  'next',
+                ),
+                connection([]),
+              ),
+            );
+          throw new Error('network offline');
+        },
+      },
+    };
+    await assert.rejects(
+      fetchPullRequest(sdk, { repository: 'example/repo', number: 42 }, 'dummy'),
+      overflow ? /10,000/ : /network offline/,
+    );
+  }
+});
+
+test('closing one attachment aborts its requests while another retains the account', async () => {
+  const auth = createAuthController();
+  const { sdk } = authFixture(JSON.stringify({ token: 'alice', login: 'alice' }));
+  const otherSdk = { ...sdk };
+  const stopA = auth.subscribe(sdk, () => {});
+  const stopB = auth.subscribe(otherSdk, () => {});
+  await tick();
+  let release, signal;
+  const work = auth.run(sdk, async (_, __, s) => {
+    signal = s;
+    return new Promise((resolve) => {
+      release = resolve;
+    });
+  });
+  const rejected = assert.rejects(work, /cancelled/);
+  stopA();
+  assert.equal(signal.aborted, true);
+  assert.equal(await auth.run(otherSdk, async (_, login) => login), 'alice');
+  release('stale');
+  await rejected;
+  stopB();
+});
+test('storage failure during replacement preserves saved and in-memory credentials', async () => {
+  const auth = createAuthController();
+  const { sdk, store } = authFixture(JSON.stringify({ token: 'alice', login: 'alice' }));
+  const stop = auth.subscribe(sdk, () => {});
+  await tick();
+  sdk.credentials.set = async () => {
+    throw new Error('Credential storage unavailable or locked');
+  };
+  await auth.connect(sdk, 'bob');
+  assert.equal(auth.snapshot().login, 'alice');
+  assert.equal(JSON.parse(store.value).token, 'alice');
+  assert.match(auth.snapshot().error, /locked/);
+  stop();
+});
+test('GitHub status and GraphQL rate limits honor reset headers; forbidden partial data is rejected', async () => {
+  const { graphql } = await import('../src/plugins/pull-request/github.ts');
+  const reset = Math.ceil(Date.now() / 1000) + 600;
+  for (const result of [
+    response({}, 429, { 'retry-after': '120' }),
+    response({ errors: [{ type: 'RATE_LIMITED' }] }, 200, { 'x-ratelimit-reset': String(reset) }),
+  ]) {
+    const sdk = {
+      http: {
+        async request() {
+          return result;
+        },
+      },
+    };
+    await assert.rejects(
+      graphql(sdk, 'dummy', 'query { viewer { login } }'),
+      (error) => error.kind === 'rate' && error.retryAt >= Date.now() + 119_000,
+    );
+  }
+  const sdk = {
+    http: {
+      async request() {
+        return response({ data: { repository: null }, errors: [{ type: 'FORBIDDEN' }] });
+      },
+    },
+  };
+  await assert.rejects(
+    graphql(sdk, 'dummy', 'query { viewer { login } }'),
+    (error) => error.kind === 'permission',
+  );
+});
+
+test('successful response at zero remaining publishes data and defers following requests', async () => {
+  const auth = createAuthController();
+  const { sdk } = authFixture(JSON.stringify({ token: 'alice', login: 'alice' }));
+  const stop = auth.subscribe(sdk, () => {});
+  await tick();
+  const reset = Math.ceil(Date.now() / 1000) + 600;
+  sdk.http.request = async () =>
+    response({ data: { viewer: { login: 'alice' } } }, 200, {
+      'x-ratelimit-remaining': '0',
+      'x-ratelimit-reset': String(reset),
+    });
+  const result = await auth.run(sdk, async (_, __, signal, transport) =>
+    transport.http.request({ url: 'https://api.github.com/graphql', method: 'POST', signal }),
+  );
+  assert.equal(result.status, 200);
+  assert.equal(auth.snapshot().retryAt, reset * 1000);
+  await assert.rejects(
+    auth.run(sdk, async () => 'unexpected'),
+    /rate limit/,
+  );
+  stop();
+});

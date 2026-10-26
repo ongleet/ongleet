@@ -234,7 +234,12 @@ impl SessionRegistry {
                 }
             }
         }
-        let plugin_tabs: Vec<_> = self.plugin_jobs.keys().copied().collect();
+        let plugin_tabs: Vec<_> = self
+            .plugin_jobs
+            .keys()
+            .copied()
+            .chain(self.http_jobs.keys().map(|(id, _)| *id))
+            .collect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
         self.file_watches.clear();
         self.sdk_attachments.clear();

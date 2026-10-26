@@ -5,6 +5,8 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   SdkError,
+  type HttpRequest,
+  type HttpResponse,
   type Attachment,
   type Listing,
   type Namespace,
@@ -147,6 +149,43 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       read: <T = unknown>(scope: Scope) => request<Namespace<T> | null>('readData', { scope }),
       replace: <T>(scope: Scope, revision: number, version: number, value: T) =>
         request<Namespace<T>>('replaceData', { scope, revision, version, value }),
+    },
+    credentials: {
+      get: (key: string) => request<string | null>('credentialGet', { key }),
+      set: (key: string, value: string) => request<void>('credentialSet', { key, value }),
+      delete: (key: string) => request<void>('credentialDelete', { key }),
+    },
+    http: {
+      request: async ({ signal, ...options }: HttpRequest): Promise<HttpResponse> => {
+        await ready;
+        if (signal?.aborted) throw new SdkError('cancelled', 'HTTP cancelled');
+        const token = crypto.randomUUID();
+        let completed = false;
+        const cancel = () => {
+          // Invocation handlers can start out of order. Retry until the HTTP
+          // handler observes cancellation, or detach takes over cleanup.
+          void (async () => {
+            while (!completed && !disposed) {
+              try {
+                await request('httpCancel', { token });
+              } catch {
+                return;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+          })();
+        };
+        const result = request<HttpResponse>('http', { token, request: options });
+        signal?.addEventListener('abort', cancel, { once: true });
+        try {
+          const response = await result;
+          if (signal?.aborted) throw new SdkError('cancelled', 'HTTP cancelled');
+          return response;
+        } finally {
+          completed = true;
+          signal?.removeEventListener('abort', cancel);
+        }
+      },
     },
     process: {
       run: (options: ProcessRequest) => request<ProcessResult>('process', { request: options }),

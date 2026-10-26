@@ -80,11 +80,13 @@ function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps
     const instance = createSdk(props.tab.id, (title) => props.reportTitle(props.tab.id, title));
     let active = true;
     let unregister: (() => void) | undefined;
-    if (import.meta.env.MODE === 'native-validation')
-      void import('../native-validation').then(({ registerSdk }) => {
-        if (active) unregister = registerSdk(props.tab.id, instance);
-      });
-    void instance.ready
+    const validationReady =
+      import.meta.env.MODE === 'native-validation'
+        ? import('../native-validation').then(({ registerSdk }) => {
+            if (active) unregister = registerSdk(props.tab.id, instance);
+          })
+        : Promise.resolve();
+    void Promise.all([instance.ready, validationReady])
       .then(() => {
         if (active) setSdk(instance);
       })

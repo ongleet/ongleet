@@ -84,6 +84,23 @@ pub enum Request {
         request: super::process::Request,
     },
     Cancel,
+    CredentialGet {
+        key: String,
+    },
+    CredentialSet {
+        key: String,
+        value: String,
+    },
+    CredentialDelete {
+        key: String,
+    },
+    Http {
+        token: String,
+        request: super::http::Request,
+    },
+    HttpCancel {
+        token: String,
+    },
 }
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -143,6 +160,10 @@ pub async fn sdk_request(
             | Request::UnwatchText { .. } => "fs",
             Request::Process { .. } | Request::Cancel => "process",
             Request::OpenFile { .. } => "desktop",
+            Request::CredentialGet { .. }
+            | Request::CredentialSet { .. }
+            | Request::CredentialDelete { .. } => "credentials",
+            Request::Http { .. } | Request::HttpCancel { .. } => "http",
             _ => "storage",
         };
         if !crate::plugins::manifest(&tab.kind).is_some_and(|m| {
@@ -160,6 +181,69 @@ pub async fn sdk_request(
             .ok_or_else(|| SdkError::from("Session unavailable".to_string()))?;
         (session.id, tab.kind.clone())
     };
+    match &request {
+        Request::CredentialGet { key }
+        | Request::CredentialSet { key, .. }
+        | Request::CredentialDelete { key } => {
+            let operation = match &request {
+                Request::CredentialSet { value, .. } => {
+                    super::credentials::Operation::Set(value.clone())
+                }
+                Request::CredentialDelete { .. } => super::credentials::Operation::Delete,
+                _ => super::credentials::Operation::Get,
+            };
+            let key = key.clone();
+            return tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                super::credentials::execute(&plugin, &key, operation),
+            )
+            .await
+            .map_err(|_| SdkError::from("Credential storage unavailable: timed out".to_string()))?
+            .map_err(SdkError::from);
+        }
+        Request::HttpCancel { token } => {
+            let guard = registry.lock().map_err(|e| SdkError::from(e.to_string()))?;
+            if let Some(job) = guard.http_jobs.get(&(id, token.clone())) {
+                job.cancel.store(true, std::sync::atomic::Ordering::Release);
+            }
+            return Ok(serde_json::Value::Null);
+        }
+        Request::Http { token, request } => {
+            if token.is_empty() || token.len() > 128 {
+                return Err("Invalid HTTP token".to_string().into());
+            }
+            let key = (id, token.clone());
+            let job = {
+                let mut guard = registry.lock().map_err(|e| SdkError::from(e.to_string()))?;
+                if guard.sdk_attachments.get(&id) != Some(&attachment)
+                    || guard.open_plugin_tab(id).is_err()
+                {
+                    return Err("Frontend attachment unavailable".to_string().into());
+                }
+                if guard.http_jobs.len() >= 32
+                    || guard.http_jobs.keys().filter(|(tab, _)| *tab == id).count() >= 4
+                {
+                    return Err("HTTP concurrency limit exceeded".to_string().into());
+                }
+                if guard.http_jobs.contains_key(&key) {
+                    return Err("HTTP request already running".to_string().into());
+                }
+                let job = std::sync::Arc::new(crate::plugins::Job::default());
+                guard.http_jobs.insert(key.clone(), job.clone());
+                job
+            };
+            let result = super::http::execute(request, job.clone()).await;
+            job.finished
+                .store(true, std::sync::atomic::Ordering::Release);
+            registry
+                .lock()
+                .map_err(|e| SdkError::from(e.to_string()))?
+                .http_jobs
+                .remove(&key);
+            return result.map_err(SdkError::from);
+        }
+        _ => {}
+    }
     if let Request::OpenFile { path } = &request {
         if !std::path::Path::new(path).is_absolute() || !std::path::Path::new(path).is_file() {
             return Err("Choose an existing file with an absolute path"
@@ -225,6 +309,11 @@ pub async fn sdk_request(
             }
             guard.open_plugin_tab(id)?;
             let json = match request {
+                Request::CredentialGet { .. }
+                | Request::CredentialSet { .. }
+                | Request::CredentialDelete { .. }
+                | Request::Http { .. }
+                | Request::HttpCancel { .. } => unreachable!(),
                 Request::List {
                     folder,
                     offset,

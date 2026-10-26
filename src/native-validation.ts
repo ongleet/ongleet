@@ -1,3 +1,4 @@
+import { installPrFixture } from './pr-native-fixture';
 import type { PluginSdk } from './sdk';
 // Imported only by the explicit native-validation Vite build. The normal
 // application bundle exposes no testing bridge or terminal handles.
@@ -52,6 +53,7 @@ Object.assign(window, {
 
 const sdks = new Map<number, PluginSdk>();
 export function registerSdk(id: number, sdk: PluginSdk) {
+  installPrFixture(sdk);
   sdks.set(id, sdk);
   return () => {
     if (sdks.get(id) === sdk) sdks.delete(id);
@@ -62,7 +64,8 @@ Object.assign(window, {
     ready: (id: number) => sdks.has(id),
     call: (
       id: number,
-      service: 'session' | 'fs' | 'storage' | 'process' | 'pty' | 'desktop',
+      service:
+        'session' | 'fs' | 'storage' | 'process' | 'pty' | 'desktop' | 'http' | 'credentials',
       method: string,
       args: unknown[],
     ) => {

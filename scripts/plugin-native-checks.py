@@ -6,24 +6,13 @@ import time
 from pathlib import Path
 
 
+def require_private_secret_service():
+    if '/tmp/' not in os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''):
+        raise RuntimeError('PR fixtures require a private dbus-run-session with an unlocked temporary Secret Service; refusing to touch desktop credentials')
+
+
 def prepare(directory, env):
-    tools = directory / 'plugin-tools'
-    tools.mkdir()
-    gh = tools / 'gh'
-    gh.write_text('''#!/usr/bin/python3
-import json, os, pathlib, sys, time
-root = pathlib.Path(os.environ['TERMINAL_VALIDATION_RUN'])
-with (root / 'gh-calls.jsonl').open('a') as log:
-    log.write(json.dumps({'pid': os.getpid(), 'args': sys.argv[1:]}) + '\\n')
-mode = (root / 'gh-mode').read_text() if (root / 'gh-mode').exists() else 'ok'
-if mode == 'wait': time.sleep(60)
-if mode == 'error':
-    print('fixture: gh auth login required', file=sys.stderr)
-    sys.exit(4)
-print(json.dumps({'title':'Plugin native fixture','url':'https://github.com/example/repo/pull/42','number':42,'state':'OPEN','reviewDecision':'APPROVED','statusCheckRollup':[{'name':'build','conclusion':'SUCCESS'}]}))
-''')
-    gh.chmod(0o700)
-    env['PATH'] = str(tools) + os.pathsep + env['PATH']
+    require_private_secret_service()
     handler = directory / 'open-plugin-file.py'
     handler.write_text("import pathlib,sys\npathlib.Path(" + repr(str(directory / 'opened-file')) + ").write_text(sys.argv[1])\n")
     applications = directory / 'data/applications'
@@ -90,65 +79,8 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     result = client.invoke('create_tab', {'sessionId':session['id'],'actionId':'pr'})
     pr = next(s for s in result['sessions'] if s['id'] == session['id'])['selectedTabId']
     wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', pr), 'PR SDK attachment')
-    sdk(client, pr, 'storage', 'replace', 'session', 0, 1, {'repository':'example/repo','number':42})
-    client.request('POST', '/refresh', {})
-    wait_for(lambda: client.js("return document.querySelector(arguments[0])?.innerText.includes('Plugin native fixture')", f'#tab-panel-{pr}'), 'GitHub fixture status')
-    calls = [json.loads(line) for line in (directory / 'gh-calls.jsonl').read_text().splitlines()]
-    assert calls[-1]['args'][:6] == ['pr','view','42','--repo','example/repo','--json']
-    # Use the actual 60-second WebKitGTK timer, with no fake clock.
-    client.click(f'#tab-{terminal}')
-    hidden_count = len((directory / 'gh-calls.jsonl').read_text().splitlines())
-    deadline = time.monotonic() + 62
-    while time.monotonic() < deadline:
-        assert len((directory / 'gh-calls.jsonl').read_text().splitlines()) == hidden_count
-        time.sleep(0.25)
-    client.click(f'#tab-{pr}')
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > hidden_count, 'visible PR refresh', timeout=70)
-    visible_count = len((directory / 'gh-calls.jsonl').read_text().splitlines())
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > visible_count, 'visible PR 60-second polling', timeout=70)
-    wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'periodic refresh completion')
-    calls = [json.loads(line) for line in (directory / 'gh-calls.jsonl').read_text().splitlines()]
-    mark('PR polling pauses while hidden and refreshes through the real 60-second WebKitGTK timer when visible')
-    (directory / 'gh-mode').write_text('error')
-    client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Refresh']", 'xpath')
-    wait_for(lambda: client.js("return document.querySelector(arguments[0])?.innerText.includes('gh auth login required')", f'#tab-panel-{pr}'), 'gh authentication error')
-    assert client.js("return document.querySelector(arguments[0]).innerText.includes('Plugin native fixture') && document.querySelector(arguments[0]).innerText.includes('Last successful refresh')", f'#tab-panel-{pr}')
-    (directory / 'gh-mode').write_text('wait')
-    client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Refresh']", 'xpath')
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > len(calls) + 1, 'pending gh child')
-    pending_pid = json.loads((directory / 'gh-calls.jsonl').read_text().splitlines()[-1])['pid']
-    try:
-        sdk(client, pr, 'process', 'run', {'executable':'gh','args':['pr','view','42','--repo','example/repo']})
-    except RuntimeError as error:
-        assert 'already running' in str(error)
-    else:
-        raise AssertionError('Overlapping PR refresh accepted')
-    # Replacing the shared namespace must join old work before notifying tabs.
-    (directory / 'gh-mode').write_text('ok')
-    current = sdk(client, pr, 'storage', 'read', 'session')
-    sdk(client, pr, 'storage', 'replace', 'session', current['revision'], 1, {'repository':'example/changed','number':43})
-    assert not pid_alive(pending_pid), 'Association change returned before old child cleanup'
-    wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'changed association refresh')
-    current = sdk(client, pr, 'storage', 'read', 'session')
-    sdk(client, pr, 'storage', 'replace', 'session', current['revision'], 1, {'repository':'example/repo','number':42})
-    wait_for(lambda: client.js("return !document.querySelector(arguments[0]).disabled", f"#tab-panel-{pr} > button"), 'restored association refresh')
-    (directory / 'gh-mode').write_text('wait')
-    previous = len((directory / 'gh-calls.jsonl').read_text().splitlines())
-    client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Refresh']", 'xpath')
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > previous, 'pending child after association change')
-    pending_pid = json.loads((directory / 'gh-calls.jsonl').read_text().splitlines()[-1])['pid']
+    pr_auth_checks(client, session['id'], pr, terminal, wait_for, mark)
     client.invoke('close_tab', {'id':pr,'confirmed':False})
-    wait_for(lambda: not pid_alive(pending_pid), 'PR child cancelled on close')
-    client.request('POST', '/refresh', {})
-    client.invoke('select_tab', {'id':terminal})
-    client.request('POST', '/refresh', {})
-    wait_for(lambda: client.state(terminal) and not client.state(terminal)['replaying'], 'sibling terminal reattached')
-    assert pid_alive(stream_pid)
-    if cli:
-        tabs = cli('tab','list','--session',session['id'])['tabs']
-        assert next(t for t in tabs if t['id'] == files)['kind'] == 'files'
-        assert not next(t for t in tabs if t['id'] == pr)['isOpen']
-    mark('PR plugin shows checks/reviews, retains data on authentication failure, rejects overlap and kills pending gh on close')
     return files, pr, str(folder)
 
 
@@ -163,18 +95,71 @@ def restored(client, session_id, saved, mark):
 
 
 def before_quit(client, directory, session_id, wait_for):
-    (directory / 'gh-mode').write_text('wait')
-    previous = len((directory / 'gh-calls.jsonl').read_text().splitlines())
+    client.js("window.__prFixture.enable('wait')")
     client.invoke('create_tab', {'sessionId': session_id, 'actionId': 'pr'})
-    client.request('POST', '/refresh', {})
-    wait_for(lambda: len((directory / 'gh-calls.jsonl').read_text().splitlines()) > previous, 'pending PR request before Quit')
-    return json.loads((directory / 'gh-calls.jsonl').read_text().splitlines()[-1])['pid']
+    client.request('POST','/refresh',{})
+    wait_for(lambda: client.js('return window.__prFixture.active()>0'), 'pending fixture request before Quit')
+    return None
 
 
 def after_quit(directory, pending_pid, pid_alive, mark):
-    assert not pid_alive(pending_pid), 'Quit left a live gh subprocess'
-    (directory / 'gh-mode').write_text('ok')
-    mark('Quit waits for pending PR subprocess cleanup before exiting')
+    mark('Quit completed with an outstanding frontend HTTP fixture; native transport cancellation has separate Rust coverage')
+
+
+def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
+    # Run only on an isolated Secret Service bus with fixture credentials.
+    require_private_secret_service()
+    client.js("window.__prFixture.enable()")
+    current = sdk(client, pr, 'storage', 'read', 'session')
+    sdk(client, pr, 'storage', 'replace', 'session', current['revision'] if current else 0, 1, {'repository':'example/repo','number':42})
+    def text(tab): return client.js('return document.querySelector(arguments[0])?.innerText', f'#tab-panel-{tab}') or ''
+    def button(tab, label): client.click(f"//section[@id='tab-panel-{tab}']//button[normalize-space()='{label}']", 'xpath')
+    def connect(tab, token):
+        client.fill(f'#tab-panel-{tab} input[type=password]', token)
+        button(tab, 'Replace token' if 'Connected as' in text(tab) else 'Connect')
+    connect(pr, 'first-fixture')
+    wait_for(lambda: 'Plugin native fixture' in text(pr), 'connected PR data')
+    other = client.invoke('create_tab', {'sessionId':session_id,'actionId':'pr'})['sessions'][0]['selectedTabId']
+    client.request('POST','/refresh',{})
+    wait_for(lambda: 'Connected as fixture-user' in text(other), 'shared account in second tab')
+    client.click(f'#tab-{pr}')
+    button(pr, 'Replace token')
+    connect(pr, 'invalid-fixture')
+    wait_for(lambda: 'invalid' in text(pr), 'invalid replacement error')
+    assert 'Connected as fixture-user' in text(other)
+    assert 'Plugin native fixture' in text(pr)
+    connect(pr, 'second-fixture')
+    wait_for(lambda: 'Connected as second-user' in text(other), 'replacement shared across tabs')
+    client.js("window.__prFixture.mode('offline')")
+    client.click(f'#tab-panel-{pr} .pr-refresh')
+    wait_for(lambda: 'offline' in text(pr), 'network error')
+    assert 'Plugin native fixture' in text(pr)
+    client.js("window.__prFixture.mode('ok')")
+    client.request('POST', '/refresh', {})
+    wait_for(lambda: 'Connected as second-user' in text(pr), 'Secret Service connection restored after reload')
+    wait_for(lambda: 'Plugin native fixture' in text(other), 'second attachment refreshed')
+    client.click(f'#tab-{terminal}')
+    previous = client.js('return window.__prFixture.calls()')
+    wait_for(lambda: client.js('return window.__prFixture.calls()>arguments[0]', previous), 'real hidden polling timer', timeout=130)
+    mark('WebKitGTK shares token authentication, preserves connection after invalid replacement, restores from native credentials and polls hidden tabs')
+    client.click(f'#tab-{pr}')
+    client.js("window.__prFixture.mode('wait')")
+    wait_for(lambda: not client.js('return document.querySelector(arguments[0]).disabled', f'#tab-panel-{pr} .pr-refresh'), 'refresh idle')
+    client.click(f'#tab-panel-{pr} .pr-refresh')
+    wait_for(lambda: client.js('return window.__prFixture.active()>0'), 'outstanding request')
+    button(pr, 'Disconnect')
+    wait_for(lambda: 'Connected as' not in text(other), 'disconnect synchronized')
+    wait_for(lambda: client.js('return window.__prFixture.active()===0'), 'request abort')
+    assert 'Plugin native fixture' not in text(pr) and 'Plugin native fixture' not in text(other)
+    assert sdk(client, pr, 'credentials', 'get', 'github-account') is None
+    client.invoke('close_tab', {'id':other,'confirmed':False})
+    client.request('POST','/refresh',{})
+    wait_for(lambda: client.js('return !!window.__prFixture'), 'fixture bridge after reload')
+    wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', f'#tab-panel-{pr} input[type=password]:not(:disabled)'), 'reconnect field')
+    client.js("window.__prFixture.mode('ok')")
+    connect(pr, 'first-fixture')
+    wait_for(lambda: 'Plugin native fixture' in text(pr), 'reconnected fixture')
+    mark('Disconnect deletes native credential, aborts pending request and clears PR data across WebKitGTK tabs')
 
 
 def sdk_contract_checks(client, directory, session_id, wait_for, pid_alive, mark):
