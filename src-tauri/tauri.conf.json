@@ -34,8 +34,8 @@
     "shortDescription": "Native terminal sessions for development projects",
     "linux": {
       "deb": {
-        "conflicts": ["devcenter"],
-        "replaces": ["devcenter"]
+        "conflicts": ["dev-center", "devcenter"],
+        "replaces": ["dev-center", "devcenter"]
       }
     }
   }

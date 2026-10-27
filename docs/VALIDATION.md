@@ -627,7 +627,7 @@ The first attempts with development-server binaries could not initialize the UI;
 only bundled release results establish this evidence.
 
 The Debian artifact is inspected for new command names, a single desktop entry,
-and `Conflicts`/`Replaces: devcenter`. APT replacement is simulated with a temporary
+and replacement metadata for `dev-center` and `devcenter`. APT replacement is simulated with a temporary
 copy of dpkg status and a synthetic installed legacy package; no package is
 installed on the personal system. The fixture excludes the unrelated broken
 `steam-installer` record to isolate replacement dependency resolution.
@@ -642,3 +642,8 @@ Secret Service), Debian replacement metadata, the saved legacy binary argument
 in `check-branding.py`, this migration documentation, and historical observations
 in `docs/reference/VALIDATION.md` and local memory. The checkout/repository name
 `devCenter` is unchanged. No executable or environment aliases are shipped.
+
+The installed legacy package was subsequently confirmed as `dev-center` by an
+actual dpkg collision on `/usr/bin/terminal-pty-helper`. Both spellings now appear
+in `Conflicts` and `Replaces`; the initial synthetic `devcenter` fixture alone
+did not establish replacement of the distributed legacy package.
