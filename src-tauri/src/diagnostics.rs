@@ -20,7 +20,7 @@ struct Log {
 }
 
 pub fn enabled() -> bool {
-    std::env::var_os("DEVCENTER_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
+    std::env::var_os("ONGLEET_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 pub fn init(directory: &Path) -> std::io::Result<()> {
@@ -36,7 +36,7 @@ pub fn init(directory: &Path) -> std::io::Result<()> {
         bytes: 0,
         started: Instant::now(),
     }));
-    eprintln!("DevCenter diagnostics: {}", path.display());
+    eprintln!("Ongleet diagnostics: {}", path.display());
     record(format_args!(
         "startup version={} pid={} executable={:?}",
         env!("CARGO_PKG_VERSION"),
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn rotation_keeps_recent_breadcrumbs_bounded_and_private() {
         let directory =
-            std::env::temp_dir().join(format!("devcenter-diagnostic-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("ongleet-diagnostic-test-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("debug.log");
         let mut log = Log {

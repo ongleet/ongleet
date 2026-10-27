@@ -43,8 +43,8 @@ fn absolute(value: String) -> Result<String, RpcError> {
 }
 
 pub fn parse(args: Vec<String>) -> Result<Invocation, RpcError> {
-    let session = std::env::var_os("DEVCENTER_SESSION_ID");
-    let project = std::env::var_os("DEVCENTER_PROJECT_ID");
+    let session = std::env::var_os("ONGLEET_SESSION_ID");
+    let project = std::env::var_os("ONGLEET_PROJECT_ID");
     parse_with_context(
         args,
         session.as_ref().map(|s| s.to_string_lossy()).as_deref(),
@@ -178,16 +178,16 @@ fn parse_with_context(
     }
     let context = match (resource, verb) {
         ("tab", "list" | "actions" | "create") => {
-            Some(("--session", "DEVCENTER_SESSION_ID", session))
+            Some(("--session", "ONGLEET_SESSION_ID", session))
         }
-        ("session", "create") => Some(("--project", "DEVCENTER_PROJECT_ID", project)),
+        ("session", "create") => Some(("--project", "ONGLEET_PROJECT_ID", project)),
         _ => None,
     };
     if let Some((option, variable, fallback)) = context {
         if !options.contains_key(option) {
             let value = fallback.ok_or_else(|| {
                 invalid(format!(
-                    "Required option: {option} (or {variable} inside a DevCenter terminal)"
+                    "Required option: {option} (or {variable} inside a Ongleet terminal)"
                 ))
             })?;
             positive(value).map_err(|_| invalid(format!("{variable} must be a positive integer; pass {option} explicitly to override it")))?;
@@ -404,7 +404,7 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
                     .map_err(|e| RpcError::new("operation_failed", e.to_string()))?
                     .parent()
                     .unwrap()
-                    .join("devcenter-gui")
+                    .join("ongleet-gui")
             };
             let mut command = ProcessCommand::new(executable);
             command

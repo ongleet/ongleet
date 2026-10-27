@@ -83,9 +83,7 @@ pub fn call_with_timeout(
     let mut stream = UnixStream::connect(path).map_err(|e| {
         RpcError::new(
             "unavailable",
-            format!(
-                "Application unavailable: {e}. Start it explicitly with `devcenter app start`."
-            ),
+            format!("Application unavailable: {e}. Start it explicitly with `ongleet app start`."),
         )
     })?;
     verify_peer(&stream)?;

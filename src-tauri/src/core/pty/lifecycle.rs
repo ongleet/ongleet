@@ -75,17 +75,12 @@ impl SessionRegistry {
         // Process environment < common project variables < action overrides.
         env.extend(config.env.clone());
         // Stable launch context is reserved and cannot be overridden by project/action env.
-        env.insert("DEVCENTER_SESSION_ID".into(), session.id.to_string());
-        env.insert(
-            "DEVCENTER_PROJECT_ID".into(),
-            session.project_id.to_string(),
-        );
-        env.insert("DEVCENTER_TAB_ID".into(), tab_id.to_string());
+        env.insert("ONGLEET_SESSION_ID".into(), session.id.to_string());
+        env.insert("ONGLEET_PROJECT_ID".into(), session.project_id.to_string());
+        env.insert("ONGLEET_TAB_ID".into(), tab_id.to_string());
         // Resolve the opt-in wrapper through the running image, including after
         // rebuilds unlink that image. Never depend on a separately built helper.
-        if config.shell_command.is_none()
-            && matches!(executable.as_deref(), Some("dcodex" | "devcenter-codex"))
-        {
+        if config.shell_command.is_none() && matches!(executable.as_deref(), Some("ong-codex")) {
             let data = self
                 .data_directory
                 .as_ref()
@@ -97,11 +92,11 @@ impl SessionRegistry {
             );
             args.insert(0, crate::codex::WRAPPER_FLAG.into());
             env.insert(
-                "DEVCENTER_CODEX_DATA".into(),
+                "ONGLEET_CODEX_DATA".into(),
                 data.to_string_lossy().into_owned(),
             );
             env.insert(
-                "DEVCENTER_CODEX_HOOK_EXE".into(),
+                "ONGLEET_CODEX_HOOK_EXE".into(),
                 crate::containment::executable()?
                     .to_string_lossy()
                     .into_owned(),

@@ -163,7 +163,7 @@ def run(args):
     if not driver_binary:
         raise SystemExit("WebKitWebDriver is missing; install Ubuntu package webkitgtk-webdriver or pass --driver PATH")
     run_dir = Path(tempfile.mkdtemp(prefix="terminal-native-validation-"))
-    app_config = run_dir / "config" / "devcenter"
+    app_config = run_dir / "config" / "ongleet"
     app_config.mkdir(parents=True)
     # JSON is a YAML subset; all generated fixture paths/arguments stay literal.
     types = [
@@ -186,7 +186,7 @@ def run(args):
     driver_env = dict(env)
     if args.check_minimize and args.backend == "wayland":
         # xdg-shell exposes the request, but no minimized state notification.
-        driver_env.update(DEVCENTER_DEBUG="1", WAYLAND_DEBUG="client")
+        driver_env.update(ONGLEET_DEBUG="1", WAYLAND_DEBUG="client")
     report = {"backend": args.backend, "artifacts": str(run_dir), "checks": [], "memory": []}
     # A private URI handler records link activation without opening the user's browser.
     applications = run_dir / "data/applications"
@@ -194,11 +194,11 @@ def run(args):
     link_log = run_dir / "opened-links.txt"
     handler = run_dir / "open-link.py"
     handler.write_text("import pathlib,sys\nwith pathlib.Path(" + repr(str(link_log)) + ").open('a') as log: log.write(sys.argv[1]+'\\n')\n")
-    (applications / "devcenter-validation.desktop").write_text(
-        "[Desktop Entry]\nType=Application\nName=DevCenter validation\nExec=/usr/bin/python3 " + str(handler) + " %u\nMimeType=x-scheme-handler/https;\n")
-    (run_dir / "config/mimeapps.list").write_text("[Default Applications]\nx-scheme-handler/https=devcenter-validation.desktop\n")
+    (applications / "ongleet-validation.desktop").write_text(
+        "[Desktop Entry]\nType=Application\nName=Ongleet validation\nExec=/usr/bin/python3 " + str(handler) + " %u\nMimeType=x-scheme-handler/https;\n")
+    (run_dir / "config/mimeapps.list").write_text("[Default Applications]\nx-scheme-handler/https=ongleet-validation.desktop\n")
     uri_handler = subprocess.run(["gio", "mime", "x-scheme-handler/https"], env=env, capture_output=True, text=True, check=True)
-    assert "devcenter-validation.desktop" in uri_handler.stdout, "Test URI handler must be registered before clicking links"
+    assert "ongleet-validation.desktop" in uri_handler.stdout, "Test URI handler must be registered before clicking links"
     client = WebDriver(f"http://127.0.0.1:{port}")
     clipboard_backup = None
     clipboard_touched = False
@@ -220,7 +220,7 @@ def run(args):
             wait_for(lambda: client.js("return !!window.__terminalValidation"), "validation bridge (requires native-validation build)")
 
             try:
-                if env.get("DEVCENTER_PRIVATE_X11") != "1":
+                if env.get("ONGLEET_PRIVATE_X11") != "1":
                     raise RuntimeError("Desktop clipboard mutation disabled; use check-clipboard.py on private Xvfb")
                 if shutil.which("wl-paste") and shutil.which("wl-copy"):
                     saved_types = subprocess.run(["wl-paste", "--list-types"], capture_output=True, env=env, timeout=3)
@@ -303,7 +303,7 @@ def run(args):
                     CanvasRenderingContext2D.prototype.fillText=function(...args){probe.draws++;return fill.apply(this,args)};
                     window.__TAURI_INTERNALS__.invoke=function(command,args,...rest){if(command==='sdk_pty'&&args?.request?.operation==='status')probe.status++;return invoke.call(this,command,args,...rest)};
                 """)
-                processes = [p for p in owned_processes(run_dir) if p["name"] in ("devcenter-gui", "WebKitWebProcess", "WebKitWebProces")]
+                processes = [p for p in owned_processes(run_dir) if p["name"] in ("ongleet-gui", "WebKitWebProcess", "WebKitWebProces")]
                 def cpu_ticks(pid):
                     stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
                     return int(stat[11]) + int(stat[12])
@@ -374,11 +374,11 @@ def run(args):
                 def restart_window(scenario, normal_size, maximized):
                     nonlocal shell_pid
                     before = client.request("GET", "/window/rect")
-                    old_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "devcenter-gui")
+                    old_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "ongleet-gui")
                     old_shell = shell_pid
                     client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
                     wait_for(lambda: not alive(old_gui) and not alive(old_shell), "Quit terminates GUI and shell")
-                    saved = json.loads((run_dir / "data/devcenter/window-state.json").read_text())
+                    saved = json.loads((run_dir / "data/ongleet/window-state.json").read_text())
                     assert (saved["width"], saved["height"]) == normal_size, saved
                     assert saved["maximized"] is maximized, saved
                     client.request("DELETE", "")
@@ -397,7 +397,7 @@ def run(args):
                     command(first, f"printf '{prefix}%s\\n' \"$$\"")
                     value = wait_for(lambda: next((line[len(prefix):] for line in client.screen(first).splitlines() if line.startswith(prefix) and line[len(prefix):].isdigit()), None), "fresh shell PID after restart")
                     shell_pid = int(value)
-                    new_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "devcenter-gui")
+                    new_gui = next(process["pid"] for process in owned_processes(run_dir) if process["name"] == "ongleet-gui")
                     assert shell_pid != old_shell and new_gui != old_gui
                     assert client.invoke("application_status")["visible"]
                     (run_dir / f"restart-{scenario}.png").write_bytes(base64.b64decode(client.request("GET", "/screenshot")))
@@ -469,7 +469,7 @@ def run(args):
                     wait_for(lambda: client.invoke("terminal_clipboard") == {"kind":"text", "text":"'/tmp/a b.png' '/tmp/it'\\''s.png'"}, "file clipboard ownership")
                     mark("Native clipboard distinguishes images and copied files, preserving spaces and quotes")
 
-            command(first, "printf '\\033[2J\\033[H\\033]8;;https://example.invalid/devcenter-input-test\\007OPEN_TEST\\033]8;;\\007\\nBEFORE_RELOAD\\n'")
+            command(first, "printf '\\033[2J\\033[H\\033]8;;https://example.invalid/ongleet-input-test\\007OPEN_TEST\\033]8;;\\007\\nBEFORE_RELOAD\\n'")
             wait_for(lambda: client.screen(first).splitlines()[0] == "OPEN_TEST", "OSC 8 link fixture")
             rect = client.js("const r=document.querySelector('#tab-panel-'+arguments[0]+' canvas').getBoundingClientRect();return {x:r.x+20,y:r.y+8}", first)
             client.request("POST", "/actions", {"actions": [
@@ -479,7 +479,7 @@ def run(args):
                     {"type":"pointerDown", "button":0}, {"type":"pointerUp", "button":0}]}
             ]})
             client.request("POST", "/actions", {"actions":[{"type":"key", "id":"keyboard", "actions":[{"type":"keyUp", "value":"\ue009"}]}]})
-            wait_for(lambda: link_log.exists() and "https://example.invalid/devcenter-input-test" in link_log.read_text(), "native OSC 8 Ctrl-click activation")
+            wait_for(lambda: link_log.exists() and "https://example.invalid/ongleet-input-test" in link_log.read_text(), "native OSC 8 Ctrl-click activation")
             mark("Ctrl-click on an OSC 8 terminal link opens the native registered URI handler")
 
             unicode_tab = new_tab("Unicode")
@@ -651,7 +651,7 @@ def run(args):
             if client.session:
                 try:
                     client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                    wait_for(lambda: not any(process["name"] == "devcenter-gui" for process in owned_processes(run_dir)), "native application exit", timeout=5)
+                    wait_for(lambda: not any(process["name"] == "ongleet-gui" for process in owned_processes(run_dir)), "native application exit", timeout=5)
                     client.request("DELETE", "")
                 except Exception as error:
                     report["cleanupError"] = str(error)
@@ -680,7 +680,7 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--driver", default="WebKitWebDriver")
-    parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/devcenter-gui"))
+    parser.add_argument("--application", default=str(ROOT / "src-tauri/target/debug/ongleet-gui"))
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--skip-codex", action="store_true")
     parser.add_argument("--check-minimize", action="store_true", help="Exercise compositor-sensitive native minimize/restore")

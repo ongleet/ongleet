@@ -12,7 +12,7 @@ function tagForeground(background: string) {
     : '#ffffff';
 }
 
-const sidebarWidthKey = 'devcenter.sidebarWidth';
+const sidebarWidthKey = 'ongleet.sidebarWidth';
 
 function savedSidebarWidth() {
   try {

@@ -86,10 +86,10 @@ pub fn detach_terminal_launch(socket: &Path) -> Result<bool, String> {
             return Ok(true);
         }
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!("Application exited before becoming available: {status}. Run devcenter-gui --foreground for startup diagnostics."));
+            return Err(format!("Application exited before becoming available: {status}. Run ongleet-gui --foreground for startup diagnostics."));
         }
         if Instant::now() >= deadline {
-            return Err("Application startup exceeded 15 seconds; it may still start. Check devcenter app status before retrying.".into());
+            return Err("Application startup exceeded 15 seconds; it may still start. Check ongleet app status before retrying.".into());
         }
         std::thread::sleep(Duration::from_millis(50));
     }

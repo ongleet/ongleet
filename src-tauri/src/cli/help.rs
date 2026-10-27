@@ -4,7 +4,7 @@ use super::{invalid, RpcError};
 const COMMANDS: &[(&str, &str, &str)] = &[
     ("archive", "list", "List archived sessions/tabs with archive IDs, expiry times and pending-cleanup errors. Retention is 30 days from archival, not from last use."),
     ("archive", "restore ID", "Restore saved IDs, plugin configuration and opening state. Previously running terminals may launch fresh commands when a frontend connects. Restore an archived parent session before its separately archived tabs. Working directories/files are never created or restored."),
-    ("archive", "purge ID --confirm", "Permanently delete this archive and its DevCenter terminal history/Codex mappings. Requires --confirm. Never deletes working files or Codex's own conversations."),
+    ("archive", "purge ID --confirm", "Permanently delete this archive and its Ongleet terminal history/Codex mappings. Requires --confirm. Never deletes working files or Codex's own conversations."),
     ("archive", "prune --confirm", "Permanently purge archives aged at least 30 days and retry pending cleanup. Also runs automatically at startup and when archiving. Requires --confirm for explicit CLI invocation."),
     ("session", "archive ID [--confirm]", "Archive this session and its tabs for 30 days. Stop running processes with --confirm. Equivalent to session close; working files remain untouched."),
     ("tab", "archive ID [--confirm]", "Archive a tab definition for 30 days. Stop running processes with --confirm. Equivalent to tab delete; tab close only closes the opening."),
@@ -18,7 +18,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("tab", "reorder ID --position INDEX", "Move an open tab to a zero-based position."),
     ("tab", "open ID", "Reopen a saved definition. Terminal tabs launch their saved command anew."),
     ("tab", "close ID [--confirm]", "Close a plugin tab, retaining its definition. Running terminals require --confirm."),
-    ("tab", "delete ID [--confirm]", "Archive a tab definition for 30 days and close its opening. Running terminals require --confirm. Restore with archive restore; expired archives and their DevCenter artifacts are purged. Working files remain untouched."),
+    ("tab", "delete ID [--confirm]", "Archive a tab definition for 30 days and close its opening. Running terminals require --confirm. Restore with archive restore; expired archives and their Ongleet artifacts are purged. Working files remain untouched."),
     ("tab", "configure ID --config JSON", "Validate and replace plugin-specific configuration. Running terminals retain their original launch settings."),
     ("session", "tag-add ID --name NAME [--background COLOR] [--dot COLOR] [--priority NUMBER]", "Add or update one unique tag by case-insensitive name. Optional background and dot colors use #RRGGBB. Higher priorities appear first; default 0. Preserves other tags."),
     ("session", "tag-remove ID --name NAME", "Remove one tag by case-insensitive name. Missing tags are a successful no-op. Preserves other tags."),
@@ -46,7 +46,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("app", "show", "Reveal and activate the running application. Fails if unavailable; does not start it."),
     ("app", "status", "Return pid, visible, projects, sessions and runningTerminals for the running application."),
     ("app", "quit [--confirm]", "Quit the application. Running sessions require --confirm and are immediately killed. Previously running tabs may launch as NEW processes on the next startup."),
-    ("app", "start [--executable PATH]", "Explicitly start the GUI, or return status if already running. Defaults to devcenter-gui beside this CLI. Requires a graphical desktop session. Waits up to 15 seconds; after a timeout the app may still start. Run the GUI directly for startup diagnostics."),
+    ("app", "start [--executable PATH]", "Explicitly start the GUI, or return status if already running. Defaults to ongleet-gui beside this CLI. Requires a graphical desktop session. Waits up to 15 seconds; after a timeout the app may still start. Run the GUI directly for startup diagnostics."),
 ];
 
 const AUTOMATION: &str = r#"AUTOMATION CONTRACT
@@ -60,8 +60,8 @@ const AUTOMATION: &str = r#"AUTOMATION CONTRACT
   Text output is for humans; scripts should use --json. Help is plain text,
   exits 0, and does not contact the app. No interactive prompts are used.
 
-  Inside DevCenter terminals, tab list/actions/create default --session to
-  DEVCENTER_SESSION_ID; session create defaults --project to DEVCENTER_PROJECT_ID.
+  Inside Ongleet terminals, tab list/actions/create default --session to
+  ONGLEET_SESSION_ID; session create defaults --project to ONGLEET_PROJECT_ID.
   Explicit options take precedence. Outside, supply the option or variable.
   Invalid context fails; there is no fallback to the selected GUI session.
   Context is fixed at terminal launch; existing terminals need relaunch.
@@ -86,7 +86,7 @@ const AUTOMATION: &str = r#"AUTOMATION CONTRACT
   A timeout can happen AFTER a change commits. Inspect list/status before
   retrying, especially create: retries can create duplicates.
   tab input sends text with optional --enter. Reading screens is not implemented.
-  Generic tab operations: devcenter tab --help.
+  Generic tab operations: ongleet tab --help.
 
 EXIT CODES
   0 success                  2 invalid arguments/request
@@ -98,7 +98,7 @@ EXIT CODES
 pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
     if scope.is_empty() {
         return Ok(String::from(
-            "devcenter [--json] <resource> <command> [options]\n\nRESOURCES\n  tab         Manage plugin tabs\n  session     Manage sessions\n  project     Manage projects\n  app         Control the application\n  archive     Restore or purge archives\n\nHELP\n  devcenter tab --help                 List tab commands\n  devcenter tab create --help          Command usage and effects\n  devcenter automation --help          JSON, errors and exit codes\n  -h is an alias for --help.\n",
+            "ongleet [--json] <resource> <command> [options]\n\nRESOURCES\n  tab         Manage plugin tabs\n  session     Manage sessions\n  project     Manage projects\n  app         Control the application\n  archive     Restore or purge archives\n\nHELP\n  ongleet tab --help                 List tab commands\n  ongleet tab create --help          Command usage and effects\n  ongleet automation --help          JSON, errors and exit codes\n  -h is an alias for --help.\n",
         ));
     }
     if scope == ["automation"] {
@@ -119,33 +119,33 @@ pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
         })
         .collect();
     if selected.is_empty() {
-        return Err(invalid("Unknown help topic; use devcenter --help"));
+        return Err(invalid("Unknown help topic; use ongleet --help"));
     }
     if scope.len() == 1 {
-        let mut text = format!("devcenter {} <command> [options]\n\nCOMMANDS\n", scope[0]);
+        let mut text = format!("ongleet {} <command> [options]\n\nCOMMANDS\n", scope[0]);
         for (resource, usage, _) in selected {
-            text.push_str(&format!("  devcenter {resource} {usage}\n"));
+            text.push_str(&format!("  ongleet {resource} {usage}\n"));
         }
         text.push_str(&format!(
-            "\nDetails: devcenter {} <command> --help\nAutomation: devcenter automation --help\n",
+            "\nDetails: ongleet {} <command> --help\nAutomation: ongleet automation --help\n",
             scope[0]
         ));
         return Ok(text);
     }
     let (resource, usage, description) = selected[0];
-    let mut text = format!("devcenter {resource} {usage}\n\n{description}\n");
+    let mut text = format!("ongleet {resource} {usage}\n\n{description}\n");
     match (*resource, scope[1].as_str()) {
         ("tab", "list" | "actions" | "create") => text.push_str(
-            "\n--session defaults to DEVCENTER_SESSION_ID; an explicit option wins.\nOutside a DevCenter terminal, supply --session ID or set that variable.\n",
+            "\n--session defaults to ONGLEET_SESSION_ID; an explicit option wins.\nOutside a Ongleet terminal, supply --session ID or set that variable.\n",
         ),
         ("session", "create") => text.push_str(
-            "\n--project defaults to DEVCENTER_PROJECT_ID; an explicit option wins.\nDiscover project IDs: devcenter project list\n",
+            "\n--project defaults to ONGLEET_PROJECT_ID; an explicit option wins.\nDiscover project IDs: ongleet project list\n",
         ),
         ("tab", "configure") => text.push_str(
-            "\n--config replaces the complete configuration, not a patch.\nFields and examples: devcenter tab types\nDiscover tab IDs: devcenter tab list\n",
+            "\n--config replaces the complete configuration, not a patch.\nFields and examples: ongleet tab types\nDiscover tab IDs: ongleet tab list\n",
         ),
         ("tab", "types") => text.push_str(
-            "\nReturns data.types with configSchema, examples and notes per plugin,\nplus configuration limits and a suggested workflow.\nAvailable project actions: devcenter tab actions\n",
+            "\nReturns data.types with configSchema, examples and notes per plugin,\nplus configuration limits and a suggested workflow.\nAvailable project actions: ongleet tab actions\n",
         ),
         _ => {}
     }
@@ -159,6 +159,6 @@ pub(super) fn render(scope: &[String]) -> Result<String, RpcError> {
             "\nAfter a timeout, inspect list/status before retrying; changes may have committed.\n",
         );
     }
-    text.push_str("\nResults are text; add --json for structured output. Errors use stderr and a nonzero exit code.\nAutomation details: devcenter automation --help\n");
+    text.push_str("\nResults are text; add --json for structured output. Errors use stderr and a nonzero exit code.\nAutomation details: ongleet automation --help\n");
     Ok(text)
 }

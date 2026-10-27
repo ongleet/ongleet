@@ -6,7 +6,7 @@ fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let directory = std::env::temp_dir().join(format!("devcenter-codex-{}", nonce().unwrap()));
+        let directory = std::env::temp_dir().join(format!("ong-codex-{}", nonce().unwrap()));
         fs::create_dir(&directory).unwrap();
         Self(directory)
     }
@@ -221,7 +221,7 @@ fn activity_reports_only_current_main_agent_and_keeps_mappings_separate() {
 
 #[test]
 fn activity_hook_configuration_is_scoped_and_bounded() {
-    let args = codex_args(&State::default(), "/app/dcodex", &[]);
+    let args = codex_args(&State::default(), "/app/ong-codex", &[]);
     for name in [
         "SessionStart",
         "UserPromptSubmit",

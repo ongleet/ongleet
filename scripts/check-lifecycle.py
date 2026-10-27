@@ -94,14 +94,14 @@ def run(args):
         plugin_checks = importlib.util.module_from_spec(plugin_spec)
         plugin_spec.loader.exec_module(plugin_checks)
         plugin_checks.prepare(directory, env)
-    config = directory / "config/devcenter"
+    config = directory / "config/ongleet"
     config.mkdir(parents=True)
     (config / "projects/1").mkdir(parents=True)
     (config / "projects/1/actions.yaml").write_text(json.dumps({"actions": [{"id": "stream", "name": "Stream", "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(native.ROOT / "scripts/terminal-probe.py"), "reload"]}}]}))
-    data = directory / "data/devcenter"
+    data = directory / "data/ongleet"
     value = 0xcbf29ce484222325
     for byte in os.fsencode(data): value = ((value ^ byte) * 0x100000001b3) & ((1 << 64) - 1)
-    path = f"/run/user/{os.getuid()}/devcenter-{value:016x}.sock"
+    path = f"/run/user/{os.getuid()}/ongleet-{value:016x}.sock"
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0)); port = listener.getsockname()[1]
     report = {"artifacts": str(directory), "checks": []}
@@ -310,7 +310,7 @@ def run(args):
         actions = json.loads((config / 'projects/1/actions.yaml').read_text())
         probe = str(native.ROOT / 'scripts/terminal-probe.py')
         actions['actions'][0]['config']['args'] = ['-u', '-c',
-            "import subprocess,os,json,sys,runpy; result=subprocess.run(['devcenter','--json','session','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
+            "import subprocess,os,json,sys,runpy; result=subprocess.run(['ongleet','--json','session','list'],capture_output=True,text=True); open(" + repr(str(directory / 'cli-on-path.json')) + ", 'w').write(json.dumps({'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})); assert result.returncode==0,result.stderr; print('CLI_ON_PATH',flush=True); sys.argv=[" + repr(probe) + ",'reload']; runpy.run_path(" + repr(probe) + ",run_name='__main__')"]
         (config_path / 'actions.yaml').write_text(json.dumps(actions))
         first = cli('session', 'create', '--project', gid, '--name', 'CLI first')
         wid, tab = first['id'], first['selectedTabId']
@@ -494,5 +494,5 @@ if __name__ == "__main__":
     parser.add_argument("--replace-executable", action="store_true", help="Replace a private copy of the running executable before launching a PTY")
     parser.add_argument("--projects", action="store_true", help="Also check grouped session UI, per-group YAML and fold persistence")
     parser.add_argument("--driver", required=True)
-    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/devcenter-gui"))
+    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/ongleet-gui"))
     run(parser.parse_args())

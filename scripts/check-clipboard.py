@@ -21,7 +21,7 @@ spec.loader.exec_module(native)
 
 class Selection:
     def __init__(self, primary, env):
-        if env.get("DEVCENTER_PRIVATE_X11") != "1" or env.get("GDK_BACKEND") != "x11":
+        if env.get("ONGLEET_PRIVATE_X11") != "1" or env.get("GDK_BACKEND") != "x11":
             raise RuntimeError("Clipboard validation requires its private X11 display")
         self.primary, self.env, self.touched = primary, env, False
         self.flags = ["-selection", "primary" if primary else "clipboard"]
@@ -85,7 +85,7 @@ class Selection:
 def run(args):
     if not args.xvfb:
         raise SystemExit("Xvfb is required; pass --xvfb PATH. Desktop clipboard testing is disabled.")
-    directory = Path(tempfile.mkdtemp(prefix="devcenter-clipboard-validation-"))
+    directory = Path(tempfile.mkdtemp(prefix="ongleet-clipboard-validation-"))
     received, mode = directory / "received.bin", directory / "mode.json"
     mode.write_text(json.dumps({"version": 0, "bracketed": True, "mouse": False}))
     fixture = directory / "clipboard-probe.py"
@@ -112,13 +112,13 @@ try:
 finally:
     termios.tcsetattr(0, termios.TCSANOW, previous)
 ''')
-    config = directory / "config/devcenter/projects/1"
+    config = directory / "config/ongleet/projects/1"
     config.mkdir(parents=True)
     (config / "actions.yaml").write_text(json.dumps({"actions": [{"id": "clipboard", "name": "Clipboard probe",
         "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(fixture), str(received), str(mode)]}}]}))
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"),
                XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}",
-               TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND="x11", DEVCENTER_PRIVATE_X11="1", TERMINAL_VALIDATION_RUN=str(directory))
+               TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND="x11", ONGLEET_PRIVATE_X11="1", TERMINAL_VALIDATION_RUN=str(directory))
     for key in ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "WAYLAND_DEBUG"]:
         env.pop(key, None)
     display = next(number for number in range(100, 200) if not Path(f"/tmp/.X11-unix/X{number}").exists() and not Path(f"/tmp/.X{number}-lock").exists())
@@ -323,7 +323,7 @@ finally:
         if client.session:
             try:
                 client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                native.wait_for(lambda: not any(p["name"] == "devcenter-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
+                native.wait_for(lambda: not any(p["name"] == "ongleet-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
                 client.request("DELETE", "")
             except Exception as error:
                 report["cleanupError"] = str(error)
@@ -356,5 +356,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--xvfb", default=shutil.which("Xvfb"))
     parser.add_argument("--driver", default="WebKitWebDriver")
-    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/devcenter-gui"))
+    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/ongleet-gui"))
     raise SystemExit(run(parser.parse_args()))

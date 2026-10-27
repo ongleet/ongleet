@@ -39,7 +39,7 @@ export function WindowTitleBar({
 
   return (
     <header className="window-titlebar">
-      <span className="window-brand-mark" aria-label="DevCenter">
+      <span className="window-brand-mark" aria-label="Ongleet">
         ›_
       </span>
       <details

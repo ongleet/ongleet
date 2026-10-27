@@ -4,7 +4,7 @@ import type { PluginSdk, HttpRequest } from './sdk';
 type Mode = 'ok' | 'wait' | 'permission' | 'offline';
 let calls = 0;
 let active = 0;
-const modeKey = 'devcenter.validation.pr-fixture';
+const modeKey = 'ongleet.validation.pr-fixture';
 Object.assign(window, {
   __prFixture: {
     enable: (mode: Mode = 'ok') => localStorage.setItem(modeKey, mode),

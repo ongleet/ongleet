@@ -1,4 +1,4 @@
-"""Validate dcodex activity in isolated WebKitGTK using a local Codex fixture.
+"""Validate ong-codex activity in isolated WebKitGTK using a local Codex fixture.
 
 Exercises actual wrapper processes, hooks, private control socket and sidebar.
 Does not submit prompts to a model or certify real Codex hook delivery.
@@ -25,14 +25,14 @@ spec.loader.exec_module(native)
 spec = importlib.util.spec_from_file_location('plugins', ROOT / 'scripts/plugin-native-checks.py')
 plugins = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugins)
-directory = Path(tempfile.mkdtemp(prefix='devcenter-codex-activity-'))
+directory = Path(tempfile.mkdtemp(prefix='ong-codex-activity-'))
 directory.chmod(0o700)
 tools = directory / 'tools'
 tools.mkdir()
 (tools / 'codex').write_text('''#!/usr/bin/python3
 import json, os, pathlib, subprocess, sys, time, tomllib
 root = pathlib.Path(os.environ['TERMINAL_VALIDATION_RUN'])
-tab = os.environ['DEVCENTER_TAB_ID']
+tab = os.environ['ONGLEET_TAB_ID']
 settings = {}
 for i, arg in enumerate(sys.argv[:-1]):
     if arg == '-c': settings.setdefault('hooks', {}).update(tomllib.loads(sys.argv[i+1]).get('hooks', {}))
@@ -46,7 +46,7 @@ def emit(event):
 events = root / ('events-'+tab+'.json')
 cursor = len(json.loads(events.read_text())) if events.exists() else 0
 emit({'hook_event_name':'SessionStart'})
-(root / ('started-'+tab+'.json')).write_text(json.dumps({'pid':os.getpid(), 'launch':os.environ['DEVCENTER_CODEX_LAUNCH']}))
+(root / ('started-'+tab+'.json')).write_text(json.dumps({'pid':os.getpid(), 'launch':os.environ['ONGLEET_CODEX_LAUNCH']}))
 while True:
     entries = json.loads(events.read_text()) if events.exists() else []
     for event in entries[cursor:]:
@@ -105,9 +105,9 @@ with (directory / 'driver.log').open('w') as log:
         client.session = started['sessionId']
         native.wait_for(lambda: client.js("return !!document.querySelector('footer button:not(:disabled)')"), 'app ready')
         project = cli('project', 'create', '--name', 'Codex fixture', '--root', directory)['id']
-        config = directory / f'config/devcenter/projects/{project}/actions.yaml'
+        config = directory / f'config/ongleet/projects/{project}/actions.yaml'
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(json.dumps({'actions': [{'id':'codex', 'name':'Codex fixture', 'kind':'terminal', 'config':{'executable':'dcodex','args':[]}}]}))
+        config.write_text(json.dumps({'actions': [{'id':'codex', 'name':'Codex fixture', 'kind':'terminal', 'config':{'executable':'ong-codex','args':[]}}]}))
         session = cli('session', 'create', '--project', project, '--name', 'Activity', '--directory', directory)['id']
         snapshot = cli('session', 'config', session)
         first = snapshot['selectedTabId']
@@ -158,9 +158,9 @@ with (directory / 'driver.log').open('w') as log:
         activity(first, 'idle')
         send(first, 'UserPromptSubmit')
         activity(first, 'working')
-        stale_env = dict(env, DEVCENTER_CODEX_DATA=str(directory / 'data/devcenter'),
-                         DEVCENTER_SESSION_ID=str(session), DEVCENTER_TAB_ID=str(first),
-                         DEVCENTER_CODEX_LAUNCH=before['launch'])
+        stale_env = dict(env, ONGLEET_CODEX_DATA=str(directory / 'data/ongleet'),
+                         ONGLEET_SESSION_ID=str(session), ONGLEET_TAB_ID=str(first),
+                         ONGLEET_CODEX_LAUNCH=before['launch'])
         subprocess.run([args.application, '--internal-codex-record'], input=json.dumps({'hook_event_name':'Stop','session_id':f'fixture-{first}'}), text=True, env=stale_env, check=True, timeout=5)
         activity(first, 'working')
         badge('Working')

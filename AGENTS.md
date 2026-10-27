@@ -2,7 +2,7 @@
 
 - Write repository text in English; match the user’s conversation language.
 - Use `mise exec --` for Node/Rust commands; use `vim` for interactive editing.
-- Use `DEVCENTER_DEBUG=1` to enable diagnostic logging, including native keyboard/focus traces. Gate future debug diagnostics behind this shared variable instead of adding separate flags. Launch with `DEVCENTER_DEBUG=1 mise exec -- npm run tauri -- dev`; traces may reveal typed input.
+- Use `ONGLEET_DEBUG=1` to enable diagnostic logging, including native keyboard/focus traces. Gate future debug diagnostics behind this shared variable instead of adding separate flags. Launch with `ONGLEET_DEBUG=1 mise exec -- npm run tauri -- dev`; traces may reveal typed input.
 - Read `MEMORY.ignore.md` at task start when present. Keep useful dated entries around ten words each; update after work. Keep `TODO.ignore.md` limited to unfinished work.
 - Preserve Ghostty, Rust-owned PTYs, bounded IPC and cgroup containment. Do not modify shell/Codex configuration automatically.
 - No Electron, xterm.js runtime, tmux, daemon, automatic Git discovery, worktree management, setup scripts or product agent orchestration. Explicit session-linked read-only PR status is supported.

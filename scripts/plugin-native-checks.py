@@ -17,10 +17,10 @@ def prepare(directory, env):
     handler.write_text("import pathlib,sys\npathlib.Path(" + repr(str(directory / 'opened-file')) + ").write_text(sys.argv[1])\n")
     applications = directory / 'data/applications'
     applications.mkdir(parents=True)
-    (applications / 'devcenter-file-validation.desktop').write_text('[Desktop Entry]\nType=Application\nName=DevCenter file validation\nExec=/usr/bin/python3 ' + str(handler) + ' %f\nMimeType=text/plain;\n')
+    (applications / 'ongleet-file-validation.desktop').write_text('[Desktop Entry]\nType=Application\nName=Ongleet file validation\nExec=/usr/bin/python3 ' + str(handler) + ' %f\nMimeType=text/plain;\n')
     (directory / 'config').mkdir(parents=True, exist_ok=True)
-    (directory / 'config/mimeapps.list').write_text('[Default Applications]\ntext/plain=devcenter-file-validation.desktop\n')
-    assert 'devcenter-file-validation.desktop' in subprocess.run(['gio','mime','text/plain'], env=env, capture_output=True, text=True, check=True).stdout
+    (directory / 'config/mimeapps.list').write_text('[Default Applications]\ntext/plain=ongleet-file-validation.desktop\n')
+    assert 'ongleet-file-validation.desktop' in subprocess.run(['gio','mime','text/plain'], env=env, capture_output=True, text=True, check=True).stdout
 
 
 def sdk(client, tab, service, method, *args):
@@ -38,7 +38,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     folder.mkdir()
     (folder / 'unchanged.txt').write_text('read-only fixture')
     (directory / 'browser-link').symlink_to(folder, target_is_directory=True)
-    path = directory / 'config/devcenter/projects/1/actions.yaml'
+    path = directory / 'config/ongleet/projects/1/actions.yaml'
     settings = json.loads(path.read_text())
     settings['actions'] += [
         {'id':'sdk','name':'SDK example','kind':'sdk-example','config':{}},

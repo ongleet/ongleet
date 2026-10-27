@@ -31,7 +31,7 @@ def alive(pid):
 
 
 def run(args):
-    directory = Path(tempfile.mkdtemp(prefix="devcenter-window-close-"))
+    directory = Path(tempfile.mkdtemp(prefix="ongleet-window-close-"))
     report = {"artifacts": str(directory), "checks": []}
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"),
                XDG_CONFIG_HOME=str(directory / "config"), XDG_CACHE_HOME=str(directory / "cache"),
@@ -117,7 +117,7 @@ def run(args):
             snapshot = client.invoke("create_project", {"name": "Close test", "rootDirectory": str(directory)})
             project = snapshot["projects"][-1]["id"]
             pid_file = directory / "terminal.pid"
-            config = directory / "config/devcenter/projects" / str(project) / "actions.yaml"
+            config = directory / "config/ongleet/projects" / str(project) / "actions.yaml"
             config.parent.mkdir(parents=True, exist_ok=True)
             config.write_text("actions:\n  - id: sleeper\n    name: Sleeper\n    kind: terminal\n    config:\n      executable: /usr/bin/python3\n      args: " + json.dumps(["-c", f"import os,time;open({str(pid_file)!r},'w').write(str(os.getpid()));time.sleep(600)"]) + "\n")
             client.invoke("create_session", {"name": "Close test", "directory": str(directory), "projectId": project})

@@ -563,7 +563,7 @@ impl SessionRegistry {
 }
 
 /// Host-owned metadata, stored alongside namespaces for archive compatibility.
-const TAG_NAMESPACE: &str = "devcenter.session-tags";
+const TAG_NAMESPACE: &str = "ongleet.session-tags";
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionTag {

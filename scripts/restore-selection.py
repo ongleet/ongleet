@@ -9,7 +9,7 @@ import json
 import os
 import sys
 
-if os.environ.get("GDK_BACKEND") != "x11" or not os.environ.get("DEVCENTER_PRIVATE_X11"):
+if os.environ.get("GDK_BACKEND") != "x11" or not os.environ.get("ONGLEET_PRIVATE_X11"):
     raise SystemExit("Selection owner is restricted to a private X11 validation display")
 
 gtk = C.CDLL("libgtk-3.so.0")

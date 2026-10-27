@@ -5,7 +5,7 @@ use std::{
 };
 
 // Stable XDG directory name, shared by the GUI and headless commands.
-pub const APPLICATION_ID: &str = "devcenter";
+pub const APPLICATION_ID: &str = "ongleet";
 #[allow(dead_code)] // Only GUI startup migrates files; clients remain read-only.
 pub const LEGACY_ID: &str = "io.local.terminal-stack-prototype";
 
@@ -54,5 +54,5 @@ pub fn socket_path(data: &Path) -> Result<PathBuf, String> {
         .fold(0xcbf29ce484222325u64, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
         });
-    Ok(runtime.join(format!("devcenter-{hash:016x}.sock")))
+    Ok(runtime.join(format!("ongleet-{hash:016x}.sock")))
 }

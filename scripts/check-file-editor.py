@@ -18,8 +18,8 @@ spec.loader.exec_module(native)
 
 
 def run(args):
-    directory = Path(tempfile.mkdtemp(prefix='devcenter-editor-validation-'))
-    config = directory / 'config/devcenter/projects/1'
+    directory = Path(tempfile.mkdtemp(prefix='ongleet-editor-validation-'))
+    config = directory / 'config/ongleet/projects/1'
     config.mkdir(parents=True)
     folder = directory / 'files'
     folder.mkdir()
@@ -52,7 +52,7 @@ def run(args):
         client.click(f"//div[@role='menu' and @popover]//button[starts-with(normalize-space(),'{label}')]", 'xpath')
     def restart():
         client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-        native.wait_for(lambda: not any(process['name'].startswith('devcenter') for process in native.owned_processes(directory)), 'application stopped', timeout=10)
+        native.wait_for(lambda: not any(process['name'].startswith('ongleet') for process in native.owned_processes(directory)), 'application stopped', timeout=10)
         try:
             client.request('DELETE', '')
         except Exception:
@@ -218,7 +218,7 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Restored saved contents')"), 'file restored after stop/start')
             assert client.js("return document.querySelector('input[aria-label=Folder]').value === arguments[0]", str(nested))
             mark('stop/start restores nested folder and open text file')
-            draft_key = 'devcenter.editor.draft:' + json.dumps([tab, str(second)], separators=(',', ':'))
+            draft_key = 'ongleet.editor.draft:' + json.dumps([tab, str(second)], separators=(',', ':'))
             client.click('.cm-content')
             ctrl('a')
             client.keys('Persistent café draft')
@@ -248,7 +248,7 @@ def run(args):
             client.click("//button[.//span[text()='resume.txt']]", 'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Persistent café draft') && !document.querySelector('.editor-modified-label')"), 'discard does not resurrect draft')
             mark('explicit discard removes the local draft and modified badge')
-            client.js("window.originalDraftSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('devcenter.editor.draft:'))throw new DOMException('Test quota exhausted','QuotaExceededError');return window.originalDraftSetItem.call(this,key,value)}")
+            client.js("window.originalDraftSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(key,value){if(key.startsWith('ongleet.editor.draft:'))throw new DOMException('Test quota exhausted','QuotaExceededError');return window.originalDraftSetItem.call(this,key,value)}")
             client.click('.cm-content')
             client.keys(' quota')
             native.wait_for(lambda: client.js("return document.querySelector('.text-editor [role=alert]')?.textContent.includes('Could not store') && document.querySelector('.editor-modified-label')?.textContent.includes('unavailable')"), 'draft storage failure is visible')

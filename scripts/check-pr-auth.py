@@ -26,8 +26,8 @@ def run(args):
         raise RuntimeError('Refusing credential writes: use a private dbus-run-session and temporary XDG_DATA_HOME')
     native = module('native', 'check-native.py')
     plugins = module('plugins', 'plugin-native-checks.py')
-    directory = Path(tempfile.mkdtemp(prefix='devcenter-pr-auth-'))
-    config = directory / 'config/devcenter/projects/1'
+    directory = Path(tempfile.mkdtemp(prefix='ongleet-pr-auth-'))
+    config = directory / 'config/ongleet/projects/1'
     config.mkdir(parents=True)
     (config / 'actions.yaml').write_text(json.dumps({'actions': [
         {'id':'shell','name':'Shell','kind':'terminal','config':{'executable':'/bin/true','args':[]}},
@@ -40,7 +40,7 @@ def run(args):
     env.pop('GH_TOKEN', None)
     env.pop('GITHUB_TOKEN', None)
     if args.environment_token:
-        env.update(GH_TOKEN='first-fixture', GITHUB_TOKEN='second-fixture', DEVCENTER_ENV_FIXTURE='custom-value')
+        env.update(GH_TOKEN='first-fixture', GITHUB_TOKEN='second-fixture', ONGLEET_ENV_FIXTURE='custom-value')
     client = native.WebDriver(f'http://127.0.0.1:{port}')
     stalled = socket.socket()
     stalled.bind(('127.0.0.1',0))
@@ -82,9 +82,9 @@ def run(args):
             if args.environment_token:
                 def text(): return client.js('return document.querySelector(arguments[0])?.innerText',f'#tab-panel-{pr}') or ''
                 native.wait_for(lambda: 'Connected as fixture-user' in text() and 'Using GH_TOKEN' in text(),'environment account')
-                assert plugins.sdk(client,pr,'env','get','DEVCENTER_ENV_FIXTURE') == 'custom-value'
+                assert plugins.sdk(client,pr,'env','get','ONGLEET_ENV_FIXTURE') == 'custom-value'
                 assert plugins.sdk(client,pr,'env','get','GITHUB_TOKEN') == 'second-fixture'
-                assert plugins.sdk(client,pr,'env','get','DEVCENTER_MISSING_FIXTURE') is None
+                assert plugins.sdk(client,pr,'env','get','ONGLEET_MISSING_FIXTURE') is None
                 try: plugins.sdk(client,terminal,'env','get','GH_TOKEN')
                 except RuntimeError as error: assert 'capability' in str(error)
                 else: raise AssertionError('Environment capability bypassed')
@@ -98,7 +98,7 @@ def run(args):
                 native.wait_for(lambda: 'Connected as fixture-user' in text(),'environment reconnected')
                 mark('Native SDK reads arbitrary launch variables, enforces capability, and PR prioritizes GH_TOKEN without saving it')
                 client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                native.wait_for(lambda: not any(p['name'].startswith('devcenter') for p in native.owned_processes(directory)),'Quit',timeout=10)
+                native.wait_for(lambda: not any(p['name'].startswith('ongleet') for p in native.owned_processes(directory)),'Quit',timeout=10)
                 try: client.request('DELETE','')
                 except Exception: pass
                 client.session = None
@@ -147,7 +147,7 @@ def run(args):
             client.js("window.__sdkValidation.call(arguments[0],'http','request',[{url:arguments[1],method:'GET'}]).catch(()=>{})",pr,stalled_url)
             native.wait_for(lambda: len(stalled_connections)>previous_connections,'pending native HTTP before Quit')
             client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-            native.wait_for(lambda: not any(p['name'].startswith('devcenter') for p in native.owned_processes(directory)), 'Quit', timeout=10)
+            native.wait_for(lambda: not any(p['name'].startswith('ongleet') for p in native.owned_processes(directory)), 'Quit', timeout=10)
             try: client.request('DELETE','')
             except Exception: pass
             client.session = None

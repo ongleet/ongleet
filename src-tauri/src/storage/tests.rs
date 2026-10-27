@@ -49,7 +49,10 @@ fn version_two_rename_preserves_metadata_and_reopens() {
     let tab = &session.tabs[0];
     assert_eq!(tab.id, 12);
     assert!(tab.is_open && tab.resume_on_start);
-    assert_eq!(tab.terminal_config().executable.as_deref(), Some("dcodex"));
+    assert_eq!(
+        tab.terminal_config().executable.as_deref(),
+        Some("ong-codex")
+    );
     assert_eq!(tab.terminal_config().args, ["literal; 日本語"]);
     assert_eq!(tab.terminal_config().env["KEEP"], "yes");
     assert_eq!(
@@ -57,7 +60,7 @@ fn version_two_rename_preserves_metadata_and_reopens() {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        7
+        8
     );
     assert_eq!(
         Connection::open(directory.join("workspaces.sqlite3"))
@@ -242,7 +245,7 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            7
+            8
         );
         store.save(&metadata).unwrap();
         drop(store);
@@ -442,5 +445,82 @@ fn deferred_foreign_key_failure_rolls_back_with_durable_connection_settings() {
         "Committed rename"
     );
     drop(store);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn branding_preserves_archives_namespaces_and_literal_arguments_atomically() {
+    let directory = std::env::temp_dir().join(format!("metadata-branding-{}", std::process::id()));
+    drop(MetadataStore::open(&directory).unwrap());
+    let db = Connection::open(directory.join("workspaces.sqlite3")).unwrap();
+    let namespace = r#"{"devcenter.session-tags":{"version":1,"value":[{"name":"Ready","priority":10}]},"custom":{"version":2,"value":{"devcenter":"opaque"}}}"#;
+    let config = r#"{"version":1,"config":{"executable":"dcodex","args":["dcodex","日本語"],"env":{"CUSTOM":"devcenter"}}}"#;
+    let archive = serde_json::json!({"version":2,"id":4,"item":{"kind":"tab","session":{"id":7,"pluginData":serde_json::from_str::<serde_json::Value>(namespace).unwrap()},"tab":{"id":12,"kind":"terminal","config":{"executable":"devcenter-codex","args":["literal"]}}}});
+    db.execute("INSERT INTO sessions (id,name,base_directory,display_order,project_id,plugin_data_json) VALUES (7,'Keep','/missing',0,1,?1)", [namespace]).unwrap();
+    db.execute("INSERT INTO tab_definitions (id,session_id,name,kind,config_json,display_order) VALUES (12,7,'Codex','terminal',?1,0)", [config]).unwrap();
+    db.execute("INSERT INTO archives VALUES (4,?1)", [archive.to_string()])
+        .unwrap();
+    db.execute_batch("PRAGMA user_version=7;").unwrap();
+    drop(MetadataStore::open(&directory).unwrap());
+    let tags: String = db
+        .query_row(
+            "SELECT plugin_data_json FROM sessions WHERE id=7",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let tags: serde_json::Value = serde_json::from_str(&tags).unwrap();
+    assert_eq!(tags["ongleet.session-tags"]["value"][0]["name"], "Ready");
+    assert_eq!(tags["custom"]["value"]["devcenter"], "opaque");
+    assert!(tags.get("devcenter.session-tags").is_none());
+    let text: String = db
+        .query_row(
+            "SELECT config_json FROM tab_definitions WHERE id=12",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["config"]["executable"], "ong-codex");
+    assert_eq!(
+        parsed["config"]["args"],
+        serde_json::json!(["dcodex", "日本語"])
+    );
+    assert_eq!(parsed["config"]["env"]["CUSTOM"], "devcenter");
+    let archived: String = db
+        .query_row("SELECT payload_json FROM archives WHERE id=4", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let archived: serde_json::Value = serde_json::from_str(&archived).unwrap();
+    assert_eq!(archived["item"]["tab"]["config"]["executable"], "ong-codex");
+    assert_eq!(
+        archived["item"]["session"]["pluginData"]["ongleet.session-tags"],
+        tags["ongleet.session-tags"]
+    );
+    // Reopening never rewrites data again.
+    drop(MetadataStore::open(&directory).unwrap());
+    assert_eq!(
+        db.query_row(
+            "SELECT config_json FROM tab_definitions WHERE id=12",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        text
+    );
+    // A namespace conflict rolls back earlier row updates and the schema version.
+    db.execute("UPDATE sessions SET plugin_data_json=?1 WHERE id=7", [r#"{"devcenter.session-tags":{"version":1,"value":[]},"ongleet.session-tags":{"version":1,"value":[1]}}"#]).unwrap();
+    db.execute_batch("PRAGMA user_version=7;").unwrap();
+    assert!(MetadataStore::open(&directory)
+        .err()
+        .unwrap()
+        .contains("Conflicting"));
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        7
+    );
+    drop(db);
     std::fs::remove_dir_all(directory).unwrap();
 }

@@ -10,7 +10,7 @@ import tempfile
 
 
 binary = Path(sys.argv[1] if len(sys.argv) > 1 else
-              "src-tauri/target/debug/dcodex").resolve()
+              "src-tauri/target/debug/ong-codex").resolve()
 with tempfile.TemporaryDirectory(prefix="codex-wrapper-'quoted-") as temp:
     root = Path(temp)
     wrapper = root / "wrapper with spaces'"
@@ -45,7 +45,7 @@ sys.exit(23)
 ''')
     fake.chmod(0o700)
     env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
-               DEVCENTER_CODEX_DATA=str(root / "data"), TEST_INHERITED="literal $value")
+               ONGLEET_CODEX_DATA=str(root / "data"), TEST_INHERITED="literal $value")
 
     def launch(session, tab, conversation, *options):
         result = subprocess.run([str(wrapper), "--session-id", str(session),

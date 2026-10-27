@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const storageKey = 'devcenter.editor.wrap';
-const changeEvent = 'devcenter-editor-settings-changed';
+const storageKey = 'ongleet.editor.wrap';
+const changeEvent = 'ongleet-editor-settings-changed';
 let wrap = false;
 try {
   wrap = window.localStorage.getItem(storageKey) === 'true';

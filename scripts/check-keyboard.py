@@ -18,7 +18,7 @@ spec.loader.exec_module(native)
 
 
 def run(args):
-    directory = Path(tempfile.mkdtemp(prefix="devcenter-keyboard-validation-"))
+    directory = Path(tempfile.mkdtemp(prefix="ongleet-keyboard-validation-"))
     received = directory / "received.bin"
     fixture = directory / "input-probe.py"
     fixture.write_text('''import os, pathlib, sys, termios, tty
@@ -38,7 +38,7 @@ try:
 finally:
     termios.tcsetattr(0, termios.TCSANOW, previous)
 ''')
-    config = directory / "config/devcenter/projects/1"
+    config = directory / "config/ongleet/projects/1"
     config.mkdir(parents=True)
     (config / "actions.yaml").write_text(json.dumps({"actions": [{
         "id": "input", "name": "Input probe", "kind": "terminal", "config": {
@@ -47,7 +47,7 @@ finally:
     }]}))
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"),
                XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}",
-               TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND=args.backend, GTK_IM_MODULE=args.input_method, DEVCENTER_DEBUG="1",
+               TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND=args.backend, GTK_IM_MODULE=args.input_method, ONGLEET_DEBUG="1",
                TERMINAL_VALIDATION_RUN=str(directory))
     if args.input_method == "ibus":
         env["IBUS_ADDRESS"] = subprocess.check_output(["ibus", "address"], text=True).strip()
@@ -167,7 +167,7 @@ finally:
         if client.session:
             try:
                 client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                native.wait_for(lambda: not any(p["name"] == "devcenter-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
+                native.wait_for(lambda: not any(p["name"] == "ongleet-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
                 client.request("DELETE", "")
             except Exception as error:
                 report["cleanupError"] = str(error)
@@ -193,5 +193,5 @@ if __name__ == "__main__":
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--input-method", choices=["simple", "ibus"], default="simple")
     parser.add_argument("--driver", default="WebKitWebDriver")
-    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/devcenter-gui"))
+    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/ongleet-gui"))
     run(parser.parse_args())

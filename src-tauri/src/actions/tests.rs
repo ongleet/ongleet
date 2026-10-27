@@ -35,7 +35,7 @@ fn templates_preserve_literal_arguments_and_reject_invalid_modes() {
     );
     assert_eq!(
         types[1].terminal_config().executable.as_deref(),
-        Some("dcodex")
+        Some("ong-codex")
     );
     let input = "actions:\n  - id: test\n    name: Test\n    kind: terminal\n    config:\n      executable: printf\n      args: ['a; echo literal', '日本語']\n      env: {PORT: '3000'}\n";
     let types = parse(input).unwrap();

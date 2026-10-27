@@ -6,6 +6,9 @@ use std::{
     path::Path,
 };
 
+mod yaml;
+pub use yaml::migrate as migrate_yaml;
+
 struct Lock(File);
 impl Drop for Lock {
     fn drop(&mut self) {
@@ -23,9 +26,17 @@ fn lock(path: &Path) -> Result<Lock, String> {
         .open(path)
         .map_err(|e| format!("Cannot lock migration: {e}"))?;
     file.try_lock().map_err(|_| {
-        "Close the previous application instance before migrating DevCenter data".to_string()
+        "Close the previous application instance before migrating Ongleet data".to_string()
     })?;
     Ok(Lock(file))
+}
+
+fn exists(path: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("Cannot inspect {}: {error}", path.display())),
+    }
 }
 
 fn check(source: &Path, target: &Path) -> Result<bool, String> {
@@ -40,37 +51,210 @@ fn check(source: &Path, target: &Path) -> Result<bool, String> {
             source.display()
         ));
     }
-    // Never merge or overwrite independently created DevCenter state.
-    if target.try_exists().map_err(|e| e.to_string())? {
-        return Err(format!("Both legacy and DevCenter directories exist: {} and {}. Resolve the conflict explicitly; neither was changed.", source.display(), target.display()));
+    // Never merge or overwrite independently created Ongleet state.
+    if exists(target)? {
+        return Err(format!("Both legacy and Ongleet directories exist: {} and {}. Resolve the conflict explicitly; neither was changed.", source.display(), target.display()));
     }
     Ok(true)
 }
 
+/// Preflight every directory before moving any state. Renames preserve sidecars.
 pub fn migrate(data: &Path, config: &Path) -> Result<(), String> {
-    let legacy_data = data.with_file_name(LEGACY_ID);
-    let legacy_config = config.with_file_name(LEGACY_ID);
     fs::create_dir_all(data.parent().ok_or("Data directory has no parent")?)
         .map_err(|e| e.to_string())?;
-    let _migration = lock(&data.with_file_name(".devcenter-migration.lock"))?;
-    let move_data = check(&legacy_data, data)?;
-    let move_config = check(&legacy_config, config)?;
-    // Check the same writer lock used by the old application before moving
-    // either directory. Moving a live SQLite database would strand its writer.
-    let _legacy = if move_data {
-        Some(lock(&legacy_data.join("metadata.lock"))?)
-    } else {
-        None
-    };
-    if move_config {
-        fs::rename(&legacy_config, config)
-            .map_err(|e| format!("Cannot migrate DevCenter config: {e}"))?;
+    let _migration = lock(&data.with_file_name(".ongleet-migration.lock"))?;
+    let mut moves = Vec::new();
+    for target in [
+        data.to_path_buf(),
+        config.to_path_buf(),
+        data.with_file_name("io.local.ongleet"),
+        config.with_file_name("io.local.ongleet"),
+    ] {
+        if fs::symlink_metadata(&target).is_ok_and(|m| !m.is_dir()) {
+            return Err(format!(
+                "Application destination is not a directory: {}",
+                target.display()
+            ));
+        }
+        let sources: Vec<_> = if target.file_name().is_some_and(|n| n == "io.local.ongleet") {
+            vec![target.with_file_name("io.local.devcenter")]
+        } else {
+            vec![
+                target.with_file_name("devcenter"),
+                target.with_file_name(LEGACY_ID),
+            ]
+        };
+        let mut existing = Vec::new();
+        for source in sources {
+            if exists(&source)? {
+                existing.push(source);
+            }
+        }
+        if existing.len() > 1 {
+            return Err(format!(
+                "Ambiguous legacy sources for {}; neither was changed",
+                target.display()
+            ));
+        }
+        if let Some(source) = existing.first() {
+            if check(source, &target)? {
+                moves.push((source.clone(), target));
+            }
+        }
     }
-    if move_data {
-        // Keep the complete directory together: database, WAL/SHM, mappings and
-        // lock inode. A failure is reported, and a subsequent launch can retry.
-        fs::rename(&legacy_data, data)
-            .map_err(|e| format!("Cannot migrate DevCenter data: {e}"))?;
+    let profile = data.with_file_name("io.local.ongleet");
+    let profile_source = moves
+        .iter()
+        .find(|(_, target)| target == data)
+        .map(|(source, _)| source.as_path())
+        .unwrap_or(data);
+    let profile_names = [
+        "localstorage",
+        "storage",
+        "databases",
+        "CacheStorage",
+        "WebKitCache",
+        "mediakeys",
+        "hsts-storage.sqlite",
+        "hsts-storage.sqlite-wal",
+        "hsts-storage.sqlite-shm",
+    ];
+    let pending_profile = profile_source.join(".ongleet-prototype-webkit.pending");
+    let resume_profile = pending_profile.exists();
+    let legacy_profile = profile_source != data
+        && (profile_source.file_name().is_some_and(|n| n == LEGACY_ID)
+            || profile_source.join("localstorage").is_dir());
+    let mut profile_moves = Vec::new();
+    // Old prototype state may already have been moved by a preceding DevCenter
+    // upgrade. Explicit profile children never include metadata or user files.
+    for name in profile_names
+        .into_iter()
+        .filter(|_| resume_profile || legacy_profile)
+    {
+        let source = profile_source.join(name);
+        if exists(&source)? {
+            let target = profile.join(name);
+            if exists(&target)? || moves.iter().any(|(_, p)| p == &profile) {
+                return Err(format!(
+                    "Conflicting WebKit profile component {}; neither was changed",
+                    target.display()
+                ));
+            }
+            if fs::symlink_metadata(&source)
+                .map_err(|e| e.to_string())?
+                .file_type()
+                .is_symlink()
+            {
+                return Err("Legacy WebKit profile component is a symbolic link".into());
+            }
+            profile_moves.push(name);
+        }
+    }
+    // Hold all legacy writer locks until every rename has completed.
+    let mut writers = Vec::new();
+    for name in [
+        "devcenter",
+        LEGACY_ID,
+        crate::control::paths::APPLICATION_ID,
+    ] {
+        let old = data.with_file_name(name);
+        if old.is_dir() {
+            writers.push(lock(&old.join("metadata.lock"))?);
+        }
+    }
+    if !profile_moves.is_empty() && !resume_profile {
+        use std::io::Write;
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&pending_profile)
+            .and_then(|mut file| file.write_all(b"1"))
+            .map_err(|e| e.to_string())?;
+    }
+    for (source, target) in moves {
+        fs::rename(&source, &target)
+            .map_err(|e| format!("Cannot migrate {}: {e}", source.display()))?;
+    }
+    if !profile_moves.is_empty() {
+        fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
+        for name in profile_moves {
+            fs::rename(data.join(name), profile.join(name))
+                .map_err(|e| format!("Cannot migrate prototype WebKit profile: {e}"))?;
+        }
+    }
+    let pending = data.join(".ongleet-prototype-webkit.pending");
+    if pending.exists() {
+        fs::remove_file(pending).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Only exact bare executable names are automatic migration candidates.
+pub fn executable(value: &str) -> Option<&'static str> {
+    match value {
+        "dcodex" | "devcenter-codex" => Some("ong-codex"),
+        "devcenter" | "terminal-workspace" => Some("ongleet"),
+        "devcenter-gui" => Some("ongleet-gui"),
+        _ => None,
+    }
+}
+
+pub fn namespaces(value: &mut serde_json::Value) -> Result<(), String> {
+    if let Some(object) = value.as_object_mut() {
+        if let Some(old) = object.get("devcenter.session-tags").cloned() {
+            if object
+                .get("ongleet.session-tags")
+                .is_some_and(|new| new != &old)
+            {
+                return Err("Conflicting session tag namespaces".into());
+            }
+            object.insert("ongleet.session-tags".into(), old);
+            object.remove("devcenter.session-tags");
+        }
+    }
+    Ok(())
+}
+
+pub fn terminal(value: &mut serde_json::Value) {
+    if let Some(config) = value.as_object_mut() {
+        if let Some(new) = config
+            .get("executable")
+            .and_then(|v| v.as_str())
+            .and_then(executable)
+        {
+            config.insert("executable".into(), new.into());
+        }
+    }
+    if serde_json::to_string(value).is_ok_and(|s| {
+        ["devcenter", "dcodex", "terminal-workspace", "DEVCENTER_"]
+            .iter()
+            .any(|old| s.contains(old))
+    }) {
+        eprintln!("Saved terminal retains legacy references in custom paths, shell commands or arguments; review its configuration manually");
+    }
+}
+
+pub fn archived(value: &mut serde_json::Value) -> Result<(), String> {
+    if let Some(object) = value.as_object_mut() {
+        if let Some(data) = object.get_mut("pluginData") {
+            namespaces(data)?;
+        }
+        if object.get("kind").and_then(|v| v.as_str()) == Some("terminal") {
+            if let Some(config) = object.get_mut("config") {
+                terminal(config);
+            }
+        }
+        for key in ["item", "session", "tab"] {
+            if let Some(child) = object.get_mut(key) {
+                archived(child)?;
+            }
+        }
+        if let Some(tabs) = object.get_mut("tabs").and_then(|v| v.as_array_mut()) {
+            for tab in tabs {
+                archived(tab)?;
+            }
+        }
     }
     Ok(())
 }
@@ -85,7 +269,7 @@ mod tests {
         fn new() -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
             let path = std::env::temp_dir().join(format!(
-                "devcenter-migration-{}-{}",
+                "ongleet-migration-{}-{}",
                 std::process::id(),
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
@@ -94,10 +278,7 @@ mod tests {
             Self(path)
         }
         fn paths(&self) -> (std::path::PathBuf, std::path::PathBuf) {
-            (
-                self.0.join("data/devcenter"),
-                self.0.join("config/devcenter"),
-            )
+            (self.0.join("data/ongleet"), self.0.join("config/ongleet"))
         }
     }
     impl Drop for Fixture {
@@ -170,5 +351,104 @@ mod tests {
         assert!(migrate(&data, &config).unwrap_err().contains("Both legacy"));
         assert!(old.exists() && old_config.exists() && !data.exists());
         assert_eq!(fs::read(config.join("keep")).unwrap(), b"new config");
+    }
+}
+
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+    #[test]
+    fn devcenter_profile_and_partial_directory_migration_resume() {
+        let root =
+            std::env::temp_dir().join(format!("ongleet-branding-resume-{}", std::process::id()));
+        let data = root.join("data/ongleet");
+        let config = root.join("config/ongleet");
+        fs::create_dir_all(data.with_file_name("devcenter")).unwrap();
+        // Simulate interruption after the configuration directory was renamed.
+        fs::create_dir_all(&config).unwrap();
+        fs::write(config.join("actions.yaml"), b"# keep me").unwrap();
+        let profile = data.with_file_name("io.local.devcenter");
+        fs::create_dir_all(profile.join("localstorage")).unwrap();
+        fs::write(
+            profile.join("localstorage/state"),
+            b"drafts and preferences",
+        )
+        .unwrap();
+        migrate(&data, &config).unwrap();
+        migrate(&data, &config).unwrap();
+        assert_eq!(
+            fs::read(
+                data.with_file_name("io.local.ongleet")
+                    .join("localstorage/state")
+            )
+            .unwrap(),
+            b"drafts and preferences"
+        );
+        assert_eq!(fs::read(config.join("actions.yaml")).unwrap(), b"# keep me");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn ambiguous_sources_and_profile_conflicts_change_neither_tree() {
+        let root =
+            std::env::temp_dir().join(format!("ongleet-branding-conflict-{}", std::process::id()));
+        let data = root.join("data/ongleet");
+        let config = root.join("config/ongleet");
+        let old = data.with_file_name("devcenter");
+        fs::create_dir_all(&old).unwrap();
+        let prototype = data.with_file_name(LEGACY_ID);
+        fs::create_dir_all(&prototype).unwrap();
+        assert!(migrate(&data, &config).unwrap_err().contains("Ambiguous"));
+        fs::remove_dir(prototype).unwrap();
+        fs::create_dir_all(data.with_file_name("io.local.devcenter")).unwrap();
+        fs::create_dir_all(data.with_file_name("io.local.ongleet")).unwrap();
+        assert!(migrate(&data, &config).is_err());
+        assert!(old.exists() && !data.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn fresh_install_creates_no_state_and_is_repeatable() {
+        let root =
+            std::env::temp_dir().join(format!("ongleet-branding-fresh-{}", std::process::id()));
+        let data = root.join("data/ongleet");
+        let config = root.join("config/ongleet");
+        migrate(&data, &config).unwrap();
+        migrate(&data, &config).unwrap();
+        assert!(!data.exists() && !config.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod prototype_profile_tests {
+    use super::*;
+    #[test]
+    fn moves_prototype_webkit_children_and_resumes_partial_profile_move() {
+        let root =
+            std::env::temp_dir().join(format!("ongleet-prototype-webkit-{}", std::process::id()));
+        let data = root.join("data/ongleet");
+        let config = root.join("config/ongleet");
+        let old = data.with_file_name(LEGACY_ID);
+        fs::create_dir_all(old.join("localstorage")).unwrap();
+        fs::create_dir_all(old.join("storage")).unwrap();
+        fs::write(old.join("localstorage/drafts"), b"draft").unwrap();
+        fs::write(old.join("storage/preferences"), b"wrap").unwrap();
+        fs::write(old.join("user-file"), b"keep").unwrap();
+        migrate(&data, &config).unwrap();
+        let profile = data.with_file_name("io.local.ongleet");
+        assert_eq!(
+            fs::read(profile.join("localstorage/drafts")).unwrap(),
+            b"draft"
+        );
+        assert_eq!(fs::read(data.join("user-file")).unwrap(), b"keep");
+        // Simulate interruption between individual WebKit component renames.
+        fs::rename(profile.join("storage"), data.join("storage")).unwrap();
+        fs::write(data.join(".ongleet-prototype-webkit.pending"), b"1").unwrap();
+        migrate(&data, &config).unwrap();
+        migrate(&data, &config).unwrap();
+        assert_eq!(
+            fs::read(profile.join("storage/preferences")).unwrap(),
+            b"wrap"
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 }

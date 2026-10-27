@@ -794,30 +794,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "devcenter"
-version = "0.1.0"
-dependencies = [
- "diesel",
- "gtk",
- "http",
- "libc",
- "libsqlite3-sys",
- "portable-pty",
- "reqwest 0.12.28",
- "rusqlite",
- "secret-service",
- "serde",
- "serde_json",
- "serde_yaml_ng",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tokio",
- "webkit2gtk",
-]
-
-[[package]]
 name = "diesel"
 version = "2.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2789,6 +2765,30 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "ongleet"
+version = "0.1.0"
+dependencies = [
+ "diesel",
+ "gtk",
+ "http",
+ "libc",
+ "libsqlite3-sys",
+ "portable-pty",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "secret-service",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tokio",
+ "webkit2gtk",
+]
 
 [[package]]
 name = "option-ext"

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DevCenter",
+  "productName": "Ongleet",
   "version": "0.1.0",
-  "identifier": "io.local.devcenter",
+  "identifier": "io.local.ongleet",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "DevCenter \u2014 preview",
+        "title": "Ongleet \u2014 preview",
         "decorations": false,
         "transparent": true,
         "visible": false,
@@ -31,6 +31,12 @@
     "icon": ["icons/128x128.png", "icons/32x32.png", "icons/256x256.png", "icons/512x512.png"],
     "targets": ["deb"],
     "category": "DeveloperTool",
-    "shortDescription": "Native terminal sessions for development projects"
+    "shortDescription": "Native terminal sessions for development projects",
+    "linux": {
+      "deb": {
+        "conflicts": ["devcenter"],
+        "replaces": ["devcenter"]
+      }
+    }
   }
 }

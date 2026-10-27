@@ -4,7 +4,7 @@ use tauri::Manager;
 
 /// Opt-in native diagnostics; key values can reveal typed input.
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
-    if std::env::var_os("DEVCENTER_DEBUG").as_deref() != Some(std::ffi::OsStr::new("1")) {
+    if std::env::var_os("ONGLEET_DEBUG").as_deref() != Some(std::ffi::OsStr::new("1")) {
         return Ok(());
     }
     let started = Instant::now();

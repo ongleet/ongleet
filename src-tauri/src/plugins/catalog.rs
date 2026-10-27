@@ -22,12 +22,12 @@ pub fn catalog() -> Value {
                 "External command actions are not tab types and are excluded from tab actions."]
         },
         "workflow": [
-            "devcenter session list",
-            "devcenter tab types",
-            "devcenter tab actions --session SESSION_ID",
-            "devcenter tab create --session SESSION_ID --action ACTION_ID [--name NAME] [--config JSON]",
-            "devcenter tab list --session SESSION_ID",
-            "devcenter tab configure TAB_ID --config JSON"
+            "ongleet session list",
+            "ongleet tab types",
+            "ongleet tab actions --session SESSION_ID",
+            "ongleet tab create --session SESSION_ID --action ACTION_ID [--name NAME] [--config JSON]",
+            "ongleet tab list --session SESSION_ID",
+            "ongleet tab configure TAB_ID --config JSON"
         ]
     })
 }

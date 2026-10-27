@@ -142,7 +142,7 @@ pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document,
     document(path, output.as_bytes(), &metadata)?.ok_or("Content is not supported text")?;
     let parent = path.parent().ok_or("File has no parent directory")?;
     let temporary = parent.join(format!(
-        ".devcenter-edit-{}-{}",
+        ".ongleet-edit-{}-{}",
         std::process::id(),
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn save_rejects_read_only_hardlinked_and_retargeted_files_without_modification() {
         let root =
-            std::env::temp_dir().join(format!("devcenter-editor-reject-{}", std::process::id()));
+            std::env::temp_dir().join(format!("ongleet-editor-reject-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let target = root.join("target.txt");
         let link = root.join("link.txt");
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn editing_preserves_format_permissions_and_rejects_conflicts_and_binary_files() {
-        let root = std::env::temp_dir().join(format!("devcenter-editor-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("ongleet-editor-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let path = root.join("test.txt");
         let name = path.to_str().unwrap();

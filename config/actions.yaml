@@ -13,7 +13,7 @@ actions:
     name: Codex
     kind: terminal
     config:
-      executable: dcodex
+      executable: ong-codex
       args: []
       env: {}
   - id: files

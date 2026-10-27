@@ -29,7 +29,7 @@ def run(args):
     codex = shutil.which("codex")
     if not codex:
         raise SystemExit("Codex is missing from PATH")
-    directory = Path(tempfile.mkdtemp(prefix="devcenter-codex-validation-"))
+    directory = Path(tempfile.mkdtemp(prefix="ong-codex-validation-"))
     workspace = directory / "workspace"
     workspace.mkdir()
     private_home = directory / "codex-home"
@@ -61,7 +61,7 @@ elif mode == "interrupt":
     finally:
         (root / "stopped").write_text("stopped")
 ''')
-    config_dir = directory / "config/devcenter/projects/1"
+    config_dir = directory / "config/ongleet/projects/1"
     config_dir.mkdir(parents=True)
     (config_dir / "actions.yaml").write_text(json.dumps({"actions": [{
         "id": "codex", "name": "Live Codex", "kind": "terminal", "config": {
@@ -215,7 +215,7 @@ elif mode == "interrupt":
         if client.session:
             try:
                 client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
-                native.wait_for(lambda: not any(p["name"] == "devcenter-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
+                native.wait_for(lambda: not any(p["name"] == "ongleet-gui" for p in native.owned_processes(directory)), "test GUI exits", timeout=5)
                 client.request("DELETE", "")
             except Exception as error:
                 report["cleanupError"] = str(error)
@@ -242,6 +242,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend", choices=["wayland", "x11"], default="wayland")
     parser.add_argument("--driver", default="WebKitWebDriver")
-    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/devcenter-gui"))
+    parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/ongleet-gui"))
     parser.add_argument("--auth-home", default=os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
     run(parser.parse_args())

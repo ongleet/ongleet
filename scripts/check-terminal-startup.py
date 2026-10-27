@@ -15,7 +15,7 @@ native = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(native)
 directory = Path(tempfile.mkdtemp(prefix='terminal-startup-validation-'))
 directory.chmod(0o700)
-data = directory / 'data/devcenter'
+data = directory / 'data/ongleet'
 data.mkdir(parents=True)
 c = sqlite3.connect(data / 'workspaces.sqlite3')
 for sql in sorted((root / 'src-tauri/migrations').glob('*.sql')):
@@ -36,7 +36,7 @@ c.execute('update sessions set selected_tab_id=11 where id=6')
 c.execute('update app_state set session_sequence=6,tab_sequence=12,selected_session_id=6')
 c.commit()
 c.close()
-configdir = directory / 'config/devcenter/projects/1'
+configdir = directory / 'config/ongleet/projects/1'
 configdir.mkdir(parents=True)
 renamed_source = directory / 'before-rename'
 renamed_source.mkdir()

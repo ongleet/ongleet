@@ -114,7 +114,7 @@ fn scoped_help_needs_no_target_or_required_options() {
         let Invocation::Help(text) = parse(args(&values)).unwrap() else {
             panic!("Help must never execute a request: {values:?}");
         };
-        assert!(text.contains("devcenter automation --help"));
+        assert!(text.contains("ongleet automation --help"));
         assert!(!text.contains("AUTOMATION CONTRACT"));
     }
     let Invocation::Help(text) = parse(args(&["session", "create", "--help"])).unwrap() else {
@@ -290,7 +290,7 @@ fn help_is_progressive_and_keeps_automation_details_in_their_own_topic() {
     assert!(!tabs.contains("EXIT CODES"));
 
     let create = help(&["tab", "create", "--help"]);
-    assert!(create.contains("DEVCENTER_SESSION_ID"));
+    assert!(create.contains("ONGLEET_SESSION_ID"));
     assert!(create.contains("tab types"));
     assert!(create.contains("before launch"));
     assert!(!create.contains("project close"));
@@ -365,8 +365,7 @@ fn output_mode_applies_to_errors_without_changing_exit_codes() {
 
 #[test]
 fn configuration_commands_preserve_file_content_and_require_explicit_targets() {
-    let path =
-        std::env::temp_dir().join(format!("devcenter-cli-config-{}.yaml", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ongleet-cli-config-{}.yaml", std::process::id()));
     let yaml = "# Keep comments\nenv:\n  VALUE: 'literal $value'\nactions: []\n";
     std::fs::write(&path, yaml).unwrap();
     let path_arg = path.to_str().unwrap();

@@ -47,7 +47,7 @@ args = sys.argv[1:]
 config = next(tomllib.loads(args[i+1]) for i, a in enumerate(args) if a == '-c' and args[i+1].startswith('hooks.'))
 command = config['hooks']['SessionStart'][0]['hooks'][0]['command']
 subprocess.run(command, shell=True, input=json.dumps({'session_id': 'pty-conversation', 'hook_event_name': 'SessionStart'}), text=True, check=True)
-print('CONTEXT:' + os.environ['DEVCENTER_SESSION_ID'] + ':' + os.environ['DEVCENTER_TAB_ID'], flush=True)
+print('CONTEXT:' + os.environ['ONGLEET_SESSION_ID'] + ':' + os.environ['ONGLEET_TAB_ID'], flush=True)
 "#).unwrap();
     fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
     let mut registry = SessionRegistry::open(&directory.0).unwrap();
@@ -55,11 +55,11 @@ print('CONTEXT:' + os.environ['DEVCENTER_SESSION_ID'] + ':' + os.environ['DEVCEN
     let session = registry.sessions[0].id;
     let tab = registry.sessions[0].tabs[0].id;
     registry.sessions[0].tabs[0].config = serde_json::to_value(TabConfig {
-        executable: Some("dcodex".into()),
+        executable: Some("ong-codex".into()),
         args: vec!["--no-restart".into()],
         env: BTreeMap::from([
             ("PATH".into(), format!("{}:/usr/bin:/bin", directory.path())),
-            ("DEVCENTER_TAB_ID".into(), "999".into()),
+            ("ONGLEET_TAB_ID".into(), "999".into()),
         ]),
         ..Default::default()
     })
@@ -431,8 +431,8 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
     let a = registry.sessions[0].tabs[0].id;
     let mut config = TabConfig {
             executable: Some("/usr/bin/python3".into()),
-            args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ,os.environ['DEVCENTER_SESSION_ID'],os.environ['DEVCENTER_PROJECT_ID'],os.environ['DEVCENTER_TAB_ID']]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
-            env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into()), ("DEVCENTER_SESSION_ID".into(), "999".into()), ("DEVCENTER_PROJECT_ID".into(), "999".into()), ("DEVCENTER_TAB_ID".into(), "999".into())]), ..Default::default()
+            args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ,os.environ['ONGLEET_SESSION_ID'],os.environ['ONGLEET_PROJECT_ID'],os.environ['ONGLEET_TAB_ID']]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
+            env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into()), ("ONGLEET_SESSION_ID".into(), "999".into()), ("ONGLEET_PROJECT_ID".into(), "999".into()), ("ONGLEET_TAB_ID".into(), "999".into())]), ..Default::default()
         };
     registry.configure_tab(a, config.clone()).unwrap();
     let (channel, receive) = output();
@@ -480,9 +480,9 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
     assert_eq!(payload[0], old_directory.path());
     let saved_env = registry.sessions[0].tabs[0].terminal_config().env;
     assert_eq!(saved_env.len(), 4);
-    assert_eq!(saved_env["DEVCENTER_SESSION_ID"], "999");
-    assert_eq!(saved_env["DEVCENTER_PROJECT_ID"], "999");
-    assert_eq!(saved_env["DEVCENTER_TAB_ID"], "999");
+    assert_eq!(saved_env["ONGLEET_SESSION_ID"], "999");
+    assert_eq!(saved_env["ONGLEET_PROJECT_ID"], "999");
+    assert_eq!(saved_env["ONGLEET_TAB_ID"], "999");
     registry.create_tab(session).unwrap();
     let d = registry.sessions[0].selected_tab_id.unwrap();
     registry

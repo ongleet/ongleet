@@ -42,7 +42,7 @@ export async function graphql<T>(
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'User-Agent': 'DevCenter',
+      'User-Agent': 'Ongleet',
       Accept: 'application/vnd.github+json',
     },
     body: JSON.stringify({ query, variables }),

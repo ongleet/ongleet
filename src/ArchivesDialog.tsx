@@ -136,7 +136,7 @@ export function ArchivesDialog({
                       onClick={async () => {
                         if (
                           await confirm(
-                            `Permanently delete archive “${entry.name}” and its DevCenter history? This cannot be undone. Working files stay untouched.`,
+                            `Permanently delete archive “${entry.name}” and its Ongleet history? This cannot be undone. Working files stay untouched.`,
                           )
                         )
                           await act('purge_archive', { id: entry.id, confirmed: true });

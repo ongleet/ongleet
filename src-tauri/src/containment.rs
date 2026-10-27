@@ -41,7 +41,7 @@ impl Containment {
             if fs::metadata(&root).map_err(|e| e.to_string())?.uid() != uid {
                 return Err("User cgroup delegation is not owned by the current user".into());
             }
-            let directory = root.join(format!("devcenter-{}-{}", std::process::id(), nonce()?));
+            let directory = root.join(format!("ongleet-{}-{}", std::process::id(), nonce()?));
             fs::create_dir(&directory).map_err(|e| e.to_string())?;
             match OpenOptions::new()
                 .write(true)

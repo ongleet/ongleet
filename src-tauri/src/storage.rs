@@ -336,7 +336,7 @@ fn migrate(connection: &mut SqliteConnection) -> StorageResult<()> {
         connection,
         "SELECT user_version AS value FROM pragma_user_version",
     )?;
-    if version > 7 {
+    if version > 8 {
         return Err(format!(
             "Unsupported session database schema version {version}; the database was not reset"
         )
@@ -397,6 +397,68 @@ fn migrate(connection: &mut SqliteConnection) -> StorageResult<()> {
             Ok(())
         })?;
     }
+    if version < 8 {
+        connection.immediate_transaction::<_, StorageError, _>(|connection| {
+            for (id, text) in sessions::table
+                .select((sessions::id, sessions::plugin_data_json))
+                .load::<(i64, String)>(connection)?
+            {
+                let mut value: serde_json::Value = serde_json::from_str(&text)?;
+                let before = value.clone();
+                crate::branding::namespaces(&mut value)?;
+                if value == before {
+                    continue;
+                }
+                diesel::update(sessions::table.find(id))
+                    .set(sessions::plugin_data_json.eq(serde_json::to_string(&value)?))
+                    .execute(connection)?;
+            }
+            for (id, kind, text, data) in tab_definitions::table
+                .select((
+                    tab_definitions::id,
+                    tab_definitions::kind,
+                    tab_definitions::config_json,
+                    tab_definitions::plugin_data_json,
+                ))
+                .load::<(i64, String, String, String)>(connection)?
+            {
+                let mut config: StoredConfig = serde_json::from_str(&text)?;
+                let old_config = config.config.clone();
+                if kind == "terminal" {
+                    crate::branding::terminal(&mut config.config);
+                }
+                let mut value = serde_json::from_str(&data)?;
+                crate::branding::namespaces(&mut value)?;
+                diesel::update(tab_definitions::table.find(id))
+                    .set((
+                        tab_definitions::config_json.eq(if config.config == old_config {
+                            text
+                        } else {
+                            serde_json::to_string(&config)?
+                        }),
+                        tab_definitions::plugin_data_json.eq(serde_json::to_string(&value)?),
+                    ))
+                    .execute(connection)?;
+            }
+            for (id, text) in archives::table
+                .select((archives::id, archives::payload_json))
+                .load::<(i64, String)>(connection)?
+            {
+                let mut value: serde_json::Value = serde_json::from_str(&text)?;
+                let before = value.clone();
+                crate::branding::archived(&mut value)?;
+                if value == before {
+                    continue;
+                }
+                diesel::update(archives::table.find(id))
+                    .set(archives::payload_json.eq(serde_json::to_string(&value)?))
+                    .execute(connection)?;
+            }
+            connection.batch_execute("PRAGMA user_version=8;")?;
+            Ok(())
+        })?;
+    }
+
     Ok(())
 }
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "DevCenter application window",
+  "description": "Ongleet application window",
   "windows": ["main"],
   "permissions": [
     "core:default",

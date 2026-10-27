@@ -1,6 +1,6 @@
 # Stack summary
 
-DevCenter is a Linux desktop application using Tauri 2, React/TypeScript, Rust, portable-pty, SQLite and Ghostty WASM through pinned `ghostty-web` 0.4.0. No alternate terminal engine or daemon is used.
+Ongleet is a Linux desktop application using Tauri 2, React/TypeScript, Rust, portable-pty, SQLite and Ghostty WASM through pinned `ghostty-web` 0.4.0. No alternate terminal engine or daemon is used.
 
 ## Runtime boundaries
 
@@ -24,21 +24,21 @@ Diesel provides typed Rust models and queries over the existing bundled SQLite d
 
 SQLite stores stable IDs, definitions, openings, selections, ordering, explicit launch overrides and restart eligibility. Only previously running commands restart, as new processes. Window close hides after confirmation and quits after two minutes unless reopened; explicit Quit terminates contained processes immediately after confirmation.
 
-Built-in terminal, Files and PR plugins own versioned configuration. Unknown plugins remain opaque/unavailable. Schema 4 wraps plugin payloads; schema 5 repairs either schema-4 PR-column variant; schema 6 adds archives; schema 7 adds bounded versioned plugin namespaces and migrates PR associations. Archive version 2 preserves namespaces and reads version-1 payloads. Archives retain metadata for 30 days, restore stable IDs and use retryable two-phase artifact purge. They retain neither live processes nor unsaved edits.
+Built-in terminal, Files and PR plugins own versioned configuration. Unknown plugins remain opaque/unavailable. Schema 4 wraps plugin payloads; schema 5 repairs either schema-4 PR-column variant; schema 6 adds archives; schema 7 adds bounded versioned plugin namespaces and migrates PR associations. Schema 8 migrates branding namespaces and saved executables, including archives. Archive version 2 preserves namespaces and reads version-1 payloads. Archives retain metadata for 30 days, restore stable IDs and use retryable two-phase artifact purge. They retain neither live processes nor unsaved edits.
 
 Files uses bounded scans/batches and a 1 MiB UTF-8 CodeMirror editor. Saves check revisions and atomically replace eligible files. BOM, uniform LF/CRLF, ordinary permissions and group survive; ACLs/xattrs do not. External-writer races remain. Drafts are memory-only.
 
 PR status uses explicit session associations and authenticated `gh`, with 20-second timeouts, at most 32 jobs and 60-second visible-only polling. Cancellation waits for child cleanup. Results are not persisted; no Git discovery or credential storage.
 
-External command actions have no PTY/tab, discard output and intentionally outlive DevCenter. At most 64 direct-child waiters reap/report exits. Literal argument placeholders and explicit shell mode remain separate.
+External command actions have no PTY/tab, discard output and intentionally outlive Ongleet. At most 64 direct-child waiters reap/report exits. Literal argument placeholders and explicit shell mode remain separate.
 
-`dcodex` records conversation IDs through invocation hooks and resumes after a two-second delay, stopping after five rapid exits. Missing history never starts a fresh conversation implicitly. Hook trust bypass also permits other enabled hooks without review. No global Codex configuration changes occur.
+`ong-codex` records conversation IDs through invocation hooks and resumes after a two-second delay, stopping after five rapid exits. Missing history never starts a fresh conversation implicitly. Hook trust bypass also permits other enabled hooks without review. No global Codex configuration changes occur.
 
 ## Control and distribution
 
 The CLI uses shared Rust operations over a private same-UID socket, never SQLite. Protocol 2 allows 128 KiB requests/1 MiB responses; requests use EOF framing. Server read/write limits are two seconds; CLI response reads allow 30 seconds. Mutations are not retried automatically.
 
-Names: `devcenter-gui`, `devcenter`, `dcodex`; desktop ID `io.local.devcenter`; shared XDG directories `devcenter`. Legacy migration preserves data/configuration and rejects destination conflicts/live writers.
+Names: `ongleet-gui`, `ongleet`, `ong-codex`; desktop ID `io.local.ongleet`; shared XDG directories `ongleet`. Legacy migration preserves data/configuration and rejects destination conflicts/live writers.
 
 `ghostty-web` declares MIT and ships patched Ghostty WASM. Distribution still requires applicable notices and WASM source/build provenance.
 

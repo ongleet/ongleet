@@ -297,7 +297,7 @@ pub fn activity_for_launch(
 
 fn report_activity(launch: &str) {
     let result = (|| -> Result<(), String> {
-        let data = PathBuf::from(required("DEVCENTER_CODEX_DATA")?);
+        let data = PathBuf::from(required("ONGLEET_CODEX_DATA")?);
         let socket = crate::control::paths::socket_path(&data)?;
         let id = |key| {
             required(key)?
@@ -307,8 +307,8 @@ fn report_activity(launch: &str) {
         let response = crate::control::client::call_with_timeout(
             &socket,
             crate::control::protocol::Command::CodexActivity {
-                session_id: id("DEVCENTER_SESSION_ID")?,
-                tab_id: id("DEVCENTER_TAB_ID")?,
+                session_id: id("ONGLEET_SESSION_ID")?,
+                tab_id: id("ONGLEET_TAB_ID")?,
                 launch: launch.into(),
             },
             std::time::Duration::from_secs(1),
@@ -319,7 +319,7 @@ fn report_activity(launch: &str) {
         }
         Ok(())
     })();
-    if std::env::var_os("DEVCENTER_DEBUG").is_some_and(|v| v == "1") {
+    if std::env::var_os("ONGLEET_DEBUG").is_some_and(|v| v == "1") {
         if let Err(error) = result {
             eprintln!("Codex activity update: {error}");
         }
@@ -348,17 +348,17 @@ fn stopped(path: &Path, launch: &str) -> Result<(), String> {
 fn required(name: &str) -> Result<String, String> {
     std::env::var(name)
         .or_else(|error| {
-            if name == "DEVCENTER_SESSION_ID" {
-                std::env::var("DEVCENTER_WORKSPACE_ID")
+            if name == "ONGLEET_SESSION_ID" {
+                std::env::var("ONGLEET_WORKSPACE_ID")
             } else {
                 Err(error)
             }
         })
-        .map_err(|_| format!("{name} is required; launch dcodex from a configured terminal tab"))
+        .map_err(|_| format!("{name} is required; launch ong-codex from a configured terminal tab"))
 }
 
 fn session_path() -> Result<PathBuf, String> {
-    let data = PathBuf::from(required("DEVCENTER_CODEX_DATA")?);
+    let data = PathBuf::from(required("ONGLEET_CODEX_DATA")?);
     if !data.is_absolute() {
         return Err("Codex data directory must be absolute".into());
     }
@@ -371,20 +371,20 @@ fn session_path() -> Result<PathBuf, String> {
     };
     let directory = data
         .join("codex-sessions")
-        .join(id("DEVCENTER_SESSION_ID")?.to_string());
+        .join(id("ONGLEET_SESSION_ID")?.to_string());
     fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(&directory)
         .map_err(|e| e.to_string())?;
-    Ok(directory.join(format!("{}.json", id("DEVCENTER_TAB_ID")?)))
+    Ok(directory.join(format!("{}.json", id("ONGLEET_TAB_ID")?)))
 }
 
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-const DEVCENTER_INSTRUCTIONS: &str = "You are launched through dcodex, the DevCenter Codex wrapper. DevCenter is a Linux terminal application organized into projects, sessions and tabs. A DevCenter session may contain multiple terminal or other plugin tabs; it is distinct from your Codex conversation. Read DEVCENTER_SESSION_ID, DEVCENTER_PROJECT_ID and DEVCENTER_TAB_ID from the environment for your launch context when available; this context does not follow later project moves or GUI selection changes. The devcenter CLI can inspect and manage the running application: start with devcenter --help, then resource or command --help. Use --json for structured output. Inspect configuration with project config ID or session config ID; project configure ID --file PATH saves actions/env YAML, session configure ID updates properties, and session pull-request ID sets or clears the linked PR. Discover options with command --help. Tab list/actions/create default to the launch session, and session create defaults to the launch project; explicit --session/--project override these defaults. The CLI requires a running app and does not start it automatically. Use it only as needed for the user's task; closing your own tab or session or quitting the app can terminate your process. Wait for the user's task before taking action.";
+const ONGLEET_INSTRUCTIONS: &str = "You are launched through ong-codex, the Ongleet Codex wrapper. Ongleet is a Linux terminal application organized into projects, sessions and tabs. A Ongleet session may contain multiple terminal or other plugin tabs; it is distinct from your Codex conversation. Read ONGLEET_SESSION_ID, ONGLEET_PROJECT_ID and ONGLEET_TAB_ID from the environment for your launch context when available; this context does not follow later project moves or GUI selection changes. The ongleet CLI can inspect and manage the running application: start with ongleet --help, then resource or command --help. Use --json for structured output. Inspect configuration with project config ID or session config ID; project configure ID --file PATH saves actions/env YAML, session configure ID updates properties, and session pull-request ID sets or clears the linked PR. Discover options with command --help. Tab list/actions/create default to the launch session, and session create defaults to the launch project; explicit --session/--project override these defaults. The CLI requires a running app and does not start it automatically. Use it only as needed for the user's task; closing your own tab or session or quitting the app can terminate your process. Wait for the user's task before taking action.";
 
 fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
     let command = format!("{} {RECORD_FLAG}", quote(hook));
@@ -400,7 +400,7 @@ fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
         "-c".into(),
         format!(
             "developer_instructions={}",
-            serde_json::to_string(DEVCENTER_INSTRUCTIONS).unwrap()
+            serde_json::to_string(ONGLEET_INSTRUCTIONS).unwrap()
         ),
     ];
     for event in [
@@ -451,14 +451,14 @@ pub fn run(flag: &str, args: Vec<String>) {
     let result = (|| {
         let mut extra = args;
         if extra.first().is_some_and(|a| a == "--help" || a == "-h") {
-            println!("dcodex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically restart after exit, resuming when an ID is saved; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as dcodex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
+            println!("ong-codex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically restart after exit, resuming when an ID is saved; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as ong-codex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
             return Ok(());
         }
         let path = session_path()?;
         if flag == RECORD_FLAG {
             return record(
                 &path,
-                &required("DEVCENTER_CODEX_LAUNCH")?,
+                &required("ONGLEET_CODEX_LAUNCH")?,
                 std::io::stdin().lock(),
             );
         }
@@ -475,7 +475,7 @@ pub fn run(flag: &str, args: Vec<String>) {
         if extra.first().is_some_and(|a| a == "--") {
             extra.remove(0);
         }
-        let hook = required("DEVCENTER_CODEX_HOOK_EXE")?;
+        let hook = required("ONGLEET_CODEX_HOOK_EXE")?;
         let mut state = begin(&path, fresh)?;
         // Keep terminal-generated interrupts directed at Codex without killing
         // its supervisor. The child restores normal dispositions before exec.
@@ -493,7 +493,7 @@ pub fn run(flag: &str, args: Vec<String>) {
             let mut command = Command::new("codex");
             command
                 .args(codex_args(&state, &hook, &extra))
-                .env("DEVCENTER_CODEX_LAUNCH", &state.launch);
+                .env("ONGLEET_CODEX_LAUNCH", &state.launch);
             unsafe {
                 command.pre_exec(|| {
                     libc::signal(libc::SIGINT, libc::SIG_DFL);

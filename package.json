@@ -1,5 +1,5 @@
 {
-  "name": "devcenter",
+  "name": "ongleet",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,7 +19,8 @@
     "check:editor-merge": "node scripts/check-editor-merge.mjs",
     "check:pr-status": "node scripts/check-pr-status.mjs",
     "check:plugins": "node scripts/check-plugin-boundaries.mjs",
-    "package:deb": "tauri build --bundles deb"
+    "package:deb": "tauri build --bundles deb",
+    "check:branding-storage": "node scripts/check-branding-storage.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

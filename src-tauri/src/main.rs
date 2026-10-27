@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[cfg(not(target_os = "linux"))]
-compile_error!("DevCenter currently supports Linux only");
+compile_error!("Ongleet currently supports Linux only");
 
 mod actions;
 mod branding;
@@ -605,15 +605,22 @@ fn run() -> Result<(), String> {
     let socket = instance::socket_path(&directory)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--help"] {
-        println!("DevCenter\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --foreground    Keep the GUI attached to the launching terminal\n  --migrate       Migrate config/data and database schema without opening a window");
+        println!("Ongleet\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --foreground    Keep the GUI attached to the launching terminal\n  --migrate       Migrate config/data and database schema without opening a window");
         return Ok(());
     }
     if args == ["--migrate"] {
         branding::migrate(&directory, &control::paths::config_directory()?)?;
+        if let Err(error) = tauri::async_runtime::block_on(core::credentials::migrate()) {
+            if error.starts_with("Conflicting") {
+                return Err(error);
+            }
+            eprintln!("{error}");
+        }
         let _store = storage::MetadataStore::open(&directory)?;
+        branding::migrate_yaml(&control::paths::config_directory()?)?;
         actions::migrate_projects(&control::paths::config_directory()?)?;
         println!(
-            "DevCenter config: {}\nDevCenter database: {}",
+            "Ongleet config: {}\nOngleet database: {}",
             control::paths::config_directory()?.display(),
             directory.join("workspaces.sqlite3").display()
         );
@@ -632,6 +639,12 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
     branding::migrate(&directory, &control::paths::config_directory()?)?;
+    if let Err(error) = tauri::async_runtime::block_on(core::credentials::migrate()) {
+        if error.starts_with("Conflicting") {
+            return Err(error);
+        }
+        eprintln!("{error}");
+    }
     let registry = match SessionRegistry::open(&directory) {
         Ok(registry) => registry,
         Err(error) => {
@@ -648,6 +661,7 @@ fn run() -> Result<(), String> {
     if let Err(error) = diagnostics::init(&directory) {
         eprintln!("Could not initialize diagnostic log: {error}");
     }
+    branding::migrate_yaml(&control::paths::config_directory()?)?;
     actions::migrate_projects(&control::paths::config_directory()?)?;
     tauri::Builder::default()
         .manage(AppRegistry(Arc::new(Mutex::new(registry))))

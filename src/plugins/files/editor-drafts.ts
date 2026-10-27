@@ -3,7 +3,7 @@ import type { TextDocument } from '../../sdk';
 type Draft = { version: 1; baseline: TextDocument; text: string };
 
 function key(id: number, path: string) {
-  return `devcenter.editor.draft:${JSON.stringify([id, path])}`;
+  return `ongleet.editor.draft:${JSON.stringify([id, path])}`;
 }
 
 export function readDraft(id: number, path: string): Draft | undefined {

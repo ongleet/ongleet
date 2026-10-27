@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn watches_replacements_and_recreation_without_reporting_siblings() {
-        let root = std::env::temp_dir().join(format!("devcenter-watch-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("ongleet-watch-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
         let path = root.join("file.txt");
         std::fs::write(&path, "original").unwrap();

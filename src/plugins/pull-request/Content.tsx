@@ -158,7 +158,7 @@ export function PullRequestContent({
         );
         if (request !== generation.current) return;
         const reviews = otherReviews(result.reviews ?? [], viewer);
-        const key = `devcenter.pr-reviews.v1:${session.id}:${associationKey}:${viewer.toLowerCase()}`;
+        const key = `ongleet.pr-reviews.v1:${session.id}:${associationKey}:${viewer.toLowerCase()}`;
         let cursor = readCursor(key);
         if (!cursor) {
           cursor = acknowledgeReviews(reviews);
@@ -307,15 +307,15 @@ export function PullRequestContent({
       <h3>GitHub connection</h3>
       {!auth.loading && !auth.environment && (
         <p className="muted">
-          Neither GH_TOKEN nor GITHUB_TOKEN is set in DevCenter’s launch environment.
+          Neither GH_TOKEN nor GITHUB_TOKEN is set in Ongleet’s launch environment.
         </p>
       )}
       {auth.login && <p>Connected as {auth.login}</p>}
       {auth.environment ? (
         <>
           <p className="muted">
-            Using {auth.environment} from DevCenter’s launch environment. Update it and restart
-            DevCenter to change the token.
+            Using {auth.environment} from Ongleet’s launch environment. Update it and restart
+            Ongleet to change the token.
           </p>
           {(!auth.login || auth.paused) && (
             <button

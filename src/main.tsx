@@ -1,3 +1,4 @@
+import './branding-storage';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -670,7 +671,7 @@ function App() {
         )}
         {!state.sessions.length && (
           <div className="empty-state">
-            <h1>Welcome to DevCenter</h1>
+            <h1>Welcome to Ongleet</h1>
             <p>Create a session pointing to an existing directory.</p>
             <button
               disabled={!ready || disabled}

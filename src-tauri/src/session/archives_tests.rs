@@ -5,7 +5,7 @@ struct Fixture(PathBuf);
 impl Fixture {
     fn new(name: &str) -> Self {
         let path =
-            std::env::temp_dir().join(format!("devcenter-archive-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("ongleet-archive-{name}-{}", std::process::id()));
         std::fs::create_dir(&path).unwrap();
         Self(path)
     }
@@ -195,4 +195,45 @@ fn startup_and_new_archives_prune_expired_entries_without_touching_recent_or_act
         ArchivedItem::Tab { .. }
     ));
     assert_eq!(registry.sessions[0].id, active);
+}
+
+#[test]
+fn restores_legacy_codex_archive_with_new_wrapper_and_original_association() {
+    let fixture = Fixture::new("branding");
+    let mut registry = fixture.open();
+    registry
+        .create("Saved".into(), fixture.0.to_str().unwrap().into())
+        .unwrap();
+    let session = registry.sessions[0].id;
+    registry.create_plugin_tab(session, "Codex".into(), "terminal".into(), 1,
+        serde_json::json!({"executable":"dcodex","args":["--no-restart"],"env":{"CUSTOM":"keep"}})).unwrap();
+    let tab = registry.next_tab_id;
+    let mapping = fixture.0.join("codex-sessions").join(session.to_string());
+    std::fs::create_dir_all(&mapping).unwrap();
+    std::fs::write(
+        mapping.join(format!("{tab}.json")),
+        b"original conversation mapping",
+    )
+    .unwrap();
+    registry.delete_tab(tab, false).unwrap();
+    let archive = registry.archives[0].id;
+    drop(registry);
+    let db = rusqlite::Connection::open(fixture.0.join("workspaces.sqlite3")).unwrap();
+    db.execute_batch("PRAGMA user_version=7;").unwrap();
+    drop(db);
+    let mut registry = fixture.open();
+    registry.restore_archive(archive).unwrap();
+    let restored = registry.sessions[0]
+        .tabs
+        .iter()
+        .find(|t| t.id == tab)
+        .unwrap();
+    assert_eq!(restored.config["executable"], "ong-codex");
+    assert_eq!(restored.config["args"], serde_json::json!(["--no-restart"]));
+    assert_eq!(restored.config["env"]["CUSTOM"], "keep");
+    assert_eq!(
+        std::fs::read(mapping.join(format!("{tab}.json"))).unwrap(),
+        b"original conversation mapping"
+    );
+    assert!(registry.terminals.is_empty());
 }

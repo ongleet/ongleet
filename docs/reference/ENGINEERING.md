@@ -9,7 +9,7 @@ Read the sections relevant to your change. These contracts supplement
 
 ## Scope and implementation order
 
-DevCenter uses Tauri 2, React/TypeScript, Rust, Ghostty (`ghostty-web`), portable-pty and SQLite. Priorities: native terminal validation → bounded lifecycle/containment → navigation → persistence/window lifecycle → private-socket CLI → Ubuntu packaging. Consult `TODO.ignore.md` for remaining work.
+Ongleet uses Tauri 2, React/TypeScript, Rust, Ghostty (`ghostty-web`), portable-pty and SQLite. Priorities: native terminal validation → bounded lifecycle/containment → navigation → persistence/window lifecycle → private-socket CLI → Ubuntu packaging. Consult `TODO.ignore.md` for remaining work.
 
 Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, automatic Git discovery, worktree management, session setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically. Explicit session-linked, read-only GitHub PR status through the authenticated gh CLI is an intentional scope expansion.
 
@@ -51,7 +51,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - Frontend: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.
 - Terminal: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/render-visibility.ts`; Rust `terminal_session.rs`, `containment.rs`.
 - Backend: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.
-- Lifecycle/CLI: Rust `main.rs`, `instance.rs`, `control/`, `cli/`, `bin/`; Codex wrapper: `codex.rs`, `bin/dcodex.rs`.
+- Lifecycle/CLI: Rust `main.rs`, `instance.rs`, `control/`, `cli/`, `bin/`; Codex wrapper: `codex.rs`, `bin/ong-codex.rs`.
 - Validation: `docs/VALIDATION.md`, `scripts/check-*.py`, `scripts/check-*.mjs`, `scripts/terminal-probe.py`.
 - Actions: `config/actions.yaml` and per-project `projects/<id>/actions.yaml`; only the `actions` schema, no legacy/global fallback. Reload on creation; existing openings retain independent SQLite configuration. Keep configuration outside project directories.
 - Branding migrations must preserve database sidecars/Codex mappings and reject live writers/conflicts. Grant only required frontend capabilities.
