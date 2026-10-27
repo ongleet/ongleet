@@ -10,7 +10,13 @@ export function SessionMenu({
   mutate,
   configure,
   archives,
+  activeTabName,
+  configureTab,
+  archiveTab,
 }: {
+  activeTabName?: string;
+  configureTab?: () => void;
+  archiveTab?: () => void;
   configure: () => void;
   archives: () => void;
   sessionId: number | null;
@@ -64,7 +70,9 @@ export function SessionMenu({
           }
         }}
       >
-        <summary aria-label="Session menu">Session</summary>
+        <summary aria-label="Session and tab menu" title="Session and tab menu">
+          <span aria-hidden="true">⋮</span>
+        </summary>
         <div className="app-menu-items">
           {loading && <p role="status">Loading actions…</p>}
           {error && (
@@ -134,6 +142,30 @@ export function SessionMenu({
               )}
             </div>
           ))}
+          {activeTabName !== undefined && (
+            <div>
+              <p className="muted">Tab</p>
+              <button
+                disabled={disabled}
+                onClick={() => {
+                  menu.current!.open = false;
+                  configureTab?.();
+                }}
+              >
+                Configure…
+              </button>
+              <button
+                disabled={disabled}
+                title={`Archive “${activeTabName}” for 30 days`}
+                onClick={() => {
+                  menu.current!.open = false;
+                  archiveTab?.();
+                }}
+              >
+                Archive tab
+              </button>
+            </div>
+          )}
           <button
             disabled={disabled}
             onClick={() => {

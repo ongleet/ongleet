@@ -11,6 +11,7 @@ import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
 import { ProjectEditor } from './ProjectEditor';
 import { TabConfiguration } from './TabConfiguration';
+import { SessionMenu } from './SessionMenu';
 import { WindowTitleBar } from './WindowTitleBar';
 import './style.css';
 
@@ -211,7 +212,13 @@ function SessionPane({
   markRestoring,
   configurationTab,
   dismissConfiguration,
+  configureSession,
+  configureTab,
+  archives,
 }: {
+  configureSession: () => void;
+  configureTab: (tab: PluginTab) => void;
+  archives: () => void;
   configurationTab: PluginTab | null;
   dismissConfiguration: () => void;
   session: Session;
@@ -349,10 +356,24 @@ function SessionPane({
             </div>
           ))}
         </div>
+        <SessionMenu
+          sessionId={session.id}
+          disabled={disabled}
+          mutate={mutate}
+          configure={configureSession}
+          archives={archives}
+          activeTabName={active?.name}
+          configureTab={() => {
+            if (active) configureTab(active);
+          }}
+          archiveTab={() => {
+            if (active) closeTab(active);
+          }}
+        />
       </div>
       {!active && (
         <div className="empty-state">
-          <p>No open tabs. Open the Session menu to create a tab.</p>
+          <p>No open tabs. Open the ⋮ menu to create a tab.</p>
         </div>
       )}
       {openTabs.map((tab) => (
@@ -543,38 +564,15 @@ function App() {
     });
   }
 
-  const selectedSession = state.sessions.find((session) => session.id === state.selectedId);
-  const selectedTab = selectedSession?.tabs.find(
-    (tab) => tab.isOpen && tab.id === selectedSession.selectedTabId,
-  );
-
   // A pending terminal attachment must not lock navigation or sibling tabs.
   // Quit still waits for attachments so it cannot race a new process launch.
   const disabled = busy;
   return (
     <main className="app">
       <WindowTitleBar
-        activeTabName={selectedTab?.name}
-        configureTab={() => {
-          if (selectedTab) setConfigurationTab(selectedTab);
-        }}
-        archiveTab={() => {
-          if (selectedTab) void archiveTab(selectedTab);
-        }}
         archives={() => setShowArchives(true)}
         quit={() => void quit()}
         quitDisabled={!ready || disabled || restoring > 0}
-        configureSession={() => {
-          const session = state.sessions.find((session) => session.id === state.selectedId);
-          const project = state.projects.find((project) => project.id === session?.projectId);
-          if (project) {
-            setError('');
-            setGroupEditorView('actions');
-            setGroupEditor(project);
-          }
-        }}
-        sessionId={state.selectedId}
-        mutate={mutate}
         report={report}
         disabled={disabled || !ready}
         defaults={() => {
@@ -672,6 +670,16 @@ function App() {
         {state.sessions.map((session) => (
           <SessionPane
             key={session.id}
+            configureTab={setConfigurationTab}
+            archives={() => setShowArchives(true)}
+            configureSession={() => {
+              const project = state.projects.find((project) => project.id === session.projectId);
+              if (project) {
+                setError('');
+                setGroupEditorView('actions');
+                setGroupEditor(project);
+              }
+            }}
             configurationTab={configurationTab}
             dismissConfiguration={() => setConfigurationTab(null)}
             session={session}

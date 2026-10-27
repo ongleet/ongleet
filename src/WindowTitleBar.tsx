@@ -1,33 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import { SessionMenu } from './SessionMenu';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 export function WindowTitleBar({
   report,
-  activeTabName,
-  archiveTab,
-  configureTab,
   quit,
   quitDisabled,
-  sessionId,
-  mutate,
-  configureSession,
   archives,
   defaults,
   createProject,
   disabled,
 }: {
   report: (error: unknown) => void;
-  activeTabName?: string;
-  archiveTab: () => void;
-  configureTab: () => void;
   quit: () => void;
   quitDisabled: boolean;
-  sessionId: number | null;
-  configureSession: () => void;
   archives: () => void;
-  mutate: (command: string, args: Record<string, unknown>) => Promise<boolean>;
   defaults: () => void;
   createProject: () => void;
   disabled: boolean;
@@ -93,6 +80,15 @@ export function WindowTitleBar({
             Configure…
           </button>
           <button
+            disabled={disabled}
+            onClick={() => {
+              menu.current!.open = false;
+              archives();
+            }}
+          >
+            Archives
+          </button>
+          <button
             disabled={quitDisabled}
             onClick={() => {
               menu.current!.open = false;
@@ -103,55 +99,6 @@ export function WindowTitleBar({
           </button>
         </div>
       </details>
-      {
-        <SessionMenu
-          key={sessionId}
-          sessionId={sessionId}
-          disabled={disabled}
-          mutate={mutate}
-          configure={configureSession}
-          archives={archives}
-        />
-      }
-      {activeTabName !== undefined && (
-        <details
-          className="titlebar-menu"
-          name="titlebar-menu"
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-              event.currentTarget.open = false;
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.currentTarget.open = false;
-              event.currentTarget.querySelector('summary')?.focus();
-            }
-          }}
-        >
-          <summary aria-label="Tab menu">Tab</summary>
-          <div className="app-menu-items">
-            <button
-              disabled={disabled}
-              onClick={(event) => {
-                event.currentTarget.closest('details')!.open = false;
-                configureTab();
-              }}
-            >
-              Configure…
-            </button>
-            <button
-              disabled={disabled}
-              title={`Archive “${activeTabName}” for 30 days`}
-              onClick={(event) => {
-                event.currentTarget.closest('details')!.open = false;
-                archiveTab();
-              }}
-            >
-              Archive tab
-            </button>
-          </div>
-        </details>
-      )}
       <div
         className="window-drag-area"
         onMouseDown={(event) => {
