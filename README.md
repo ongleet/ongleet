@@ -365,3 +365,8 @@ Launch a rebuilt GUI with `ONGLEET_DEBUG=1 ongleet-gui --foreground` (developmen
 Debug mode writes timestamps, WebKit resource/load and process-termination events, window/application lifecycle events, SDK operation names and durations, and a 30-second GUI heartbeat with resident memory/thread counts. Logs live in `$XDG_DATA_HOME/ongleet/` (default `~/.local/share/ongleet/`): `debug.log` and `debug.previous.log`, each capped at approximately 4 MiB. Startup preserves the preceding log; rotation replaces the older backup. Writes are unbuffered so completed breadcrumbs survive a process abort. Logging is best effort and may skip concurrent events. SDK completion records indicate that an operation returned or unwound, not whether it succeeded.
 
 These files exclude SDK payloads, URLs, credentials and terminal contents. Existing native keyboard/focus diagnostics still go to stderr and may reveal typed input. To retain those and native allocator/GTK messages as well, launch with `ONGLEET_DEBUG=1 ongleet-gui --foreground 2>ongleet-native.log`; this separate stderr capture is not rotated. After a crash, preserve both debug files, stderr capture if used, and Ubuntu's `/var/crash/_usr_bin_ongleet-gui.1000.crash` before restarting repeatedly. Breadcrumbs help correlate activity; heap corruption still requires a core dump or instrumented reproduction to identify the original invalid access.
+
+## License
+
+Ongleet source code is licensed under the [MIT License](LICENSE). Third-party
+dependencies retain their respective licenses.
