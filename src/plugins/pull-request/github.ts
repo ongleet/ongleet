@@ -126,6 +126,7 @@ export type PullRequest = {
   title: string;
   url: string;
   state: string;
+  isDraft: boolean;
   reviewDecision: string;
   reviews: import('./reviews').Review[];
   statusCheckRollup: Check[];
@@ -168,6 +169,7 @@ export async function fetchPullRequest(
             title
             url
             state
+            isDraft
             reviewDecision
             reviews(first: 100) {
               nodes {
@@ -305,6 +307,7 @@ export async function fetchPullRequest(
     title: pr.title,
     url: pr.url,
     state: pr.state,
+    isDraft: pr.isDraft,
     reviewDecision: pr.reviewDecision,
     reviews,
     statusCheckRollup: checks,

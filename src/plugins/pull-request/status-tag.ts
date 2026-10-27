@@ -1,10 +1,15 @@
 import type { SessionTag } from '../../sdk';
 
 const tags: Record<string, SessionTag> = {
+  DRAFT: { name: 'PR: Draft', dot: '#9198A1' },
   OPEN: { name: 'PR: Open', dot: '#3FB950' },
   CLOSED: { name: 'PR: Closed', dot: '#F85149' },
   MERGED: { name: 'PR: Merged', dot: '#A371F7' },
 };
+export function pullRequestStatus(pr: { state: string; isDraft: boolean }): string {
+  return pr.state === 'OPEN' && pr.isDraft ? 'DRAFT' : pr.state;
+}
+
 type TagService = {
   listTags(): Promise<SessionTag[]>;
   addTag(tag: SessionTag): Promise<SessionTag[]>;

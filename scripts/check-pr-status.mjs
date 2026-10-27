@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { updatePullRequestTag } from '../src/plugins/pull-request/status-tag.ts';
+import { pullRequestStatus, updatePullRequestTag } from '../src/plugins/pull-request/status-tag.ts';
 import { refreshSeconds } from '../src/plugins/pull-request/settings.ts';
 import {
   otherReviews,
@@ -71,13 +71,13 @@ test('PR transitions and removal preserve sibling tags and avoid redundant write
       return tags;
     },
   };
-  for (const state of ['OPEN', 'CLOSED', 'MERGED']) {
+  for (const state of ['DRAFT', 'OPEN', 'CLOSED', 'MERGED', 'DRAFT']) {
     await updatePullRequestTag(service, state);
     assert.deepEqual(tags, [
       sibling,
       {
         name: `PR: ${state[0]}${state.slice(1).toLowerCase()}`,
-        dot: { OPEN: '#3FB950', CLOSED: '#F85149', MERGED: '#A371F7' }[state],
+        dot: { DRAFT: '#9198A1', OPEN: '#3FB950', CLOSED: '#F85149', MERGED: '#A371F7' }[state],
       },
     ]);
     const previous = writes;
@@ -473,4 +473,11 @@ test('environment validation cannot restore credentials after the last tab close
   await tick();
   assert.equal(auth.snapshot().login, undefined);
   assert.equal(store.value, null);
+});
+
+test('draft status applies only to open PRs', () => {
+  assert.equal(pullRequestStatus({ state: 'OPEN', isDraft: true }), 'DRAFT');
+  assert.equal(pullRequestStatus({ state: 'OPEN', isDraft: false }), 'OPEN');
+  assert.equal(pullRequestStatus({ state: 'CLOSED', isDraft: true }), 'CLOSED');
+  assert.equal(pullRequestStatus({ state: 'MERGED', isDraft: true }), 'MERGED');
 });

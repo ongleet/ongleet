@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../../sdk';
 import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
 import { githubAuth } from './auth';
-import { updatePullRequestTag } from './status-tag';
+import { pullRequestStatus, updatePullRequestTag } from './status-tag';
 import { refreshSeconds, DEFAULT_REFRESH_SECONDS } from './settings';
 import {
   otherReviews,
@@ -151,7 +151,11 @@ export function PullRequestContent({
       if (request === generation.current) {
         setData(result);
         setLastRefresh(new Date().toLocaleString());
-        await updatePullRequestTag(sdk.session, result.state, () => request === generation.current);
+        await updatePullRequestTag(
+          sdk.session,
+          pullRequestStatus(result),
+          () => request === generation.current,
+        );
         if (request !== generation.current) return;
         const reviews = otherReviews(result.reviews ?? [], viewer);
         const key = `devcenter.pr-reviews.v1:${session.id}:${associationKey}:${viewer.toLowerCase()}`;
@@ -298,6 +302,83 @@ export function PullRequestContent({
       </div>
     </form>
   );
+  const connection = (
+    <section aria-label="GitHub connection">
+      <h3>GitHub connection</h3>
+      {!auth.loading && !auth.environment && (
+        <p className="muted">
+          Neither GH_TOKEN nor GITHUB_TOKEN is set in DevCenter’s launch environment.
+        </p>
+      )}
+      {auth.login && <p>Connected as {auth.login}</p>}
+      {auth.environment ? (
+        <>
+          <p className="muted">
+            Using {auth.environment} from DevCenter’s launch environment. Update it and restart
+            DevCenter to change the token.
+          </p>
+          {(!auth.login || auth.paused) && (
+            <button
+              disabled={auth.busy || auth.loading}
+              onClick={() => void githubAuth.reconnect(sdk)}
+            >
+              Reconnect
+            </button>
+          )}
+        </>
+      ) : auth.login && !replacing && !auth.paused ? (
+        <button onClick={() => setReplacing(true)} disabled={auth.busy}>
+          Replace token
+        </button>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = token;
+            setToken('');
+            void githubAuth.connect(sdk, value).catch((error) => setError(String(error)));
+          }}
+        >
+          <label>
+            GitHub personal access token
+            <input
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              disabled={auth.busy || auth.loading}
+            />
+          </label>
+          <button disabled={auth.busy || auth.loading || !token.trim()}>
+            {auth.login ? 'Replace token' : 'Connect'}
+          </button>
+        </form>
+      )}
+      {auth.login && (
+        <button
+          disabled={auth.busy || auth.loading}
+          onClick={() => void githubAuth.disconnect(sdk)}
+        >
+          Disconnect
+        </button>
+      )}
+      <button
+        onClick={() =>
+          void sdk.desktop
+            .openUrl('https://github.com/settings/tokens')
+            .catch((error) => setError(String(error)))
+        }
+      >
+        GitHub token settings
+      </button>
+      {auth.loading && <p>Loading GitHub connection…</p>}
+      {auth.error && (
+        <p role="alert" className="error">
+          {auth.error}
+        </p>
+      )}
+    </section>
+  );
   return (
     <section
       role="tabpanel"
@@ -306,75 +387,9 @@ export function PullRequestContent({
       hidden={!visible}
       className="plugin-panel"
     >
-      <section aria-label="GitHub connection">
-        {auth.login && <p>Connected as {auth.login}</p>}
-        {auth.environment ? (
-          <>
-            <p className="muted">
-              Using {auth.environment} from DevCenter’s launch environment. Update it and restart
-              DevCenter to change the token.
-            </p>
-            {(!auth.login || auth.paused) && (
-              <button
-                disabled={auth.busy || auth.loading}
-                onClick={() => void githubAuth.reconnect(sdk)}
-              >
-                Reconnect
-              </button>
-            )}
-          </>
-        ) : auth.login && !replacing && !auth.paused ? (
-          <button onClick={() => setReplacing(true)} disabled={auth.busy}>
-            Replace token
-          </button>
-        ) : (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = token;
-              setToken('');
-              void githubAuth.connect(sdk, value).catch((error) => setError(String(error)));
-            }}
-          >
-            <label>
-              GitHub personal access token
-              <input
-                type="password"
-                autoComplete="off"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                disabled={auth.busy || auth.loading}
-              />
-            </label>
-            <button disabled={auth.busy || auth.loading || !token.trim()}>
-              {auth.login ? 'Replace token' : 'Connect'}
-            </button>
-          </form>
-        )}
-        {auth.login && (
-          <button
-            disabled={auth.busy || auth.loading}
-            onClick={() => void githubAuth.disconnect(sdk)}
-          >
-            Disconnect
-          </button>
-        )}
-        <button
-          onClick={() =>
-            void sdk.desktop
-              .openUrl('https://github.com/settings/tokens')
-              .catch((error) => setError(String(error)))
-          }
-        >
-          GitHub token settings
-        </button>
-        {auth.loading && <p>Loading GitHub connection…</p>}
-        {auth.error && (
-          <p role="alert" className="error">
-            {auth.error}
-          </p>
-        )}
-      </section>
+      {!auth.loading && (!auth.login || auth.paused) && (
+        <p className="muted">Configure this tab to connect your GitHub account.</p>
+      )}
       {!session.pullRequest && !configurationOpen && configuration}
       <dialog
         ref={configurationDialog}
@@ -387,6 +402,7 @@ export function PullRequestContent({
         {configurationOpen && (
           <div className="pr-configuration-body">
             <h2>Configure {tab.name}</h2>
+            {connection}
             {configuration}
             {error && (
               <p role="alert" className="error">
@@ -459,7 +475,7 @@ export function PullRequestContent({
       {data && (
         <>
           <p>
-            State: {data.state} · Review: {data.reviewDecision || 'No review decision'}
+            State: {pullRequestStatus(data)} · Review: {data.reviewDecision || 'No review decision'}
           </p>
           <button
             onClick={() =>
