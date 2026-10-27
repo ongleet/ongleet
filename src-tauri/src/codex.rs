@@ -157,16 +157,11 @@ fn record_with(
     input: impl Read,
     notify: impl Fn(&str),
 ) -> Result<(), String> {
-    let mut bytes = Vec::new();
-    input
-        .take(LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| e.to_string())?;
-    if bytes.len() > LIMIT as usize {
-        return Err("Codex hook payload is too large".into());
-    }
-    let event: HookEvent =
-        serde_json::from_slice(&bytes).map_err(|e| format!("Invalid Codex hook event: {e}"))?;
+    // Deserialize directly from the pipe: serde skips unknown fields without
+    // retaining prompt/tool content. The mapping size limit must not constrain
+    // hook input, which can include arbitrarily large tool responses.
+    let event: HookEvent = serde_json::from_reader(std::io::BufReader::new(input))
+        .map_err(|e| format!("Invalid Codex hook event: {e}"))?;
     if !valid_id(&event.session_id) {
         return Err("Invalid Codex session_id".into());
     }

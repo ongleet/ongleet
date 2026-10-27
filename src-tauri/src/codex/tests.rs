@@ -85,6 +85,43 @@ fn stale_or_invalid_hooks_cannot_replace_the_saved_conversation() {
 }
 
 #[test]
+fn large_tool_data_is_skipped_while_activity_metadata_is_recorded() {
+    let fixture = Fixture::new();
+    let path = fixture.path();
+    let state = begin(&path, false).unwrap();
+    record(
+        &path,
+        &state.launch,
+        br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","turn_id":"turn"}"#
+            .as_slice(),
+    )
+    .unwrap();
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "tool_input": {"content": "private-input".repeat(100_000)},
+        "tool_response": {"output": "private-output".repeat(100_000)},
+        "session_id": "conversation",
+        "hook_event_name": "PermissionRequest",
+        "turn_id": "turn",
+        "tool_name": "Bash",
+        "tool_use_id": "approval"
+    }))
+    .unwrap();
+    record(&path, &state.launch, payload.as_slice()).unwrap();
+    let saved = read_state(&path).unwrap();
+    assert_eq!(saved.activity, Activity::Approval);
+    assert!(saved.pending_approvals.contains("approval"));
+    let mapping = fs::read(&path).unwrap();
+    assert!(mapping.len() < 1024);
+    assert!(!String::from_utf8(mapping.clone())
+        .unwrap()
+        .contains("private-"));
+    let mut malformed = payload;
+    malformed.extend_from_slice(b" trailing garbage");
+    assert!(record(&path, &state.launch, malformed.as_slice()).is_err());
+    assert_eq!(fs::read(&path).unwrap(), mapping);
+}
+
+#[test]
 fn malformed_state_fails_without_resetting_the_file() {
     let fixture = Fixture::new();
     let path = fixture.path();
