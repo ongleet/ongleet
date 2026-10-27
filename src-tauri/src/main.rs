@@ -21,10 +21,10 @@ mod terminal_session;
 mod window_state;
 use session::{SessionRegistry, Snapshot, TabConfig};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use terminal_session::Status;
 
 #[derive(Default)]
@@ -33,12 +33,24 @@ struct AppRegistry(Arc<Mutex<SessionRegistry>>);
 struct Lifecycle {
     quitting: AtomicBool,
     visible: AtomicBool,
+    close_generation: AtomicU64,
+    close_timer: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+}
+impl Lifecycle {
+    fn cancel_close(&self) {
+        self.close_generation.fetch_add(1, Ordering::AcqRel);
+        if let Some(timer) = self.close_timer.lock().unwrap().take() {
+            timer.abort();
+        }
+    }
 }
 impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             quitting: AtomicBool::new(false),
             visible: AtomicBool::new(true),
+            close_generation: AtomicU64::new(0),
+            close_timer: Mutex::new(None),
         }
     }
 }
@@ -204,7 +216,6 @@ async fn run_external_action(
         actions::external::launch(
             prepared,
             Arc::new(move |exit| {
-                use tauri::Emitter;
                 let _ = app.emit("external-action-exited", exit);
             }),
         )
@@ -476,10 +487,16 @@ fn application_status(
 async fn quit(
     app: tauri::AppHandle,
     state: State<'_, AppRegistry>,
-    lifecycle: State<'_, Lifecycle>,
     confirmed: bool,
 ) -> Result<(), String> {
-    let registry = state.0.clone();
+    finish_quit(app, state.0.clone(), confirmed).await
+}
+
+async fn finish_quit(
+    app: tauri::AppHandle,
+    registry: Arc<Mutex<SessionRegistry>>,
+    confirmed: bool,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         registry
             .lock()
@@ -488,8 +505,76 @@ async fn quit(
     })
     .await
     .map_err(|e| e.to_string())??;
+    let lifecycle = app.state::<Lifecycle>();
+    lifecycle.cancel_close();
     lifecycle.quitting.store(true, Ordering::Release);
     app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn close_after_delay(
+    app: tauri::AppHandle,
+    state: State<AppRegistry>,
+    lifecycle: State<Lifecycle>,
+    confirmed: bool,
+) -> Result<(), String> {
+    if !confirmed {
+        for terminal in state
+            .0
+            .lock()
+            .map_err(|e| e.to_string())?
+            .terminals
+            .values_mut()
+        {
+            if matches!(terminal.status()?, Status::Running) {
+                return Err(
+                    "Explicit confirmation is required to terminate session processes".into(),
+                );
+            }
+        }
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window unavailable")?;
+    window.state::<window_state::WindowState>().save();
+    window.hide().map_err(|e| e.to_string())?;
+    lifecycle.visible.store(false, Ordering::Release);
+    lifecycle.cancel_close();
+    let generation = lifecycle.close_generation.load(Ordering::Acquire);
+    let timer_app = app.clone();
+    let timer = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+        let handle = timer_app.clone();
+        let _ = timer_app.run_on_main_thread(move || {
+            let lifecycle = handle.state::<Lifecycle>();
+            if lifecycle.close_generation.load(Ordering::Acquire) != generation
+                || lifecycle.visible.load(Ordering::Acquire)
+                || lifecycle.quitting.swap(true, Ordering::AcqRel)
+            {
+                return;
+            }
+            // The confirmed deadline has elapsed. Block further CLI mutations
+            // while the registry persists its restart set and kills its PTYs.
+            let registry = handle.state::<AppRegistry>().0.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = finish_quit(handle.clone(), registry, true).await {
+                    handle
+                        .state::<Lifecycle>()
+                        .quitting
+                        .store(false, Ordering::Release);
+                    let _ = handle.emit("application-close-error", error);
+                    let app = handle.clone();
+                    let _ = handle.run_on_main_thread(move || {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window_state::activate(&window);
+                        }
+                    });
+                }
+            });
+        });
+    });
+    *lifecycle.close_timer.lock().unwrap() = Some(timer);
     Ok(())
 }
 
@@ -520,7 +605,7 @@ fn run() -> Result<(), String> {
     let socket = instance::socket_path(&directory)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--help"] {
-        println!("DevCenter\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --migrate       Migrate config/data and database schema without opening a window");
+        println!("DevCenter\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --foreground    Keep the GUI attached to the launching terminal\n  --migrate       Migrate config/data and database schema without opening a window");
         return Ok(());
     }
     if args == ["--migrate"] {
@@ -534,7 +619,7 @@ fn run() -> Result<(), String> {
         );
         return Ok(());
     }
-    if !args.is_empty() && args != ["--show"] {
+    if !args.is_empty() && args != ["--show"] && args != ["--foreground"] {
         return Err("Unknown arguments; use --help".into());
     }
     if instance::show(&socket).is_ok() {
@@ -542,6 +627,9 @@ fn run() -> Result<(), String> {
     }
     if args == ["--show"] {
         return Err("Application unavailable; --show never starts it".into());
+    }
+    if args != ["--foreground"] && !tauri::is_dev() && instance::detach_terminal_launch(&socket)? {
+        return Ok(());
     }
     branding::migrate(&directory, &control::paths::config_directory()?)?;
     let registry = match SessionRegistry::open(&directory) {
@@ -586,12 +674,7 @@ fn run() -> Result<(), String> {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 window.state::<window_state::WindowState>().save();
                 api.prevent_close();
-                if window.hide().is_ok() {
-                    window
-                        .state::<Lifecycle>()
-                        .visible
-                        .store(false, Ordering::Release);
-                }
+                let _ = window.emit("application-close-requested", ());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -613,6 +696,7 @@ fn run() -> Result<(), String> {
             format_actions,
             save_project_actions,
             application_status,
+            close_after_delay,
             quit,
             defaults,
             sessions,

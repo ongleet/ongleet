@@ -118,6 +118,11 @@ impl WindowState {
 /// Activate on the GTK thread; callers need no display-backend knowledge.
 pub fn activate(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.show()?;
+    let lifecycle = window.state::<crate::Lifecycle>();
+    lifecycle.cancel_close();
+    lifecycle
+        .visible
+        .store(true, std::sync::atomic::Ordering::Release);
     let native = window.gtk_window()?;
     // Wayland has no unminimize request. Presenting an inactive existing surface
     // may also be denied by compositor activation policy. An explicit Show

@@ -560,3 +560,35 @@ empty/unset variables, invalid environment tokens, and stale validation after
 tab disposal. Two Rust environment tests cover missing/empty values, name and
 size bounds, and non-UTF-8 rejection. Production frontend build and Rust check
 pass. Live GitHub token acceptance and Wayland environment UI remain untested.
+
+## Terminal detachment and delayed window close (2026-10-27)
+
+Build the production frontend and a bundled GUI (`tauri/custom-protocol`), then run:
+
+```bash
+mise exec -- python3 scripts/check-window-close.py \
+  --application /absolute/path/to/devcenter-gui \
+  --cli /absolute/path/to/devcenter \
+  --driver /absolute/path/to/WebKitWebDriver \
+  --xvfb /absolute/path/to/Xvfb
+```
+
+The harness creates a private X11 display and isolated metadata. It starts the
+GUI through a real controlling terminal, observes the shell returning, closes
+the terminal and verifies the GUI survives in an independent session. It then
+uses native WM_DELETE_WINDOW requests and WebKitGTK confirmation dialogs with a
+real contained terminal process. The two deadline checks take about four
+minutes: reopening must keep the same processes alive beyond the original
+deadline; a subsequent confirmed close must keep them running during the delay,
+then terminate the GUI and contained terminal and remove socket availability.
+Unconfirmed and cancelled close requests must leave the window visible. A
+rejected unconfirmed immediate Quit must preserve an existing shutdown timer.
+The report records surviving GUI/terminal PIDs; it does not certify every
+WebKit descendant or other display backends.
+
+Final native X11/Xvfb report
+`/tmp/devcenter-window-close-lgsf74p0/report.json` passes all six checks with no
+surviving tracked GUI/terminal PIDs. Production frontend build, bundled Rust
+build/check, formatting and the existing real-PTY confirmation/closure regression
+pass. Delayed window close on Wayland and separate Xorg remains unverified; the
+broader native compatibility gate remains open.

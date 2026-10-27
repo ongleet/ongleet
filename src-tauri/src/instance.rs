@@ -35,6 +35,66 @@ pub fn show(path: &Path) -> Result<(), String> {
     }
 }
 
+/// Return the shell prompt while the explicitly launched desktop app runs.
+/// Development builds and --foreground bypass this path in the caller.
+pub fn detach_terminal_launch(socket: &Path) -> Result<bool, String> {
+    use std::io::IsTerminal;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    if !std::io::stdin().is_terminal()
+        && !std::io::stdout().is_terminal()
+        && !std::io::stderr().is_terminal()
+    {
+        return Ok(false);
+    }
+    let mut command = Command::new(format!("/proc/{}/exe", std::process::id()));
+    command.arg("--foreground").stdin(Stdio::null());
+    command.stdout(if std::io::stdout().is_terminal() {
+        Stdio::null()
+    } else {
+        Stdio::inherit()
+    });
+    command.stderr(if std::io::stderr().is_terminal() {
+        Stdio::null()
+    } else {
+        Stdio::inherit()
+    });
+    // Spawn a fresh GUI process before GTK/threads exist, with no controlling
+    // terminal. PTYs and their watchdogs remain owned by that application.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Cannot start application: {e}"))?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if client::call_with_timeout(
+            socket,
+            crate::control::protocol::Command::Status,
+            Duration::from_secs(1),
+        )
+        .is_ok_and(|response| response.ok)
+        {
+            return Ok(true);
+        }
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Err(format!("Application exited before becoming available: {status}. Run devcenter-gui --foreground for startup diagnostics."));
+        }
+        if Instant::now() >= deadline {
+            return Err("Application startup exceeded 15 seconds; it may still start. Check devcenter app status before retrying.".into());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 pub struct Instance {
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,

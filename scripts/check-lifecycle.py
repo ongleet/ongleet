@@ -121,8 +121,9 @@ def run(args):
         except FileNotFoundError: return False
     def quit_app(pid, ui=False):
         if ui:
-            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit enabled")
-            client.click("footer > button:last-of-type")
+            wait_for(lambda: client.js("return !document.querySelector('.app-menu-items > button:last-of-type').disabled"), "Quit enabled")
+            client.click('summary[aria-label="Application menu"]')
+            client.click(".app-menu-items > button:last-of-type")
             wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "Quit warning")
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
         else:
@@ -391,14 +392,17 @@ def run(args):
             except RuntimeError as error: assert "confirmation" in str(error)
             else: raise AssertionError("Unconfirmed Quit accepted")
             mark("Backend rejects Quit while a process runs without explicit confirmation")
-            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit enabled")
-            client.click("footer > button:last-of-type")
+            wait_for(lambda: client.js("return !document.querySelector('.app-menu-items > button:last-of-type').disabled"), "Quit enabled")
+            client.click('summary[aria-label="Application menu"]')
+            client.click(".app-menu-items > button:last-of-type")
             wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "Quit warning")
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", "xpath")
-            wait_for(lambda: client.js("return !document.querySelector('footer > button:last-of-type').disabled"), "Quit cancellation")
+            wait_for(lambda: client.js("return !document.querySelector('.app-menu-items > button:last-of-type').disabled"), "Quit cancellation")
             assert pid_alive(stream_pid) and client.invoke("application_status")["runningTerminals"] == 1
             mark("Cancelling the Quit confirmation keeps the live session intact")
             close_window(pid)
+            wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "delayed close warning")
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
             wait_for(lambda: not client.invoke("application_status")["visible"], "window hidden")
             time.sleep(2)
             if args.cli:
@@ -412,7 +416,7 @@ def run(args):
             wait_for(lambda: client.invoke("application_status")["visible"], "window reopened")
             assert client.screen(tab) != before and f"PID={stream_pid}" in client.screen(tab)
             assert client.invoke("application_status")["runningTerminals"] == 1
-            mark("Native window close hides it; output continues and --show retains the same PTY")
+            mark("Confirmed window close hides it; --show cancels delayed Quit and retains the same PTY")
             subprocess.run([args.application], env=env, check=True, timeout=5)
             assert client.invoke("application_status")["runningTerminals"] == 1
             mark("Second launch activates the existing instance without duplicate processes")

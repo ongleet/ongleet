@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -504,7 +504,7 @@ function App() {
     };
   }, [refresh]);
 
-  async function quit() {
+  async function quit(delayed = false) {
     if (busyRef.current || restoringRef.current > 0) {
       report('Please wait for the current operation to finish before quitting.');
       return;
@@ -518,18 +518,36 @@ function App() {
       if (
         confirmed &&
         !(await confirm(
-          `Quit and force-stop ${status.runningTerminals} running terminal session(s) and their child processes?`,
+          delayed
+            ? `Close the window and force-stop ${status.runningTerminals} running terminal session(s) and their child processes in two minutes? Reopening the window cancels shutdown.`
+            : `Quit and force-stop ${status.runningTerminals} running terminal session(s) and their child processes?`,
         ))
       )
         return;
       await flushPlugins();
-      await invoke('quit', { confirmed });
+      await invoke(delayed ? 'close_after_delay' : 'quit', { confirmed });
     } catch (error) {
       report(error);
     } finally {
       markBusy(false);
     }
   }
+
+  const requestQuit = useEffectEvent(() => void quit(true));
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen('application-close-requested', () => requestQuit());
+    const unlistenError = listen<string>('application-close-error', (event) =>
+      report(event.payload),
+    );
+    void unlisten.catch(report);
+    void unlistenError.catch(report);
+    return () => {
+      void unlisten.then((off) => off()).catch(report);
+      void unlistenError.then((off) => off()).catch(report);
+    };
+  }, []);
 
   async function mutate(command: string, args: Record<string, unknown>): Promise<boolean> {
     markBusy(true);
