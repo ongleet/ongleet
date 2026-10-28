@@ -1,0 +1,56 @@
+{
+  "id": "diff",
+  "label": "Diff",
+  "description": "Read-only tracked Git changes with unified patches.",
+  "configVersion": 1,
+  "sdkVersion": 1,
+  "entrypoint": "entrypoint.tsx",
+  "runtime": null,
+  "capabilities": ["process", "storage"],
+  "defaults": {
+    "folder": null,
+    "mode": "workingDirectory",
+    "baseRef": "HEAD",
+    "targetRef": "HEAD"
+  },
+  "contextDefaults": {
+    "folder": "session.directory"
+  },
+  "examples": [
+    {},
+    {
+      "mode": "refs",
+      "baseRef": "HEAD~1",
+      "targetRef": "HEAD"
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "folder": {
+        "type": ["string", "null"],
+        "absolutePath": true,
+        "maxBytes": 8192,
+        "description": "Repository directory; defaults to session directory."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["workingDirectory", "refs", "mergeBase"],
+        "description": "Working contents, direct snapshots, or common ancestor comparison."
+      },
+      "baseRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxBytes": 8192,
+        "description": "Base revision expression; default HEAD."
+      },
+      "targetRef": {
+        "type": "string",
+        "minLength": 1,
+        "maxBytes": 8192,
+        "description": "Destination revision; unused for working directory mode."
+      }
+    }
+  }
+}

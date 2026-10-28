@@ -24,3 +24,7 @@ actions:
     name: Pull request
     kind: pull-request
     config: {}
+  - id: diff
+    name: Diff
+    kind: diff
+    config: {}

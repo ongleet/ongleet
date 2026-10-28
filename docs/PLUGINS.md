@@ -30,3 +30,61 @@ For a new native capability, implement a reusable service under `src-tauri/src/c
 Schema 7 adds session/tab namespace JSON and transactionally migrates the legacy PR association into the `pull-request` session namespace. CLI PR input validation and `pullRequest` response fields remain compatibility adapters. Archive version 2 includes namespaces; the version-1 decoder migrates legacy associations while retaining IDs, selections and opaque plugin data. Archives retain their existing 30-day policy.
 
 Run `mise exec -- npm run check:plugins`, the frontend build and Rust suite. Native validation mode also exposes an SDK probe bridge used by the mixed-plugin harness; production bundles omit it. See [native validation](VALIDATION.md) for isolated WebKitGTK commands and remaining manual acceptance.
+
+## Diff
+
+The bundled **Diff** tab requires `git` on the application's PATH. Add it through
+**Custom tab…**, action configuration, or the shipped Diff action (existing user
+and project action files are preserved). Comparisons resolve the enclosing
+repository only on request by this tab and include its entire tracked tree,
+even when the configured folder is a subdirectory or linked worktree.
+
+- **Working directory** compares a base tree (default `HEAD`) with final tracked
+  contents, including staged and unstaged changes. Changes that cancel disappear.
+- **Two refs** compares snapshots directly (`git diff A B`); switching from the
+  initial defaults suggests `HEAD~1` to `HEAD`.
+- **Merge base** compares the unique common ancestor with the destination
+  (`git diff A...B`); switching from the initial defaults suggests `main` to `HEAD`.
+
+Branches, annotated tags, hashes and revision expressions are supported. Missing
+refs remain editable errors. Bare repositories support committed comparisons
+only. Refs are fixed to object IDs for each refresh; working contents can change
+while being read. Refresh when a selected file disappears or its patch empties.
+Untracked/ignored files, editing, staging, reverting and fetching are excluded.
+
+The filename filter runs locally. Patches load only for the selected file and use
+[react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,
+with three context lines and diff coloring. Binary and metadata-only changes show
+notices. Non-UTF-8 filenames fail explicitly. Git runs with literal arguments,
+optional locking disabled, no external diff/text conversion or recursive
+submodule diffs, and the SDK's 20-second/512-KiB-per-stream bounds. Oversized
+results fail rather than display a truncated comparison.
+
+Inline **Compare** saves settings only after success; **Tab → Configure…** uses
+the same fields and validation. Activation and application focus refresh visible
+tabs without polling. Hidden tabs cancel work and retain their display; failures
+mark the previous comparison stale. Restart restores settings and reads fresh
+results; patches and repository contents are never persisted.
+
+```yaml
+actions:
+  - id: diff
+    name: Diff
+    kind: diff
+    config:
+      folder: /absolute/repository # omitted/null initializes from session.directory
+      mode: mergeBase # workingDirectory | refs | mergeBase
+      baseRef: main
+      targetRef: HEAD # unused in workingDirectory mode
+```
+
+Discover configuration with `ongleet --json tab types`, then use an action ID:
+
+```bash
+ongleet tab create --session SESSION_ID --action diff --config '{"mode":"refs","baseRef":"HEAD~3","targetRef":"HEAD"}'
+ongleet tab configure TAB_ID --config '{"folder":"/absolute/repository","mode":"workingDirectory","baseRef":"HEAD","targetRef":"HEAD"}'
+```
+
+Run `mise exec -- npm run check:diff` for temporary-repository behavior checks.
+`scripts/check-diff-native.py` exercises bundled WebKitGTK on a private Xvfb
+server; see the validation guide for recorded evidence and remaining acceptance.

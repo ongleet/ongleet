@@ -647,3 +647,51 @@ The installed legacy package was subsequently confirmed as `dev-center` by an
 actual dpkg collision on `/usr/bin/terminal-pty-helper`. Both spellings now appear
 in `Conflicts` and `Replaces`; the initial synthetic `devcenter` fixture alone
 did not establish replacement of the distributed legacy package.
+
+## Diff plugin (2026-10-28)
+
+`mise exec -- npm run check:diff` uses temporary real repositories and the pinned
+react-diff-view parser. It covers staged/unstaged cancellation, exclusion of
+untracked/ignored files, direct and merge-base comparisons, tags/hashes/revision
+expressions, fixed resolved endpoints, ambiguous merge bases, unrelated histories,
+additions/deletions/renames/type changes, permissions/symlinks/submodules/binaries,
+quoted UTF-8/control-character filenames and rejected non-UTF-8 paths, multiple
+hunks/missing newlines, unborn/bare repositories, linked worktrees/subdirectories, list/patch limits, stat-only
+index-byte preservation, and serialized supersession. Frontend build, plugin
+boundaries, changed-file formatting, bundled Rust build, manifest discovery test
+and both native process-service tests pass.
+
+Reproduce private X11/WebKitGTK acceptance with a bundled GUI:
+
+```bash
+mise exec -- npm run build
+mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline --bin ongleet-gui
+mise exec -- python3 scripts/check-diff-native.py \
+  --application src-tauri/target/debug/ongleet-gui \
+  --driver /absolute/path/to/WebKitWebDriver --xvfb /absolute/path/to/Xvfb
+```
+
+Report `/tmp/ongleet-diff-native-5sowbrwy/report.json` passes eleven checks with
+zero application cleanup survivors, using private metadata/display and real Git
+repositories. It verifies all three modes, unified rendering, long-line overflow,
+DOM selection, manual/activation/focus-event refresh, selected-file retention and
+fallback, retained stale results on invalid refs, actual Quit/restart settings
+restoration and fresh reads, byte-identical index and expected tracked contents,
+hiding/closing during active Git work, reaping and a surviving sibling PTY.
+A test-only Git wrapper delays execution for the cancellation scenarios.
+The screenshot was visually inspected. No desktop clipboard was touched.
+
+The selection fixture initially exposed Git's automatic stat-cache index refresh;
+Diff now supplies `diff.autoRefreshIndex=false` per invocation and uses bounded
+numstat metadata to filter stat-only false positives without writing the index.
+Another native iteration exposed delayed configuration notifications replacing a
+new inline edit; self-save notifications and duplicate metadata are now ignored.
+Earlier failing reports are not passing acceptance evidence.
+
+Remaining acceptance: Wayland, physical keyboard navigation and clipboard copying,
+real window-manager focus transitions (the harness dispatches the focus event),
+session switching, archive/reload during active Git work, inaccessible folders and
+missing Git in native UI, linked-worktree native rendering, and global process
+saturation. Existing SDK disposal/process tests support the shared mechanisms but
+do not establish those Diff-specific native scenarios. Builds alone do not close
+these stages.

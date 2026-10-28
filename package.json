@@ -21,7 +21,8 @@
     "check:pr-status": "node scripts/check-pr-status.mjs",
     "check:plugins": "node scripts/check-plugin-boundaries.mjs",
     "package:deb": "tauri build --bundles deb",
-    "check:branding-storage": "node scripts/check-branding-storage.mjs"
+    "check:branding-storage": "node scripts/check-branding-storage.mjs",
+    "check:diff": "node scripts/check-diff.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
@@ -37,6 +38,7 @@
     "ghostty-web": "0.4.0",
     "node-diff3": "^3.2.1",
     "react": "^19.2.0",
+    "react-diff-view": "3.3.3",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {

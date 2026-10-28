@@ -1,0 +1,75 @@
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+  gap: 10px;
+}
+.diff-panel[hidden] {
+  display: none;
+}
+.diff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+.diff-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diff-summary {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.diff-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+.diff-layout aside {
+  width: 260px;
+  flex-shrink: 0;
+  overflow: auto;
+}
+.diff-layout nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+.diff-layout nav button {
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-layout nav button[aria-pressed='true'] {
+  outline: 1px solid currentColor;
+}
+.diff-viewer {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  user-select: text;
+  --diff-background-color: transparent;
+  --diff-text-color: inherit;
+  --diff-font-family: monospace;
+  --diff-code-insert-background-color: #193d2a;
+  --diff-code-delete-background-color: #4b242b;
+  --diff-gutter-insert-background-color: #245237;
+  --diff-gutter-delete-background-color: #603039;
+}
+.diff-panel .diff {
+  font-family: monospace;
+  font-size: 12px;
+}
+.diff-panel .diff-code {
+  white-space: pre;
+}
+.diff-panel .diff-decoration {
+  background: #30343d;
+  color: #ddd;
+}
