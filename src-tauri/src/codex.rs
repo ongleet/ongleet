@@ -447,6 +447,29 @@ pub fn run_if_requested() -> bool {
     true
 }
 
+fn log_hook_error(error: &str) -> std::io::Result<PathBuf> {
+    let path = std::env::temp_dir().join(format!(
+        "ongleet-codex-hook-error-{}-{}.log",
+        std::process::id(),
+        nonce().map_err(std::io::Error::other)?
+    ));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    // Bound diagnostics and never copy the hook's stdin or inherited environment.
+    let entry = serde_json::json!({
+        "timestampUnixSeconds": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+        "pid": std::process::id(),
+        "executable": std::env::current_exe().ok(),
+        "error": error.chars().take(4096).collect::<String>(),
+    });
+    writeln!(file, "{entry}")?;
+    Ok(path)
+}
+
 pub fn run(flag: &str, args: Vec<String>) {
     let result = (|| {
         let mut extra = args;
@@ -529,6 +552,12 @@ pub fn run(flag: &str, args: Vec<String>) {
         }
     })();
     if let Err(error) = result {
+        if flag == RECORD_FLAG && std::env::var("ONGLEET_DEBUG").as_deref() == Ok("1") {
+            match log_hook_error(&error) {
+                Ok(path) => eprintln!("Codex hook error log: {}", path.display()),
+                Err(log_error) => eprintln!("Cannot write Codex hook error log: {log_error}"),
+            }
+        }
         eprintln!("Codex conversation restoration: {error}");
         std::process::exit(1);
     }
