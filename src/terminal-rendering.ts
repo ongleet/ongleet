@@ -49,6 +49,7 @@ export function prepareTerminalRendering(term: Terminal, visible: () => boolean)
   };
   const subscriptions: { dispose(): void }[] = [];
   return {
+    invalidate,
     opened() {
       const renderer = term.renderer;
       if (!renderer) throw new Error('Ghostty renderer unavailable');

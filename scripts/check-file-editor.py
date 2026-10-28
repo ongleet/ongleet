@@ -50,6 +50,11 @@ def run(args):
         if not client.js("return !!document.querySelector('.editor-menu:popover-open')"):
             client.click('.editor-toolbar button[popovertarget]')
         client.click(f"//div[@role='menu' and @popover]//button[starts-with(normalize-space(),'{label}')]", 'xpath')
+    def app_menu(label):
+        client.js("document.querySelector('.titlebar-menu > summary').click()")
+        selector = f".titlebar-menu[open] .app-menu-items button"
+        native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll(arguments[0])).some(b=>b.textContent.trim()===arguments[1] && !b.disabled)", selector,label), 'application menu item enabled')
+        client.js("Array.from(document.querySelectorAll(arguments[0])).find(b=>b.textContent.trim()===arguments[1]).click()",selector,label)
     def restart():
         client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
         native.wait_for(lambda: not any(process['name'].startswith('ongleet') for process in native.owned_processes(directory)), 'application stopped', timeout=10)
@@ -147,11 +152,11 @@ def run(args):
             client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
             assert client.js("return !!document.querySelector('.cm-content')")
             mark('back navigation protects unsaved changes')
-            client.click(f"button[aria-label='Close Files']")
+            client.click(f"#tab-{tab} + .tab-close")
             native.wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), 'tab close guard')
             client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
             assert client.js("return !!document.querySelector('.cm-content')")
-            client.click("//button[normalize-space()='Quit']", 'xpath')
+            app_menu('Quit')
             native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"Confirm action\"][open]')?.textContent.includes('unsaved')"), 'Quit guard')
             client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
             mark('GUI tab closure and Quit protect unsaved edits')
@@ -326,12 +331,12 @@ def run(args):
             client.click('.files-refresh')
             client.click("//button[.//span[text()='resume.txt']]", 'xpath')
             native.wait_for(lambda: client.js("return !!document.querySelector('.cm-content')"), 'editor for archive')
-            client.click("button[aria-label='Close Files']")
+            client.click(f"#tab-{tab} + .tab-close")
             native.wait_for(lambda: not any(t['id'] == tab for row in client.invoke('sessions')['sessions'] for t in row['tabs']), 'tab archived')
             archives = client.invoke('archives')['entries']
             assert len(archives) == 1 and archives[0]['kind'] == 'tab'
             archive_id = archives[0]['id']
-            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            app_menu('Archives')
             client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Restore']", 'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=Archives]').innerText.includes('No archives.')"), 'archive restored')
             client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Close']", 'xpath')
@@ -342,7 +347,7 @@ def run(args):
             client.click("//button[normalize-space()='Archive session']", 'xpath')
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", 'xpath')
             native.wait_for(lambda: not client.invoke('sessions')['sessions'], 'session archived')
-            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            app_menu('Archives')
             client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Restore']", 'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=Archives]').innerText.includes('No archives.')"), 'session restored')
             client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Close']", 'xpath')
@@ -350,7 +355,7 @@ def run(args):
             assert client.invoke('sessions')['sessions'][0]['id'] == session['id']
             mark('GUI session archive and restore retains the original session and plugin state')
             # Permanent deletion is separately confirmed and never deletes working files.
-            client.click("button[aria-label='Close Files']")
+            client.click(f"#tab-{tab} + .tab-close")
             native.wait_for(lambda: client.invoke('archives')['entries'], 'second tab archive')
             newest = client.invoke('archives')['entries'][0]['id']
             assert newest > archive_id
@@ -373,7 +378,7 @@ def run(args):
                 raise AssertionError('Unconfirmed archive purge was accepted')
             restart()
             assert client.invoke('archives')['entries'][0]['id'] == newest
-            client.click("//footer//button[normalize-space()='Archives']", 'xpath')
+            app_menu('Archives')
             client.click("//dialog[@aria-label='Archives']//button[normalize-space()='Delete permanently']", 'xpath')
             client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", 'xpath')
             assert client.invoke('archives')['entries'][0]['id'] == newest

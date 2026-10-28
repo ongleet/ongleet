@@ -108,12 +108,7 @@ export class TerminalFrontend {
       rows: 24,
       fontSize: 14,
       scrollback: SCROLLBACK_LINES,
-      theme: {
-        background: '#12161d',
-        foreground: '#dce3ec',
-        cursor: '#a3e6cc',
-        selectionBackground: '#355369',
-      },
+      theme: this.sdk.theme.getSnapshot().terminal.terminal,
     });
     this.term = term;
     const fit = new FitAddon();
@@ -121,6 +116,14 @@ export class TerminalFrontend {
     this.rendering = prepareTerminalRendering(term, () => this.visible && !document.hidden);
     term.open(this.host);
     this.rendering.opened();
+    // Pinned 0.4.0 only warns on options.theme assignment. Its renderer supports
+    // decoration updates; WASM cell RGB/ANSI colors remain launch-time values.
+    const unsubscribeTheme = this.sdk.theme.subscribe(() => {
+      term.options.theme = this.sdk.theme.getSnapshot().terminal.terminal;
+      term.renderer?.setTheme(term.options.theme!);
+      this.rendering?.invalidate(true);
+    });
+    this.subscriptions.push({ dispose: unsubscribeTheme });
     this.subscriptions.push(attachTerminalSelection(term));
     const terminalLinks = new TerminalLinks(
       term,

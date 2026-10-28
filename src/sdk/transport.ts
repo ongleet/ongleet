@@ -1,3 +1,4 @@
+import { themeAccess } from '../appearance';
 // Private native boundary. Plugins import only the SDK public entrypoint.
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Channel, invoke } from '@tauri-apps/api/core';
@@ -62,6 +63,7 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
   }
   return {
     ready,
+    theme: themeAccess,
     session: {
       addTag: (tag: SessionTag) => request<SessionTag[]>('addSessionTag', { tag }),
       removeTag: (name: string) => request<SessionTag[]>('removeSessionTag', { name }),

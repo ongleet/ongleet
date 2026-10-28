@@ -787,3 +787,118 @@ tree row in both directions, opens collapsed ancestors and preserves the diff
 viewer's scroll position. The harness waits for all patches before measuring
 long-line overflow. Real-Git checks, frontend build and bundled native build pass.
 Wayland and physical-input acceptance for these changes remain untested.
+
+### Appearance presets (2026-10-28)
+
+Preference and actual pinned Ghostty WASM checks cover six launch palettes,
+default foreground/background, all 16 ANSI colors and explicit RGB preservation.
+Canvas-call checks cover renderer theme decorations and hidden-terminal repaint;
+CodeMirror state checks preserve the draft, selection and undo/redo through all
+presets, including its light/dark facet. These are engine/state checks, not native
+acceptance. See `scripts/check-appearance.mjs`, `scripts/check-theme-engine.mjs`
+and [the compatibility limitation](APPEARANCE.md#terminal-compatibility-limit).
+
+The native checks below supersede the initial missing-tool blocker. Full live
+default/ANSI cell recoloring is still unfinished: the 0.4.0 runtime setter only
+warns and its WASM rejects OSC palette updates. No terminal architecture or
+process lifecycle changes were made to work around that limit.
+
+### Native appearance and regression acceptance after installing tools (2026-10-28)
+
+Installed tools: WebKitWebDriver 2.52.6, Weston 14.0.2, Xvfb 21.1.22. Runs use
+private headless Weston Wayland/XWayland displays or private Xvfb, unique app
+data/config/cache, fixture files and test-owned PTYs. No installed-app data or
+desktop clipboard is used. The native-validation frontend was bundled into the
+debug executable; the production frontend was rebuilt afterward.
+
+| Suite                                            | Evidence                                                  | Result                                                                                             |
+| ------------------------------------------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Appearance, private Wayland                      | `/tmp/ongleet-appearance-native-4qs5hrzb/report.json`     | Five acceptance groups pass; zero cleanup survivors.                                               |
+| Appearance, private XWayland                     | `/tmp/ongleet-appearance-native-tx8cngct/report.json`     | Five acceptance groups pass; zero cleanup survivors; settled screenshots recorded.                 |
+| Terminal, private XWayland                       | `/tmp/terminal-native-validation-p0dnr_hh/report.json`    | Twelve checks pass; zero cleanup survivors.                                                        |
+| Terminal, private Wayland                        | `/tmp/terminal-native-validation-qdqvyndz/report.json`    | Twelve checks pass; zero cleanup survivors.                                                        |
+| Files/editor/archive, private XWayland           | `/tmp/ongleet-editor-validation-hmt15zif/report.json`     | Twenty-three checks pass; zero cleanup survivors.                                                  |
+| Diff, private Xvfb                               | `/tmp/ongleet-diff-native-pd2ch9g5/report.json`           | Twenty checks pass; zero cleanup survivors.                                                        |
+| Clipboard/selection, private Xvfb                | `/tmp/ongleet-clipboard-validation-utpi5ylw/report.json`  | Twelve checks pass; zero cleanup survivors.                                                        |
+| Startup, private XWayland                        | `/tmp/terminal-startup-validation-gn0rty1f/`              | Both startup/error-isolation groups pass with eleven retained sibling PTYs.                        |
+| Lifecycle/projects/actions/CLI, private XWayland | `/tmp/terminal-lifecycle-validation-18epjt9n/report.json` | Fifteen checks pass; one WebKit child remained at immediate cleanup and was killed by the harness. |
+
+Appearance coverage includes all six presets during output, inherited/overridden
+terminal preferences, unchanged runtime IDs and terminal PIDs, hidden output and
+reveal, new terminals, CodeMirror drafts/undo/redo, fresh-process preference/draft
+restoration and Restore defaults. Computed editor/Diff colors were checked under
+Light+ and One Dark; settled editor and Diff screenshots were inspected. This is
+not complete visual acceptance of PR/configuration/archive/error surfaces or
+physical keyboard focus.
+
+The terminal suites cover reload with the same shell PID, independent tabs,
+OSC 8 opening through a private handler, split UTF-8 and exited replay, repeated
+reload during hidden output, curses function keys/mouse/resize, alternate screen,
+350,000 lines of hidden output, bounded scrollback, replay overflow and ten
+emulator reuse cycles. Clipboard mutation remains deliberately disabled in those
+broad suites; the separate twelve-check private clipboard run covers paste,
+primary selection, Unicode/wide copying and bounds without changing desktop data.
+Live Codex was explicitly excluded. Physical input, GNOME/IBus composition and
+live GitHub are not established by installing display automation tools.
+
+A subsequent Wayland repeat `/tmp/terminal-native-validation-i816elxh/report.json`
+passed nine checks, then timed out selecting a tab during the flood scenario.
+It had zero cleanup survivors. WebDriver's Enter-based tab selection was replaced
+with direct DOM tab activation; native PTY keyboard tests remain separate. The
+cleanup harness now allows five seconds for WebKit children to exit before
+recording survivors. The final serial Wayland repeat `/tmp/terminal-native-validation-qdqvyndz/report.json` passed all twelve checks with zero cleanup survivors. These changes do not certify physical tab keyboard behavior.
+
+Older fixtures were updated for explicit SQLite columns, current scoped action
+menus, dynamic Files tab titles, topbar Archives/Quit and the delayed-close
+confirmation. Direct DOM menu activation is used where WebDriver pointer focus
+can dismiss a menu; physical menu interaction remains a separate check.
+
+Reproduction after building the native-validation bundle:
+
+```bash
+mise exec -- python scripts/check-appearance-native.py --backend wayland
+mise exec -- python scripts/check-appearance-native.py --backend xwayland
+mise exec -- python scripts/with-private-display.py xwayland python scripts/check-native.py --backend x11 --skip-codex
+mise exec -- python scripts/with-private-display.py wayland python scripts/check-native.py --backend wayland --skip-codex
+mise exec -- python scripts/with-private-display.py xwayland python scripts/check-file-editor.py --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui --cli src-tauri/target/debug/ongleet
+mise exec -- python scripts/check-diff-native.py --driver /usr/bin/WebKitWebDriver --xvfb /usr/bin/Xvfb --application src-tauri/target/debug/ongleet-gui
+mise exec -- python scripts/check-clipboard.py
+```
+
+### Additional TODO acceptance: Diff, CLI input and selection retention (2026-10-28)
+
+The expanded Diff suite passes twenty-two checks on private Weston Wayland
+(`/tmp/ongleet-diff-native-58q0iqo1/report.json`) and private Xvfb
+(`/tmp/ongleet-diff-native-2r2cmbx6/report.json`), both with zero cleanup survivors.
+New checks reload the WebView during a deliberately stalled Git process, switch
+sessions during Git work, and archive the Diff tab while Git is active. Old Git
+children are reaped, comparisons restart successfully, archiving retains its
+archive entry and sibling terminal PIDs stay alive. This closes those specific
+TODO gaps. Physical keyboard/copy and actual window-focus transitions remain open.
+
+The clipboard harness accepts `--cli /absolute/path/to/ongleet` to send commands
+through the real private application socket into a raw PTY. Literal Unicode and
+shell-looking text arrive exactly once, `--enter` alone adds carriage return,
+input exceeding 8 KiB including Enter is rejected without a partial write, and
+unknown tab IDs cannot deliver bytes to a live sibling.
+
+The standard CLI/clipboard run `/tmp/ongleet-clipboard-validation-r8e1j_h9/report.json` passes all fifteen checks with zero cleanup survivors.
+
+The optional `--check-navigation` regression check **fails** on current Ghostty
+0.4.0. `/tmp/ongleet-clipboard-validation-gma97pvc/report.json` records independent
+tab and session cases: a wide Unicode selection loses both text and its range
+after navigation; runtime IDs and primary ownership remain intact. All fifteen
+CLI/clipboard checks finish successfully in that same run, but the explicit
+navigation assertions make the suite fail. Cleanup has zero survivors and both
+private selections are restored. Ghostty's document click handler clears a
+selection on clicks outside its canvas; no product behavior was changed to hide
+this failure. Selection retention stays open in TODOs. No physical desktop input
+or compositor clipboard claim follows from this private Xvfb reproduction.
+
+```bash
+mise exec -- python scripts/with-private-display.py wayland python scripts/check-diff-native.py --backend wayland --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui
+mise exec -- python scripts/check-diff-native.py --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui
+mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongleet
+# Known failing selection-retention check:
+mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongleet --check-navigation
+```

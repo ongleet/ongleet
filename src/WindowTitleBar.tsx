@@ -8,6 +8,7 @@ export function WindowTitleBar({
   quitDisabled,
   archives,
   defaults,
+  appearance,
   createProject,
   disabled,
 }: {
@@ -16,6 +17,7 @@ export function WindowTitleBar({
   quitDisabled: boolean;
   archives: () => void;
   defaults: () => void;
+  appearance: () => void;
   createProject: () => void;
   disabled: boolean;
 }) {
@@ -87,6 +89,14 @@ export function WindowTitleBar({
             }}
           >
             Archives
+          </button>
+          <button
+            onClick={() => {
+              menu.current!.open = false;
+              appearance();
+            }}
+          >
+            Appearance…
           </button>
           <button
             disabled={quitDisabled}

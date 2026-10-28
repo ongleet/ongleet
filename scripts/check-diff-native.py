@@ -1,4 +1,4 @@
-"""Validate Diff in bundled WebKitGTK on a private Xvfb display."""
+"""Validate Diff in bundled WebKitGTK on private Xvfb or caller-owned Wayland."""
 import argparse
 import base64
 import importlib.util
@@ -46,12 +46,15 @@ def run(args):
         {'id': 'shell', 'name': 'Shell', 'kind': 'terminal', 'config': {'executable': '/bin/sleep', 'args': ['600']}},
         {'id': 'diff', 'name': 'Diff', 'kind': 'diff', 'config': {}}
     ]}))
-    report = {'artifacts': str(directory), 'checks': []}
+    report = {'artifacts': str(directory), 'backend': args.backend, 'checks': []}
     def mark(text):
         report['checks'].append(text)
         print(text, flush=True)
-    env = dict(os.environ, XDG_DATA_HOME=str(directory/'data'), XDG_CONFIG_HOME=str(directory/'config'), XDG_CACHE_HOME=str(directory/'cache'), GDK_BACKEND='x11', TAURI_WEBVIEW_AUTOMATION='true', TERMINAL_VALIDATION_RUN=str(directory))
-    env.pop('WAYLAND_DISPLAY', None)
+    env = dict(os.environ, XDG_DATA_HOME=str(directory/'data'), XDG_CONFIG_HOME=str(directory/'config'), XDG_CACHE_HOME=str(directory/'cache'), GDK_BACKEND=args.backend, TAURI_WEBVIEW_AUTOMATION='true', TERMINAL_VALIDATION_RUN=str(directory))
+    if args.backend == 'x11':
+        env.pop('WAYLAND_DISPLAY', None)
+    elif not env.get('WAYLAND_DISPLAY'):
+        raise RuntimeError('Wayland requires a caller-owned private display; use with-private-display.py')
     tools = directory/'bin'
     tools.mkdir()
     slow = directory/'slow-git'
@@ -64,12 +67,13 @@ def run(args):
     display = driver = None
     with (directory/'native.log').open('w') as log:
         try:
-            read_fd, write_fd = os.pipe()
-            display = subprocess.Popen([args.xvfb, '-displayfd', str(write_fd), '-screen', '0', '1280x900x24', '-nolisten', 'tcp'], pass_fds=(write_fd,), stdout=log, stderr=log)
-            os.close(write_fd)
-            assert select.select([read_fd], [], [], 10)[0]
-            env['DISPLAY'] = ':' + os.read(read_fd, 64).decode().strip()
-            os.close(read_fd)
+            if args.backend == 'x11':
+                read_fd, write_fd = os.pipe()
+                display = subprocess.Popen([args.xvfb, '-displayfd', str(write_fd), '-screen', '0', '1280x900x24', '-nolisten', 'tcp'], pass_fds=(write_fd,), stdout=log, stderr=log)
+                os.close(write_fd)
+                assert select.select([read_fd], [], [], 10)[0]
+                env['DISPLAY'] = ':' + os.read(read_fd, 64).decode().strip()
+                os.close(read_fd)
             with socket.socket() as listener:
                 listener.bind(('127.0.0.1', 0))
                 port = listener.getsockname()[1]
@@ -309,12 +313,47 @@ def run(args):
             mark('Hiding cancels and reaps active Git work; returning restores comparison')
             slow.touch()
             client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
+            native.wait_for(lambda: active.exists(), 'Git running before WebView reload')
+            reload_pid=int(active.read_text())
+            client.request('POST','/refresh',{})
+            native.wait_for(lambda: gone(reload_pid),'reloaded Git cleanup')
+            native.wait_for(lambda: active.exists() and int(active.read_text()) != reload_pid,'fresh comparison after reload')
+            replacement_pid=int(active.read_text())
+            client.click(f'#tab-{shell}')
+            native.wait_for(lambda: gone(replacement_pid),'replacement Git cancellation')
+            slow.unlink()
+            active.unlink()
+            client.click(f'#tab-{tab}')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'comparison after active reload')
+            assert all(Path(f'/proc/{pid}').exists() for pid in siblings)
+            mark('Reload during active Git reaps the old process, starts a fresh comparison and preserves sibling PTYs')
+
+            slow.touch()
+            client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
+            native.wait_for(lambda: active.exists(), 'Git running before session switch')
+            switch_pid=int(active.read_text())
+            client.click('[aria-label="Create session"]')
+            client.fill('#session-name','Sibling session')
+            client.fill('#session-directory',str(folder))
+            client.click("//button[normalize-space()='Save session']",'xpath')
+            native.wait_for(lambda: gone(switch_pid),'session switch Git cleanup')
+            slow.unlink()
+            active.unlink()
+            client.click("//button[contains(@class,'session-choice')][.//span[normalize-space()='Diff test']]",'xpath')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'comparison after session switch')
+            assert all(Path(f'/proc/{pid}').exists() for pid in siblings)
+            mark('Session switching cancels active Git and restores comparison without restarting sibling PTYs')
+
+            slow.touch()
+            client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
             native.wait_for(lambda: active.exists(), 'closing Git running')
             pid=int(active.read_text())
-            client.invoke('close_tab',{'id':tab,'confirmed':True})
+            client.click(f'#tab-{tab} + .tab-close')
             native.wait_for(lambda: gone(pid),'closed Git cleanup')
             assert all(Path(f'/proc/{pid}').exists() for pid in siblings)
-            mark('Closing during active Git work reaps child and preserves sibling PTY')
+            assert any(entry['kind']=='tab' and entry['name']=='Diff' for entry in client.invoke('archives')['entries'])
+            assert not any(t['id']==tab for row in client.invoke('sessions')['sessions'] for t in row['tabs'])
+            mark('Archiving during active Git work reaps child, retains an archive and preserves sibling PTY')
         except Exception as error:
             report['error']=str(error)
             if client and client.session:
@@ -343,5 +382,7 @@ def run(args):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
-    for name in ['application','driver','xvfb']: parser.add_argument('--'+name,required=True)
+    for name in ['application','driver']: parser.add_argument('--'+name,required=True)
+    parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
+    parser.add_argument('--backend',choices=['x11','wayland'],default='x11')
     run(parser.parse_args())

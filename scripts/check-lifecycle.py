@@ -174,8 +174,8 @@ def run(args):
         client.click("//dialog[@open]//button[normalize-space()='Close']", "xpath")
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
         assert b'EDITOR_COMMON=' not in Path(f'/proc/{terminal_pid}/environ').read_bytes()
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
-        client.click("//dialog[@open]//button[normalize-space()='Edited from YAML']", 'xpath')
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=true")
+        client.click("//details[@open]//button[@title='Open a new tab'][normalize-space()='Edited from YAML']", 'xpath')
         tab = wait_for(lambda: next((w['selectedTabId'] for w in client.invoke('sessions')['sessions'] if w['projectId'] == group['id'] and w['selectedTabId'] != old_tab), None), 'edited action selected')
         wait_for(lambda: 'EDITOR_READY=saved value;COMMON=shared' in client.screen(tab), 'edited action executes')
         assert pid_alive(terminal_pid) and client.state(old_tab)['sessionId'] == session_id
@@ -200,8 +200,8 @@ def run(args):
         assert client.js("return document.querySelector(arguments[0]).value", field + '[aria-label="Action type"]') == 'command'
         client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
         session_before = next(w for w in client.invoke('sessions')['sessions'] if w['projectId'] == group['id'])
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='Actions']", 'xpath')
-        client.click("//dialog[@aria-label='External actions']//button[normalize-space()='External probe']", 'xpath')
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=true")
+        client.click("//details[@open]//button[normalize-space()='External probe']", 'xpath')
         wait_for(artifact.exists, 'external command completed')
         result = json.loads(artifact.read_text())
         assert result['args'] == [session_before['baseDirectory'],'literal ; $(touch nope)']
@@ -233,10 +233,11 @@ def run(args):
         client.click("//dialog[@open]//button[normalize-space()='Save session']", "xpath")
         session = wait_for(lambda: next((w for w in client.invoke("sessions")["sessions"] if w["name"] == "First project"), None), "new grouped session")
         wait_for(lambda: (state := client.state(client.invoke("sessions")["sessions"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
-        wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group One action')"), "scoped actions")
-        assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group Two action')")
-        client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
+        wait_for(lambda: "TICK=" in client.screen(session["selectedTabId"]), "group action settled before menu")
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=true")
+        wait_for(lambda: client.js("return document.querySelector('.session-pane:not([hidden]) details.session-actions-menu[open]')?.innerText.includes('Group One action')"), "scoped actions")
+        assert not client.js("return document.querySelector('.session-pane:not([hidden]) details.session-actions-menu[open]').innerText.includes('Group Two action')")
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=false")
         assert len(session["tabs"]) == 1 and session["tabs"][0]["name"] == "Group One action"
         tab = session["selectedTabId"]
         wait_for(lambda: "TICK=" in client.screen(tab), "group action running")
@@ -271,10 +272,11 @@ def run(args):
         overridden = wait_for(lambda: next((w for w in client.invoke("sessions")["sessions"] if w["name"] == "Overridden project"), None), "override session")
         assert overridden["baseDirectory"] == str(first_root) and overridden["projectId"] == second["id"]
         wait_for(lambda: (state := client.state(client.invoke("sessions")["sessions"][-1]["selectedTabId"])) and state.get("cols"), "initial terminal frontend ready")
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", "xpath")
-        wait_for(lambda: client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]')?.innerText.includes('Group Two action')"), "second group actions")
-        assert not client.js("return document.querySelector('dialog[aria-label=\"New tab\"][open]').innerText.includes('Group One action')")
-        client.click("//dialog[@open]//button[normalize-space()='Cancel']", "xpath")
+        wait_for(lambda: "TICK=" in client.screen(overridden["selectedTabId"]), "second group action settled before menu")
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=true")
+        wait_for(lambda: client.js("return document.querySelector('.session-pane:not([hidden]) details.session-actions-menu[open]')?.innerText.includes('Group Two action')"), "second group actions")
+        assert not client.js("return document.querySelector('.session-pane:not([hidden]) details.session-actions-menu[open]').innerText.includes('Group One action')")
+        client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu'); menu.querySelector('summary').focus(); menu.open=false")
         mark("Project editing exposes its config path, preserves running cwd, and session directory overrides work")
         client.invoke("close_session", {"id": session["id"], "confirmed": True})
         client.invoke("close_session", {"id": overridden["id"], "confirmed": True})

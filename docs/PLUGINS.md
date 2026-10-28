@@ -111,3 +111,8 @@ ongleet tab configure TAB_ID --config '{"folder":"/absolute/repository","mode":"
 Run `mise exec -- npm run check:diff` for temporary-repository behavior checks.
 `scripts/check-diff-native.py` exercises bundled WebKitGTK on a private Xvfb
 server; see the validation guide for recorded evidence and remaining acceptance.
+
+Plugins can read `sdk.theme.getSnapshot()` for the application and resolved terminal
+preset and use `sdk.theme.subscribe(listener)` for changes. Call the returned
+unsubscribe function during cleanup. Snapshots and palettes are read-only; global
+appearance preferences are updated by the host's Appearance dialog.

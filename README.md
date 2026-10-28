@@ -372,3 +372,12 @@ These files exclude SDK payloads, URLs, credentials and terminal contents. Exist
 
 Ongleet source code is licensed under the [MIT License](LICENSE). Third-party
 dependencies retain their respective licenses.
+
+## Appearance
+
+**Application → Appearance…** offers six bundled presets for the app, Files editor,
+Diff viewer and new terminals, plus an optional terminal override. Changes save
+automatically. Ongleet Original remains the default. Existing terminal cell colors
+retain their launch palette because Ghostty 0.4.0 lacks live recoloring; cursor,
+selection and canvas background update immediately. See [appearance details and
+validation](docs/APPEARANCE.md).

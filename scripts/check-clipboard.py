@@ -115,7 +115,8 @@ finally:
     config = directory / "config/ongleet/projects/1"
     config.mkdir(parents=True)
     (config / "actions.yaml").write_text(json.dumps({"actions": [{"id": "clipboard", "name": "Clipboard probe",
-        "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(fixture), str(received), str(mode)]}}]}))
+        "kind": "terminal", "config": {"executable": "/usr/bin/python3", "args": [str(fixture), str(received), str(mode)]}},
+        {"id":"passive","name":"Passive","kind":"terminal","config":{"executable":"/bin/sleep","args":["600"]}}]}))
     env = dict(os.environ, XDG_DATA_HOME=str(directory / "data"), XDG_CONFIG_HOME=str(directory / "config"),
                XDG_CACHE_HOME=str(directory / "cache"), XDG_RUNTIME_DIR=f"/run/user/{os.getuid()}",
                TAURI_WEBVIEW_AUTOMATION="true", GDK_BACKEND="x11", ONGLEET_PRIVATE_X11="1", TERMINAL_VALIDATION_RUN=str(directory))
@@ -207,6 +208,26 @@ finally:
         tab = native.wait_for(lambda: client.js("return Number(document.querySelector('[role=tab][aria-selected=true]')?.id.slice(4)) || null"), "clipboard tab")
         native.wait_for(lambda: "MODE 0" in client.screen(tab), "raw PTY fixture ready")
         native.wait_for(lambda: (state := client.state(tab)) and state.get("sessionId") and not state["replaying"], "terminal input attached")
+        if args.cli:
+            def cli(*arguments):
+                return subprocess.run([str(Path(args.cli).resolve()), '--json', *map(str, arguments)], env=env, capture_output=True, text=True, timeout=10)
+            text = "literal café 日本語 🙂; $(not-executed)"
+            for enter in [False, True]:
+                before=received.stat().st_size
+                result=cli('tab','input',tab,'--text',text,*(['--enter'] if enter else []))
+                assert result.returncode==0,(result.stdout,result.stderr)
+                expect(before,text.encode()+(b'\r' if enter else b''))
+            mark('Real CLI sends literal Unicode bytes once; Enter is appended only when explicitly requested')
+            before=received.stat().st_size
+            result=cli('tab','input',tab,'--text','λ'*4096,'--enter')
+            assert result.returncode!=0
+            assert received.stat().st_size==before,'Rejected oversized CLI input partially reached the PTY'
+            mark('CLI rejects UTF-8 input exceeding 8 KiB including Enter without writing a partial payload')
+            before=received.stat().st_size
+            result=cli('tab','input',999999999,'--text','must not arrive')
+            assert result.returncode!=0 and json.loads(result.stderr)['error']['code']=='not_found',(result.stdout,result.stderr)
+            assert received.stat().st_size==before
+            mark('CLI rejects an unavailable tab ID without writing to a live sibling terminal')
         client.js("""window.pointerEvidence=[];
             for(const type of ['mousedown','mouseup','mousemove']) document.addEventListener(type,e=>{
               if(window.pointerEvidence.length<128)window.pointerEvidence.push({type,button:e.button,buttons:e.buttons,
@@ -288,6 +309,42 @@ finally:
             native.wait_for(lambda: clipboard.read() == "日本語 🙂".encode(), "wide character selection boundaries")
             native.wait_for(lambda: primary.read() == "日本語 🙂".encode(), "selected text owns desktop primary selection")
             mark("Wide-character selection also populates desktop primary selection")
+            if args.check_navigation:
+                retained=client.state(tab)
+                client.click('[aria-label="Session and tab menu"]')
+                client.click("//details[@open]//button[@title='Open a new tab'][normalize-space()='Passive']",'xpath')
+                passive=client.invoke('sessions')['sessions'][0]['selectedTabId']
+                native.wait_for(lambda:(state:=client.state(passive)) and state.get('sessionId') and not state['replaying'],'passive sibling attached')
+                client.js("document.getElementById('tab-'+arguments[0]).click()",tab)
+                native.wait_for(lambda:client.js("return document.getElementById('tab-'+arguments[0]).getAttribute('aria-selected')==='true'",tab),'original tab restored')
+                current=client.state(tab)
+                assert current['sessionId']==retained['sessionId']
+                if current['selection']!=retained['selection'] or current['selectionRange']!=retained['selectionRange']:
+                    report.setdefault('navigationFailures',[]).append({'navigation':'tab','before':retained,'after':current})
+                else:
+                    mark('Terminal selection text/range and runtime survive tab switching')
+                pointer(point(5, 1), point(13, 1))
+                native.wait_for(lambda:client.state(tab)['selection']=="日本語 🙂",'fresh selection for independent session check')
+                retained=client.state(tab)
+                # New sessions use a passive process, leaving the raw-byte fixture untouched.
+                settings=json.loads((config/'actions.yaml').read_text())
+                settings['actions'].reverse()
+                (config/'actions.yaml').write_text(json.dumps(settings))
+                client.click('[aria-label="Create session"]')
+                client.fill('#session-name','Selection sibling')
+                client.fill('#session-directory',str(directory))
+                client.click("//button[normalize-space()='Save session']",'xpath')
+                new_session=native.wait_for(lambda:next((row for row in client.invoke('sessions')['sessions'] if row['name']=='Selection sibling'),None),'sibling session created')
+                native.wait_for(lambda:(state:=client.state(new_session['selectedTabId'])) and state.get('sessionId') and not state['replaying'],'sibling session attached')
+                client.click("//button[contains(@class,'session-choice')][.//span[normalize-space()='Clipboard acceptance']]",'xpath')
+                native.wait_for(lambda:client.js("return document.getElementById('tab-'+arguments[0]).getAttribute('aria-selected')==='true'",tab),'original session restored')
+                current=client.state(tab)
+                assert current['sessionId']==retained['sessionId']
+                if current['selection']!=retained['selection'] or current['selectionRange']!=retained['selectionRange']:
+                    report.setdefault('navigationFailures',[]).append({'navigation':'session','before':retained,'after':current})
+                else:
+                    mark('Terminal selection text/range and runtime survive session switching')
+                assert primary.read()=="日本語 🙂".encode()
             primary_payload = "PRIMARY only\n日本語 e\u0301"
             clipboard.write("CLIPBOARD_ONLY")
             primary.write(primary_payload)
@@ -301,6 +358,7 @@ finally:
             native.wait_for(lambda: len(re.findall(rb"\x1b\[<1;\d+;\d+[Mm]", received.read_bytes()[before:])) == 2, "middle-button mouse reports")
             assert primary_payload.encode() not in received.read_bytes()[before:]
             mark("Mouse-reporting mode forwards middle-button events without pasting primary text")
+        assert not report.get('navigationFailures'), 'Selection retention failed; see navigationFailures in report.json'
         report["result"] = "blocked" if report["skipped"] else "passed"
     except BaseException as error:
         report["result"], report["error"] = "failed", str(error)
@@ -354,6 +412,8 @@ finally:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check-navigation", action="store_true", help="Also enforce selection retention across tab/session navigation (known failing on Ghostty 0.4.0)")
+    parser.add_argument("--cli", help="Also verify exact terminal CLI input bytes using this executable")
     parser.add_argument("--xvfb", default=shutil.which("Xvfb"))
     parser.add_argument("--driver", default="WebKitWebDriver")
     parser.add_argument("--application", default=str(native.ROOT / "src-tauri/target/debug/ongleet-gui"))

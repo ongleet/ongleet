@@ -52,3 +52,15 @@ const conflict = fixture([...original, ['ongleet.editor.wrap', 'false']]);
 assert.throws(() => run(conflict.storage), /Conflicting Ongleet browser storage/);
 assert.deepEqual([...conflict.values], [...original, ['ongleet.editor.wrap', 'false']]);
 console.log('Browser branding migration preserves drafts on interruption and conflicts.');
+
+assert.doesNotThrow(() =>
+  vm.runInNewContext(source, {
+    exports: {},
+    window: {
+      get localStorage() {
+        throw new Error('Storage denied');
+      },
+    },
+    document: { body: { textContent: '' } },
+  }),
+);

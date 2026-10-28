@@ -23,10 +23,10 @@ for sql in sorted((root / 'src-tauri/migrations').glob('*.sql')):
 c.execute('update projects set root_directory=?', (str(directory),))
 config = {'version': 1, 'config': {'executable': '/usr/bin/python3', 'args': [str(root / 'scripts/terminal-probe.py'), 'reload']}}
 for session in range(1, 7):
-    c.execute('insert into sessions values (?,?,?, ?,NULL,1,NULL)', (session, 'Fixture ' + str(session), str(directory), session - 1))
+    c.execute('insert into sessions (id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json) values (?,?,?, ?,NULL,1,NULL)', (session, 'Fixture ' + str(session), str(directory), session - 1))
     for index in range(2):
         tab = (session - 1) * 2 + index + 1
-        c.execute("insert into tab_definitions values (?,?,?,'terminal',?,?)", (tab, session, 'Probe ' + str(tab), json.dumps(config), index))
+        c.execute("insert into tab_definitions (id,session_id,name,kind,config_json,display_order) values (?,?,?,'terminal',?,?)", (tab, session, 'Probe ' + str(tab), json.dumps(config), index))
         c.execute('insert into open_tabs values (?,?)', (tab, int(tab != 11)))
         history = data / 'terminal-history' / str(session)
         history.mkdir(parents=True, exist_ok=True)
@@ -58,17 +58,17 @@ with (directory / 'driver.log').open('w') as log:
         native.wait_for(lambda: client.request('GET', '/status', session=False), 'driver')
         started = client.request('POST', '/session', {'capabilities': {'alwaysMatch': {'webkitgtk:browserOptions': {'binary': args.application}}}}, session=False)
         client.session = started['sessionId']
-        native.wait_for(lambda: client.js('return !!document.querySelector("footer button:not(:disabled)")'), 'restoration', timeout=40)
+        native.wait_for(lambda: client.js('return !!document.querySelector(".titlebar-menu .app-menu-items > button:last-of-type:not(:disabled)")'), 'restoration', timeout=40)
         native.wait_for(lambda: all((client.state(tab) and client.state(tab).get('sessionId') and (not client.state(tab)['replaying']) for tab in list(range(1, 11)) + [12])), 'all eleven restored PTYs', timeout=40)
         original_runtime = client.state(12)['sessionId']
         client.js('window.__terminalValidation.holdNextConnection()')
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
-        client.click("//dialog[@open]//button[normalize-space()='New probe']", 'xpath')
+        client.click('.session-pane:not([hidden]) [aria-label="Session and tab menu"]')
+        client.click("//details[@open]//button[@title='Open a new tab'][normalize-space()='New probe']", 'xpath')
         native.wait_for(lambda: client.js('return window.__terminalValidation.pendingConnection()===13'), 'new terminal waiting for connect')
         assert client.js('return document.querySelector("#tab-panel-13").getAttribute("aria-busy")==="true"')
         assert client.js('return !document.querySelector(".session-choice").disabled'), 'Pending terminal disabled the entire sidebar'
         assert client.js('return !document.getElementById("tab-11").disabled'), 'Pending terminal disabled its sibling tab'
-        assert client.js('return document.querySelector("footer button").disabled'), 'Quit must wait for pending attachment'
+        assert client.js('return document.querySelector(".titlebar-menu .app-menu-items > button:last-of-type").disabled'), 'Quit must wait for pending attachment'
         client.click('#tab-11')
         native.wait_for(lambda: client.js('return document.querySelector("#tab-11").getAttribute("aria-selected")==="true"'), 'sibling tab selectable')
         client.click("//button[contains(@class,'session-choice')][.//span[normalize-space()='Fixture 1']]", 'xpath')
@@ -76,23 +76,22 @@ with (directory / 'driver.log').open('w') as log:
         client.click("//button[contains(@class,'session-choice')][.//span[normalize-space()='Fixture 6']]", 'xpath')
         native.wait_for(lambda: not client.js('return document.querySelectorAll(".session-pane")[5].hidden'), 'return to pending session')
         client.click('#tab-13 + .tab-close')
-        native.wait_for(lambda: client.js('return !document.getElementById("tab-13") && !document.querySelector("footer button").disabled'), 'close pending terminal releases restoration guard')
+        native.wait_for(lambda: client.js('return !document.getElementById("tab-13") && !document.querySelector(".titlebar-menu .app-menu-items > button:last-of-type").disabled'), 'close pending terminal releases restoration guard')
         client.js('window.__terminalValidation.releaseConnection()')
         time.sleep(0.5)
         snapshot = client.invoke('sessions')
-        tab = next((t for session in snapshot['sessions'] for t in session['tabs'] if t['id'] == 13))
-        assert not tab['isOpen'] and (not tab['resumeOnStart'])
+        assert not any(t['id'] == 13 for session in snapshot['sessions'] for t in session['tabs'])
         assert client.invoke('application_status')['runningTerminals'] == 11, 'Late connect launched a closed terminal'
         assert client.state(12)['sessionId'] == original_runtime
         print('PASS: pending startup preserves tab/session navigation, can be closed, releases Quit guard and never launches after closure; eleven sibling PTYs retained', flush=True)
         renamed_source.rename(directory / 'after-rename')
         for action, tab_id, expected in [('Missing folder', 14, 'Working directory'), ('Missing executable', 15, 'No such file or directory')]:
-            client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
-            client.click(f"//dialog[@open]//button[normalize-space()='{action}']", 'xpath')
+            client.click('.session-pane:not([hidden]) [aria-label="Session and tab menu"]')
+            client.click(f"//details[@open]//button[@title='Open a new tab'][normalize-space()='{action}']", 'xpath')
             native.wait_for(lambda: client.js("const panel=document.getElementById('tab-panel-'+arguments[0]); return panel?.getAttribute('aria-busy')==='false' && !!panel.querySelector('[role=alert]')", tab_id), action+' reports launch error')
             assert expected.lower() in client.js("return document.querySelector('#tab-panel-'+arguments[0]+' [role=alert]').innerText", tab_id).lower()
             assert not client.js('return document.querySelector(".session-choice").disabled')
-            assert not client.js('return document.querySelector("footer button").disabled')
+            assert not client.js('return document.querySelector(".titlebar-menu .app-menu-items > button:last-of-type").disabled')
             client.click('#tab-12')
             native.wait_for(lambda: client.js('return document.getElementById("tab-12").getAttribute("aria-selected")==="true"'), 'live sibling selected after launch failure')
             assert client.state(12)['sessionId'] == original_runtime
@@ -103,11 +102,11 @@ with (directory / 'driver.log').open('w') as log:
             client.click(f'#tab-{tab_id} + .tab-close')
             native.wait_for(lambda: client.js('return !document.getElementById("tab-"+arguments[0])', tab_id), 'failed tab closes')
         assert not renamed_source.exists() and (directory / 'after-rename').is_dir()
-        client.click("//section[contains(@class,'session-pane') and not(@hidden)]//button[normalize-space()='+ New tab']", 'xpath')
-        client.click("//dialog[@open]//button[normalize-space()='Nonzero exit']", 'xpath')
+        client.click('.session-pane:not([hidden]) [aria-label="Session and tab menu"]')
+        client.click("//details[@open]//button[@title='Open a new tab'][normalize-space()='Nonzero exit']", 'xpath')
         native.wait_for(lambda: client.js('return document.getElementById("tab-16")?.innerText.includes("(23)")'), 'nonzero process exit displayed')
         assert not client.js('return document.querySelector(".session-choice").disabled')
-        assert not client.js('return document.querySelector("footer button").disabled')
+        assert not client.js('return document.querySelector(".titlebar-menu .app-menu-items > button:last-of-type").disabled')
         client.click('#tab-12')
         native.wait_for(lambda: client.js('return document.getElementById("tab-12").getAttribute("aria-selected")==="true"'), 'sibling remains selectable after process exit')
         assert client.state(12)['sessionId'] == original_runtime

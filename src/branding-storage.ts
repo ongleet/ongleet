@@ -29,8 +29,16 @@ export function migrateBrandingStorage(storage: Storage): void {
   for (const [source] of copies) storage.removeItem(source);
 }
 
+// Unavailable storage must not prevent in-memory preferences or editor use.
+let browserStorage: Storage | undefined;
 try {
-  migrateBrandingStorage(window.localStorage);
+  browserStorage = window.localStorage;
+  browserStorage.getItem('ongleet.appearance');
+} catch {
+  browserStorage = undefined;
+}
+try {
+  if (browserStorage) migrateBrandingStorage(browserStorage);
 } catch (error) {
   // Do not initialize consumers with incomplete state; retry after resolving storage.
   document.body.textContent = `Ongleet storage migration could not complete. ${String(error)}`;

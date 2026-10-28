@@ -22,7 +22,7 @@ import { useEditorWrap } from './editor-settings';
 import { fileEditors } from './editor-guards';
 import { readDraft, storeDraft, removeDraft } from './editor-drafts';
 import { startMerge } from './editor-merge';
-import { editorSyntaxHighlighting, fileLanguage } from './editor-syntax';
+import { editorAppearance, fileLanguage } from './editor-syntax';
 
 export function TextEditor({
   id,
@@ -120,6 +120,7 @@ export function TextEditor({
     if (!host.current) return;
     const clipboardError = (error: unknown) => setError(String(error));
     const languageCompartment = new Compartment();
+    const themeCompartment = new Compartment();
     const language = fileLanguage(document.path);
     baseline.current = document;
     let initialText = document.text;
@@ -143,7 +144,6 @@ export function TextEditor({
       state: EditorState.create({
         doc: initialText,
         extensions: [
-          editorSyntaxHighlighting,
           languageCompartment.of([]),
           wrapCompartment.current.of(wrap ? EditorView.lineWrapping : []),
           lineNumbers(),
@@ -222,32 +222,37 @@ export function TextEditor({
               setPosition({ line: line.number, column: head - line.from + 1 });
             }
           }),
-          EditorView.theme(
-            {
-              '&': { height: '100%', backgroundColor: '#121923', color: '#dce3ec' },
-              '.cm-scroller': {
-                overflow: 'auto',
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: '13px',
-              },
-              '.cm-gutters': {
-                backgroundColor: '#191f29',
-                color: '#8798af',
-                borderColor: '#303a48',
-              },
-              '.cm-activeLine': { backgroundColor: '#ffffff06' },
-              '.cm-cursor': { borderLeftColor: '#dce3ec' },
-              '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-                backgroundColor: '#39516b',
-              },
-              '.cm-panels': { backgroundColor: '#191f29', color: '#dce3ec' },
+          EditorView.theme({
+            '&': { height: '100%', backgroundColor: 'var(--editor)', color: 'var(--text)' },
+            '.cm-scroller': {
+              overflow: 'auto',
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: '13px',
             },
-            { dark: true },
-          ),
+            '.cm-gutters': {
+              backgroundColor: 'var(--surface)',
+              color: 'var(--muted)',
+              borderColor: 'var(--separator)',
+            },
+            '.cm-activeLine': { backgroundColor: 'var(--highlight)' },
+            '.cm-cursor': { borderLeftColor: 'var(--text)' },
+            '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+              backgroundColor: 'var(--selected)',
+            },
+            '.cm-panels': { backgroundColor: 'var(--surface)', color: 'var(--text)' },
+          }),
+          themeCompartment.of(editorAppearance(sdk.theme.getSnapshot().application)),
         ],
       }),
     });
     view.current = editor;
+    const unsubscribeTheme = sdk.theme.subscribe(() => {
+      editor.dispatch({
+        effects: themeCompartment.reconfigure(
+          editorAppearance(sdk.theme.getSnapshot().application),
+        ),
+      });
+    });
     if (language) {
       void language.load().then(
         (support) => {
@@ -267,6 +272,7 @@ export function TextEditor({
     return () => {
       view.current = null;
       mergeJob.current?.cancel();
+      unsubscribeTheme();
       editor.destroy();
       fileEditors.delete(id);
     };

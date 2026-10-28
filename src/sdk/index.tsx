@@ -8,3 +8,5 @@ export function useSdk(): PluginSdk {
   if (!sdk) throw new Error('Plugin must be mounted by its SDK host');
   return sdk;
 }
+
+export type { ThemePreset, ThemeId } from '../theme-presets';

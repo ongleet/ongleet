@@ -1,3 +1,5 @@
+import { appearance, applyAppearance } from './appearance';
+import { AppearanceDialog } from './AppearanceDialog';
 import './branding-storage';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -395,6 +397,7 @@ function SessionPane({
 }
 
 function App() {
+  const [showAppearance, setShowAppearance] = useState(false);
   const [configurationTab, setConfigurationTab] = useState<PluginTab | null>(null);
   const [showArchives, setShowArchives] = useState(false);
   const [confirmation, setConfirmation] = useState<{
@@ -588,7 +591,9 @@ function App() {
   const disabled = busy;
   return (
     <main className="app">
+      {showAppearance && <AppearanceDialog close={() => setShowAppearance(false)} />}
       <WindowTitleBar
+        appearance={() => setShowAppearance(true)}
         archives={() => setShowArchives(true)}
         quit={() => void quit()}
         quitDisabled={!ready || disabled || restoring > 0}
@@ -790,5 +795,8 @@ function App() {
     </main>
   );
 }
+
+applyAppearance();
+appearance.subscribe(applyAppearance);
 
 createRoot(document.getElementById('root')!).render(<App />);

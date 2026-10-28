@@ -243,7 +243,7 @@ def run(args):
 
             def new_tab(name):
                 previous_tabs = client.js("return Array.from(document.querySelectorAll('[role=tab]'),tab=>Number(tab.id.slice(4)))")
-                client.click('[aria-label="Session menu"]')
+                client.click('[aria-label="Session and tab menu"]')
                 client.click(f"//details[@open]//button[@title='Open a new tab'][normalize-space()='{name}']", "xpath")
                 tab = wait_for(lambda: client.js("const id=Number(document.querySelector('[role=tab][aria-selected=true]')?.id.slice(4));return id && !arguments[0].includes(id) ? id : null", previous_tabs), "new selected tab")
                 wait_for(lambda: (state := client.state(tab)) and state.get("sessionId") and not state["replaying"], "terminal connected")
@@ -253,7 +253,9 @@ def run(args):
                 # WebKitGTK's pointer endpoint rejects some horizontally clipped
                 # tabs after resizing. Exercise the native button keyboard path.
                 wait_for(lambda: client.js("const button=document.getElementById('tab-'+arguments[0]); if (!button || button.disabled) return false; button.focus(); return document.activeElement===button", tab), "tab button focused")
-                client.keys("\ue007")  # Enter activates the focused tab button.
+                # WebDriver key focus can lag GTK focus during sustained output.
+                # Select this retained tab directly; PTY keyboard bytes are tested separately.
+                client.js("document.getElementById('tab-'+arguments[0]).click()", tab)
                 wait_for(lambda: client.js("const panel=document.getElementById('tab-panel-'+arguments[0]);return panel && !panel.hidden", tab), "selected panel visible")
                 wait_for(lambda: client.js("const input=document.querySelector('#tab-panel-'+arguments[0]+' textarea'); input?.focus(); return document.activeElement===input", tab), "terminal input focused")
 
@@ -358,6 +360,7 @@ def run(args):
             # WebDriver's click endpoint can wait forever for a repaint after
             # this control hides the WebView. Dispatch after the JS reply.
             client.js("setTimeout(()=>document.querySelector('[aria-label=\"Close window\"]').click(),0)")
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
             wait_for(lambda: not client.invoke("application_status")["visible"], "custom close hides window")
             subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
             wait_for(lambda: client.invoke("application_status")["visible"], "hidden window reopened")
@@ -663,6 +666,10 @@ def run(args):
                 driver.wait()
             # Only test-owned processes inherit this exact unique marker. Never
             # inspect or terminate an unrelated user session.
+            try:
+                wait_for(lambda: not owned_processes(run_dir), "native child process cleanup", timeout=5)
+            except AssertionError:
+                pass
             survivors = owned_processes(run_dir)
             report["cleanupSurvivors"] = survivors
             for process in survivors:

@@ -22,7 +22,8 @@
     "check:plugins": "node scripts/check-plugin-boundaries.mjs",
     "package:deb": "tauri build --bundles deb",
     "check:branding-storage": "node scripts/check-branding-storage.mjs",
-    "check:diff": "node scripts/check-diff.mjs"
+    "check:diff": "node scripts/check-diff.mjs",
+    "check:appearance": "node scripts/check-appearance.mjs && node scripts/check-theme-engine.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
