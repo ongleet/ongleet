@@ -4,6 +4,8 @@ import 'react-diff-view/style/index.css';
 import './diff.css';
 import { useSdk } from '../../sdk';
 import type { PluginContentProps } from '../types';
+import { updateDiffTag } from './status-tag';
+import { FileReview } from './FileReview';
 import { DiffSidebar } from './Sidebar';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
@@ -72,11 +74,15 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const configRef = useRef(config);
   configRef.current = config;
   const [comparison, setComparison] = useState<Comparison>();
+  useEffect(() => {
+    sdk.tab.setTitle(comparison ? `${tab.name} (${comparison.files.length})` : null);
+  }, [sdk, tab.name, comparison?.files.length]);
   const [selected, setSelected] = useState('');
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
   const [references, setReferences] = useState<string[]>([]);
   const fileElements = useRef(new Map<string, HTMLElement>());
   const [error, setError] = useState('');
+  const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -101,6 +107,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const refresh = () => {
     setLoading(true);
     setError('');
+    setTagError('');
     void lane
       .replace(async (current) => {
         try {
@@ -113,6 +120,12 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           setComparison(next);
           setPatches({});
           setSelected('');
+          try {
+            await updateDiffTag(sdk.session, tab.id, next.files.length, current);
+          } catch (error) {
+            if (current()) setTagError(String(error));
+          }
+          if (!current()) return;
           try {
             const refs = await git.references(next.root);
             if (current()) setReferences(refs);
@@ -203,7 +216,12 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
       >
         <ComparisonFields config={config} onChange={setConfig} references={references} />
         <button type="submit">Compare</button>
-        <button type="button" onClick={refresh}>
+        <button type="button" className="diff-refresh" onClick={refresh}>
+          <span className="diff-spinner-slot">
+            {loading && (
+              <span className="diff-spinner" role="status" aria-label="Loading comparison" />
+            )}
+          </span>
           Refresh
         </button>
       </form>
@@ -226,7 +244,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           {error && ' · Stale'}
         </div>
       )}
-      {loading && <p role="status">Loading comparison…</p>}
+      {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
       {error && (
         <p role="alert">
           {error} Check the folder, Git installation and revision expressions, then Compare again.
@@ -255,17 +273,24 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
             {comparison.files.map((file) => (
               <article
                 className="diff-file"
-                key={file.key}
+                key={JSON.stringify([
+                  comparison.root,
+                  comparison.config.mode,
+                  comparison.config.baseRef,
+                  comparison.config.targetRef,
+                  file.key,
+                ])}
                 ref={(element) => {
                   if (element) fileElements.current.set(file.key, element);
                   else fileElements.current.delete(file.key);
                 }}
               >
-                <header>
-                  <span className="diff-status">{labels[file.status[0]]}</span>{' '}
-                  {file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
-                </header>
-                <div className="diff-file-content">
+                <FileReview
+                  path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
+                  status={labels[file.status[0]]}
+                  patch={patches[file.key]?.text}
+                  failed={!!patches[file.key]?.error}
+                >
                   {patches[file.key]?.error ? (
                     <p role="alert">{patches[file.key].error}</p>
                   ) : patches[file.key]?.text !== undefined ? (
@@ -273,7 +298,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                   ) : (
                     <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
                   )}
-                </div>
+                </FileReview>
               </article>
             ))}
             {!comparison.files.length && <p>No tracked changes.</p>}

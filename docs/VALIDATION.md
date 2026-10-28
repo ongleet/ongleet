@@ -725,3 +725,32 @@ remains within the viewer. The prior comparison, navigation, persistence and
 cancellation checks also pass. Frontend and offline native builds, real-Git checks
 and diff whitespace checks pass. Wayland/physical-input validation, double-click
 reset and responsive width clamping remain untested natively.
+
+### Fixed Diff filter and visible borders (2026-10-28)
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-tuhn8ddx/report.json`
+passes fifteen checks with zero application cleanup survivors. An overflowing tree
+fixture scrolls independently while the filename filter keeps its position and
+its right edge stays inside the sidebar. The long-line patch keeps its right card
+border inside the viewer. This run also covers the compact comparison toolbar and
+loading spinner through the existing comparison/cancellation scenarios. Frontend
+and offline native builds pass; physical input and Wayland remain untested.
+
+### Viewed files and change counts (2026-10-28)
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-4dyg2_1z/report.json`
+passes sixteen checks with zero application cleanup survivors. Native clicks mark
+files viewed and fold their patches, reopen them without clearing the mark, and
+collapse them independently. An unchanged refresh retains review state; editing
+the fixture clears its viewed mark and expands the updated patch. Tab titles and
+session tags both update from two changed files to one. Prior mode, refresh,
+restart, sidebar persistence, selection, border and cancellation checks pass.
+Review state is attachment-local and is not restored after application restart.
+
+The frontend/native builds, real-Git tests, tag-isolation/cancellation tests and
+whitespace checks pass. The tag tests preserve unrelated and sibling Diff tags,
+replace a prior count with zero, and leave tags unchanged after cancellation.
+Physical keyboard/checkbox interaction, Wayland and multiple live Diff tabs remain
+untested natively; tags show the last successful comparison without background
+polling. Global input/select/textarea focus now colors existing borders; the
+native run exercises Diff controls, not every application form.

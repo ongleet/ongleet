@@ -112,14 +112,49 @@ def run(args):
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
+            filter_layout = client.js("""
+                const aside=document.querySelector('.diff-sidebar aside');
+                const input=aside.querySelector('input');
+                const nav=aside.querySelector('nav');
+                const filler=document.createElement('div');
+                filler.style.minHeight='3000px';
+                nav.append(filler);
+                const before=input.getBoundingClientRect();
+                nav.scrollTop=500;
+                const after=input.getBoundingClientRect();
+                const fits=after.right < aside.getBoundingClientRect().right;
+                const fixed=before.top===after.top && nav.scrollTop===500 && aside.scrollTop===0;
+                filler.remove();
+                nav.scrollTop=0;
+                return {fixed, fits, before:before.top, after:after.top, right:after.right, asideRight:aside.getBoundingClientRect().right};
+            """)
+            assert filter_layout['fixed'] and filter_layout['fits'], filter_layout
+            mark('Filename filter stays fixed while tree scrolls; input right border fits inside sidebar')
+
             assert client.js("const v=document.querySelector('.diff-file-content'); return v.scrollWidth>v.clientWidth")
             assert client.js("const node=document.querySelector('.diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
             assert client.js("const file=document.querySelector('.diff-file');const viewer=document.querySelector('.diff-viewer');const r=file.getBoundingClientRect();const v=viewer.getBoundingClientRect();return r.right < v.right && viewer.scrollWidth===viewer.clientWidth")
             mark('Long-line overflow and DOM text selection; right card border stays inside viewer')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'patches loaded')
+            assert client.js(f"return document.querySelector('#tab-{tab} .tab-name').textContent==='Diff (2)'")
+            tags = client.invoke('sessions')['sessions'][0]['tags']
+            assert any(tag['name'] == f'Diff #{tab}: 2 files' for tag in tags), tags
+            client.click('.diff-file .diff-viewed input')
+            assert client.js("const file=document.querySelector('.diff-file'); return file.querySelector('input').checked && !file.querySelector('.diff-file-content')")
+            client.click('.diff-file .diff-fold')
+            assert client.js("const file=document.querySelector('.diff-file'); return file.querySelector('input').checked && !!file.querySelector('.diff-file-content')")
+            client.click('.diff-file .diff-fold')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-file:first-child .diff-file-content')"), 'collapsed viewed file')
+            client.click("//button[normalize-space()='Refresh']",'xpath')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-file input')?.checked"), 'viewed marker retained')
+            assert client.js("return !document.querySelector('.diff-file:first-child .diff-file-content')")
+            mark('Viewed folds patch; independent expansion and unchanged refresh retain review state')
+
             file.write_text('refreshed\n')
             client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'refresh')
-            mark('Manual refresh reads current tracked contents')
+            assert client.js("return !document.querySelector('.diff-file input').checked && !!document.querySelector('.diff-file:first-child .diff-file-content')")
+            mark('Changed patch clears viewed marker, expands file and displays fresh contents')
             client.click('.diff-layout nav summary')
             assert client.js("return !document.querySelector('.diff-layout nav details').open")
             client.click('.diff-layout nav summary')
@@ -131,7 +166,11 @@ def run(args):
             second.write_text('second original\n')
             client.click("//button[normalize-space()='Refresh']",'xpath')
             native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'removed selection fallback')
-            mark('Continuous page retains both patches; tree navigation and refresh remove vanished changes')
+            assert client.js(f"return document.querySelector('#tab-{tab} .tab-name').textContent==='Diff (1)'")
+            tags = client.invoke('sessions')['sessions'][0]['tags']
+            assert any(tag['name'] == f'Diff #{tab}: 1 file' for tag in tags), tags
+            assert not any(tag['name'] == f'Diff #{tab}: 2 files' for tag in tags), tags
+            mark('Continuous page and tree navigation; tab and session changed-file counts update from two to one')
 
             def mode(value):
                 client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
@@ -140,10 +179,10 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original') && document.querySelector('.diff-summary').textContent.includes('Two refs')"),'two refs')
             mode('mergeBase')
             client.click("//button[normalize-space()='Compare']",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-summary')?.textContent.includes('Merge base')"),'merge base')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-summary')?.textContent.includes('Merge base')"),'merge base')
             mark('Inline two-ref and merge-base comparisons render committed changes')
             mode('workingDirectory')
-            client.fill('.diff-toolbar input', 'HEAD')
+            client.js("const el=document.querySelector('.diff-toolbar input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'HEAD');el.dispatchEvent(new Event('input',{bubbles:true}));")
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'working directory restored')
             shell = session['tabs'][0]['id']

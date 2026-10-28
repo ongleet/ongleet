@@ -6,6 +6,9 @@
   padding: 12px;
   gap: 10px;
 }
+.diff-panel.plugin-panel {
+  overflow: hidden;
+}
 .diff-panel[hidden] {
   display: none;
 }
@@ -13,14 +16,38 @@
   display: flex;
   flex-wrap: wrap;
   align-items: end;
+  flex-shrink: 0;
   gap: 10px;
 }
 .diff-toolbar label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 0 1 240px;
+}
+.diff-toolbar .diff-mode-field {
+  flex: 0 1 200px;
+}
+.diff-toolbar input,
+.diff-toolbar select,
+.diff-toolbar button {
+  height: 34px;
+}
+.diff-toolbar select {
+  appearance: none;
+  padding: 7px 30px 7px 10px;
+  background-color: #121923;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #b6c3d4 50%),
+    linear-gradient(135deg, #b6c3d4 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 14px,
+    calc(100% - 10px) 14px;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
 }
 .diff-summary {
+  flex-shrink: 0;
   overflow-wrap: anywhere;
   font-size: 12px;
   opacity: 0.8;
@@ -39,13 +66,22 @@
 }
 .diff-layout aside {
   height: 100%;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 4px;
 }
 .diff-layout nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
   margin-top: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 .diff-layout nav button {
   text-align: left;
@@ -107,6 +143,8 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 .diff-file {
   border: 1px solid #45546a;
@@ -163,5 +201,94 @@
 }
 .diff-viewer {
   overflow-x: hidden;
+  scrollbar-gutter: stable;
   padding-right: 8px;
+}
+
+.diff-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.diff-spinner-slot {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.diff-spinner {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #ffffff30;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: diff-spin 0.8s linear infinite;
+}
+@keyframes diff-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .diff-spinner {
+    animation: none;
+  }
+}
+
+.diff-file > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diff-file-name {
+  flex: 1;
+  min-width: 0;
+}
+.diff-fold {
+  flex-shrink: 0;
+  padding: 2px 5px;
+  border: 0;
+  background: transparent;
+}
+.diff-file .diff-viewed {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  font:
+    12px system-ui,
+    sans-serif;
+  cursor: pointer;
+}
+.diff-viewed input {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  margin: 0;
+  border-radius: 3px;
+  display: grid;
+  place-content: center;
+  cursor: pointer;
+}
+.diff-viewed input:checked {
+  background: #a3e6cc;
+  border-color: #a3e6cc;
+}
+.diff-viewed input:checked::after {
+  content: '✓';
+  color: #121923;
+  font:
+    bold 12px system-ui,
+    sans-serif;
+}
+.diff-viewed input:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.diff-viewed input:focus {
+  border-color: #a3e6cc;
+  box-shadow: inset 0 0 0 1px #121923;
 }

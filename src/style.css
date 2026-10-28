@@ -1090,3 +1090,9 @@ dialog[aria-label='Project editor'] > [role='status'] {
   left: auto;
   right: 0;
 }
+
+/* Keep form focus indicators inside the existing control bounds. */
+:is(input, textarea, select):focus {
+  outline: none;
+  border-color: #a3e6cc;
+}

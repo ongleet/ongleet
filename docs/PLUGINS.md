@@ -56,6 +56,17 @@ only. Refs are fixed to object IDs for each refresh; working contents can change
 while being read. Refresh when working contents change during loading.
 Untracked/ignored files, editing, staging, reverting and fetching are excluded.
 
+The tab title shows the number of changed files after each successful comparison.
+A session tag (`Diff #<tab ID>: N files`) carries the same count, including zero.
+Each Diff tab updates only its own tag; hidden/closed tabs retain their last
+successful count. Counts follow the selected comparison and do not poll in the
+background.
+Each file header has a **Viewed** checkbox that folds its patch and a separate
+expand/collapse button. Viewed marks survive unchanged refreshes within the open
+tab; changed patches reopen and clear their marks. Changing comparison settings
+or reloading the application resets review state; marks and patch contents are
+never stored on disk.
+
 The filename filter runs locally on a collapsible folder tree. Clicking a file
 jumps to its patch in a continuous page. Drag the divider beside the file tree
 to resize it; its preferred width is saved in localStorage across tabs and restarts.

@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm, rename, chmod, symlink, mkdir, readFile } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseDiff } from 'react-diff-view';
+import { updateDiffTag } from '../src/plugins/diff/status-tag.ts';
 import { GitComparison, decodePath, Lane } from '../src/plugins/diff/git.ts';
 const exec = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), 'ongleet-diff-'));
@@ -277,6 +278,29 @@ try {
   release();
   await Promise.all([first, second, third]);
   assert.equal(applied, 100);
+  let sessionTags = [{ name: 'Keep me', dot: '#ffffff' }, { name: 'Diff #8: 7 files' }];
+  const tagService = {
+    listTags: async () => [...sessionTags],
+    addTag: async (tag) => {
+      sessionTags = [...sessionTags.filter((t) => t.name !== tag.name), tag];
+      return sessionTags;
+    },
+    removeTag: async (name) => {
+      sessionTags = sessionTags.filter((t) => t.name !== name);
+      return sessionTags;
+    },
+  };
+  await updateDiffTag(tagService, 9, 2, () => true);
+  await updateDiffTag(tagService, 9, 0, () => true);
+  assert.deepEqual(
+    sessionTags.map((t) => t.name),
+    ['Keep me', 'Diff #8: 7 files', 'Diff #9: 0 files'],
+  );
+  await updateDiffTag(tagService, 8, 1, () => false);
+  assert.ok(
+    sessionTags.some((t) => t.name === 'Diff #8: 7 files'),
+    'cancelled refresh must preserve tags',
+  );
   console.log(
     'Diff real-Git modes, fixed endpoints, paths, metadata, parser and cancellation passed.',
   );

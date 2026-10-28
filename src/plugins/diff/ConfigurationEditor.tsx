@@ -13,7 +13,7 @@ export function ComparisonFields({
   const referenceList = useId();
   return (
     <>
-      <label>
+      <label className="diff-mode-field">
         Comparison
         <select
           value={config.mode}
