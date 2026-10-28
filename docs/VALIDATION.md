@@ -695,3 +695,33 @@ missing Git in native UI, linked-worktree native rendering, and global process
 saturation. Existing SDK disposal/process tests support the shared mechanisms but
 do not establish those Diff-specific native scenarios. Builds alone do not close
 these stages.
+
+### Continuous Diff page (2026-10-28)
+
+The updated real-Git checks pass automatic feature-branch merge-base comparisons,
+default-branch/detached-HEAD latest commits, initial commits, and reference suggestions,
+alongside the existing path, metadata, bounds and cancellation checks. The frontend
+build and offline native custom-protocol build pass.
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-oifh5rgf/report.json`
+passes twelve checks with zero application cleanup survivors. It exercises the
+automatic latest-commit default, absence of repository settings from the toolbar,
+continuous multi-file patches, nested folder collapse/expand and file navigation,
+long-line scrolling, DOM selection, manual/activation/focus-event refresh,
+explicit reference modes, stale-error retention, successful settings across restart,
+Git index/content preservation, and cancellation on hiding/closure while preserving
+a sibling terminal. Reference suggestion popup interaction, the configuration modal,
+physical input/copy, Wayland and real compositor focus transitions remain untested
+for this layout. This evidence does not close the remaining terminal-stack gates.
+
+### Diff sidebar resizing and card borders (2026-10-28)
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-m5cnhwtv/report.json`
+passes fourteen checks with zero application cleanup survivors. Native pointer
+input resizes the Diff file tree; localStorage restores its width after frontend
+reload and application restart, and keyboard arrows adjust the persisted width.
+The long-line fixture scrolls inside the card content while its right border
+remains within the viewer. The prior comparison, navigation, persistence and
+cancellation checks also pass. Frontend and offline native builds, real-Git checks
+and diff whitespace checks pass. Wayland/physical-input validation, double-click
+reset and responsive width clamping remain untested natively.

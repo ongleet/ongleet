@@ -34,6 +34,8 @@ try {
   await command(['add', '.']);
   await command(['commit', '-m', 'base']);
   await command(['tag', '-a', 'base-tag', '-m', 'base']);
+  const initial = await git.compare({ ...config, mode: 'auto' });
+  assert.equal(initial.files.length, 6, 'initial commit compares against empty tree');
   const indexBefore = await readFile(join(root, '.git/index'));
   await writeFile(join(root, 'café'), 'one\ntwo\nthree\n');
   await git.compare(config);
@@ -69,6 +71,21 @@ try {
   await command(['commit', '-m', 'move']);
   assert.equal(await git.patch(c, c.files[0]), fixed);
   assert.equal((await git.compare({ ...config, mode: 'refs', baseRef: 'HEAD~1' })).files.length, 1);
+  const automaticMain = await git.compare({ ...config, mode: 'auto' });
+  assert.deepEqual(
+    automaticMain.files.map((f) => f.path),
+    ['normal'],
+    'default branch shows last commit',
+  );
+  await command(['checkout', '--detach', 'HEAD']);
+  assert.deepEqual(
+    (await git.compare({ ...config, mode: 'auto' })).files.map((f) => f.path),
+    ['normal'],
+    'detached HEAD shows last commit',
+  );
+  await command(['checkout', 'main']);
+  const refs = await git.references(root);
+  assert.ok(refs.includes('main') && refs.includes('base-tag'));
   const tree = (await command(['rev-parse', 'HEAD^{tree}'])).stdout.trim();
   const commitTree = async (parents) =>
     (
@@ -99,6 +116,13 @@ try {
   });
   assert.ok(direct.files.length > merged.files.length);
   assert.equal(merged.files[0].path, 'side');
+  const automaticSide = await git.compare({ ...config, mode: 'auto' });
+  assert.deepEqual(
+    automaticSide.files.map((f) => f.path),
+    ['side'],
+    'feature branch excludes unrelated main changes',
+  );
+  assert.equal(automaticSide.base, merged.base);
   await rename(join(root, 'normal'), join(root, 'renamed'));
   await command(['add', '.']);
   await chmod(join(root, 'space name'), 0o755);

@@ -39,6 +39,10 @@ and project action files are preserved). Comparisons resolve the enclosing
 repository only on request by this tab and include its entire tracked tree,
 even when the configured folder is a subdirectory or linked worktree.
 
+- **Automatic** (default) compares a feature branch’s merge base with `HEAD`,
+  using `origin/HEAD` when available, then `main` or `master`. On the default
+  branch, detached HEAD, or without a default branch, it shows the latest commit.
+  Initial commits compare against the empty tree. No fetch is performed.
 - **Working directory** compares a base tree (default `HEAD`) with final tracked
   contents, including staged and unstaged changes. Changes that cancel disappear.
 - **Two refs** compares snapshots directly (`git diff A B`); switching from the
@@ -49,19 +53,23 @@ even when the configured folder is a subdirectory or linked worktree.
 Branches, annotated tags, hashes and revision expressions are supported. Missing
 refs remain editable errors. Bare repositories support committed comparisons
 only. Refs are fixed to object IDs for each refresh; working contents can change
-while being read. Refresh when a selected file disappears or its patch empties.
+while being read. Refresh when working contents change during loading.
 Untracked/ignored files, editing, staging, reverting and fetching are excluded.
 
-The filename filter runs locally. Patches load only for the selected file and use
+The filename filter runs locally on a collapsible folder tree. Clicking a file
+jumps to its patch in a continuous page. Drag the divider beside the file tree
+to resize it; its preferred width is saved in localStorage across tabs and restarts.
+The divider also supports arrow keys, Home/End, and double-click to reset. Patches load serially and use
 [react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,
 with three context lines and diff coloring. Binary and metadata-only changes show
 notices. Non-UTF-8 filenames fail explicitly. Git runs with literal arguments,
 optional locking disabled, no external diff/text conversion or recursive
 submodule diffs, and the SDK's 20-second/512-KiB-per-stream bounds. Oversized
-results fail rather than display a truncated comparison.
+files show an explicit error; retained patch text is capped at 8 MiB per comparison.
 
-Inline **Compare** saves settings only after success; **Tab → Configure…** uses
-the same fields and validation. Activation and application focus refresh visible
+Inline **Compare** saves comparison settings only after success. Reference inputs
+suggest up to 1,000 local branches, remote refs and tags, and also accept revision
+expressions. **Tab → Configure…** contains only the repository folder. Activation and application focus refresh visible
 tabs without polling. Hidden tabs cancel work and retain their display; failures
 mark the previous comparison stale. Restart restores settings and reads fresh
 results; patches and repository contents are never persisted.
@@ -73,7 +81,7 @@ actions:
     kind: diff
     config:
       folder: /absolute/repository # omitted/null initializes from session.directory
-      mode: mergeBase # workingDirectory | refs | mergeBase
+      mode: mergeBase # auto | workingDirectory | refs | mergeBase
       baseRef: main
       targetRef: HEAD # unused in workingDirectory mode
 ```

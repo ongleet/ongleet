@@ -2,6 +2,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   padding: 12px;
   gap: 10px;
 }
@@ -29,10 +30,15 @@
   flex: 1;
   min-height: 0;
   gap: 12px;
+  min-width: 0;
+}
+.diff-sidebar {
+  position: relative;
+  flex-shrink: 0;
+  min-height: 0;
 }
 .diff-layout aside {
-  width: 260px;
-  flex-shrink: 0;
+  height: 100%;
   overflow: auto;
 }
 .diff-layout nav {
@@ -72,4 +78,90 @@
 .diff-panel .diff-decoration {
   background: #30343d;
   color: #ddd;
+}
+.diff-layout nav ul {
+  list-style: none;
+  padding: 0 0 0 14px;
+  margin: 0;
+}
+.diff-layout nav > ul {
+  padding-left: 0;
+}
+.diff-layout nav summary {
+  cursor: pointer;
+  padding: 5px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-layout nav button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 5px 6px;
+}
+.diff-layout nav button:hover,
+.diff-layout nav button[aria-pressed='true'] {
+  background: #ffffff12;
+}
+.diff-layout aside > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diff-file {
+  border: 1px solid #45546a;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+.diff-file > header {
+  background: #ffffff08;
+  padding: 10px 12px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid #ffffff25;
+}
+.diff-file-content > p,
+.diff-file-content > pre {
+  margin: 12px;
+}
+.diff-status {
+  font-size: 11px;
+  opacity: 0.8;
+}
+.diff-viewer {
+  scroll-padding-top: 4px;
+}
+
+.diff-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -9px;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+.diff-sidebar-resizer:hover,
+.diff-sidebar-resizer:focus-visible {
+  background: #a3e6cc66;
+}
+.diff-sidebar-resize-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.diff-file-content {
+  overflow-x: auto;
+  min-width: 0;
+}
+.diff-viewer {
+  overflow-x: hidden;
+  padding-right: 8px;
 }

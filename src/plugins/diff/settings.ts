@@ -1,18 +1,18 @@
 export type Settings = {
   folder: string | null;
-  mode: 'workingDirectory' | 'refs' | 'mergeBase';
+  mode: 'auto' | 'workingDirectory' | 'refs' | 'mergeBase';
   baseRef: string;
   targetRef: string;
 };
 export const defaults: Settings = {
   folder: null,
-  mode: 'workingDirectory',
+  mode: 'auto',
   baseRef: 'HEAD',
   targetRef: 'HEAD',
 };
 export function settings(value: unknown): Settings {
   const config = { ...defaults, ...(value as Partial<Settings>) };
-  if (!['workingDirectory', 'refs', 'mergeBase'].includes(config.mode))
+  if (!['auto', 'workingDirectory', 'refs', 'mergeBase'].includes(config.mode))
     throw new Error('Choose a comparison mode.');
   if (
     config.folder !== null &&
@@ -30,10 +30,10 @@ export function changeMode(config: Settings, mode: Settings['mode']): Settings {
   return {
     ...config,
     mode,
-    ...(config.mode === 'workingDirectory' &&
+    ...((config.mode === 'workingDirectory' || config.mode === 'auto') &&
     config.baseRef === 'HEAD' &&
     config.targetRef === 'HEAD' &&
-    mode !== 'workingDirectory'
+    (mode === 'refs' || mode === 'mergeBase')
       ? { baseRef: mode === 'refs' ? 'HEAD~1' : 'main' }
       : {}),
   };

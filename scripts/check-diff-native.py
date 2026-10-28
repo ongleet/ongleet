@@ -28,7 +28,8 @@ def run(args):
     git('config', 'user.name', 'Fixture')
     file = folder / 'hello.txt'
     file.write_text('before\n')
-    second = folder/'z-second.txt'
+    (folder/'nested').mkdir()
+    second = folder/'nested/z-second.txt'
     second.write_text('second original\n')
     git('add', '.')
     git('commit', '-m', 'base')
@@ -88,23 +89,49 @@ def run(args):
             created = client.invoke('create_tab',{'sessionId':session['id'],'actionId':'diff'})
             tab = created['sessions'][0]['selectedTabId']
             client.request('POST','/refresh',{})
+            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original')"),'automatic latest commit')
+            assert client.js("return !Array.from(document.querySelectorAll('.diff-toolbar label')).some(el=>el.textContent.includes('Repository folder'))")
+            mark('Automatic latest-commit default and repository settings absent from toolbar')
+            initial_width = client.js("return Number(document.querySelector('[aria-label=\"Resize diff sidebar\"]').getAttribute('aria-valuenow'))")
+            point = client.js("const r=document.querySelector('.diff-sidebar-resizer').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+40)}")
+            client.request('POST','/actions',{'actions':[{'type':'pointer','id':'resize-mouse','parameters':{'pointerType':'mouse'},'actions':[
+                {'type':'pointerMove','duration':0,'x':point['x'],'y':point['y']},
+                {'type':'pointerDown','button':0},
+                {'type':'pointerMove','duration':150,'x':point['x']+50,'y':point['y']},
+                {'type':'pointerUp','button':0}
+            ]}]})
+            native.wait_for(lambda: client.js("return Number(localStorage.getItem('ongleet.diff.sidebarWidth'))") == initial_width+50, 'saved drag width')
+            assert client.js("return !document.querySelector('.diff-sidebar-resize-overlay')")
+            client.request('POST','/refresh',{})
+            native.wait_for(lambda: client.js("return Number(document.querySelector('.diff-sidebar-resizer')?.getAttribute('aria-valuenow'))") == initial_width+50, 'restored sidebar width')
+            mark('Native pointer drag resizes Diff sidebar; localStorage restores width after reload')
+
+            def mode(value):
+                client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
+            mode('workingDirectory')
+            client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
-            assert client.js("const v=document.querySelector('.diff-viewer'); return v.scrollWidth>v.clientWidth")
+            assert client.js("const v=document.querySelector('.diff-file-content'); return v.scrollWidth>v.clientWidth")
             assert client.js("const node=document.querySelector('.diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
-            mark('Long-line overflow and DOM text selection')
+            assert client.js("const file=document.querySelector('.diff-file');const viewer=document.querySelector('.diff-viewer');const r=file.getBoundingClientRect();const v=viewer.getBoundingClientRect();return r.right < v.right && viewer.scrollWidth===viewer.clientWidth")
+            mark('Long-line overflow and DOM text selection; right card border stays inside viewer')
             file.write_text('refreshed\n')
             client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'refresh')
             mark('Manual refresh reads current tracked contents')
+            client.click('.diff-layout nav summary')
+            assert client.js("return !document.querySelector('.diff-layout nav details').open")
+            client.click('.diff-layout nav summary')
             client.click("//nav[@aria-label='Changed files']//button[contains(.,'z-second.txt')]",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('second changed')"),'second file')
+            assert client.js("return document.querySelector('.diff-layout nav button[aria-pressed=true]').textContent.includes('z-second.txt')")
+            native.wait_for(lambda: client.js("return document.querySelectorAll('.diff-file').length===2 && document.querySelectorAll('.diff-code-insert')[1]?.textContent.includes('second changed')"),'second file')
             client.click("//button[normalize-space()='Refresh']",'xpath')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-code-insert')?.textContent.includes('second changed')"),'retained selection')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelectorAll('.diff-code-insert')[1]?.textContent.includes('second changed')"),'retained selection')
             second.write_text('second original\n')
             client.click("//button[normalize-space()='Refresh']",'xpath')
             native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'removed selection fallback')
-            mark('Refresh retains selection, then selects first file when selected change disappears')
+            mark('Continuous page retains both patches; tree navigation and refresh remove vanished changes')
 
             def mode(value):
                 client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
@@ -116,7 +143,7 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.diff-summary')?.textContent.includes('Merge base')"),'merge base')
             mark('Inline two-ref and merge-base comparisons render committed changes')
             mode('workingDirectory')
-            client.fill('.diff-toolbar label:nth-child(3) input', 'HEAD')
+            client.fill('.diff-toolbar input', 'HEAD')
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'working directory restored')
             shell = session['tabs'][0]['id']
@@ -129,7 +156,7 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'focus refresh')
             mark('Tab activation and focus event refresh visible comparison')
 
-            client.js("const inputs=document.querySelectorAll('.diff-toolbar input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(inputs[1],'missing'); inputs[1].dispatchEvent(new Event('input',{bubbles:true}));")
+            client.js("const inputs=document.querySelectorAll('.diff-toolbar input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(inputs[0],'missing'); inputs[0].dispatchEvent(new Event('input',{bubbles:true}));")
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return !!document.querySelector('.diff-panel [role=alert]')"),'invalid ref')
             assert client.js("return document.querySelector('.diff-code-insert').textContent.includes('refreshed') && document.querySelector('.diff-summary').textContent.includes('Stale')")
@@ -140,8 +167,16 @@ def run(args):
             client.session=None
             start()
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'restart comparison')
-            assert client.js("return document.querySelectorAll('.diff-toolbar input')[1].value==='HEAD'")
+            assert client.js("return document.querySelectorAll('.diff-toolbar input')[0].value==='HEAD'")
             mark('Restart restores successful settings and fetches fresh patch')
+            assert client.js("return Number(document.querySelector('.diff-sidebar-resizer').getAttribute('aria-valuenow'))") == initial_width+50
+            client.click('.diff-sidebar-resizer')
+            client.request('POST','/actions',{'actions':[{'type':'key','id':'resize-keyboard','actions':[
+                {'type':'keyDown','value':'\ue012'}, {'type':'keyUp','value':'\ue012'}
+            ]}]})
+            native.wait_for(lambda: client.js("return Number(localStorage.getItem('ongleet.diff.sidebarWidth'))") == initial_width+40, 'keyboard resize')
+            mark('Sidebar width survives application restart and supports keyboard resizing')
+
             assert (folder/'.git/index').read_bytes()==original_index
             assert file.read_text()=='refreshed\n'
             mark('Git index and tracked contents remain unchanged by viewer')

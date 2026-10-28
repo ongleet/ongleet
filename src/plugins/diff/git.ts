@@ -8,6 +8,8 @@ export type Comparison = {
   config: Settings;
   files: FileChange[];
   time: number;
+  baseLabel: string;
+  targetLabel: string;
 };
 export type Runner = (request: ProcessRequest) => Promise<ProcessResult>;
 export function decodePath(value: string): string {
@@ -101,12 +103,53 @@ export class GitComparison {
       (
         await this.git(root, ['rev-parse', '--verify', '--end-of-options', `${ref}^{${kind}}`])
       ).trim();
-    let base = await resolve(config.baseRef, config.mode === 'mergeBase' ? 'commit' : 'tree');
+    let baseLabel = config.baseRef;
+    let targetLabel = config.targetRef;
+    if (config.mode === 'auto') {
+      const branch = (await this.git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+      // Prefer the remote default branch, then conventional local default branches.
+      let defaultRef = '';
+      try {
+        defaultRef = (
+          await this.git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
+        ).trim();
+      } catch {
+        /* A remote default is optional; never fetch or modify Git metadata. */
+      }
+      for (const candidate of [...new Set([defaultRef, 'main', 'master'].filter(Boolean))]) {
+        try {
+          await resolve(candidate, 'commit');
+          defaultRef = candidate;
+          break;
+        } catch {
+          defaultRef = '';
+        }
+      }
+      const defaultBranch = defaultRef.replace(/^refs\/remotes\/[^/]+\//, '');
+      if (branch !== 'HEAD' && defaultRef && branch !== defaultBranch) {
+        baseLabel = defaultRef;
+        targetLabel = 'HEAD';
+      } else {
+        baseLabel = 'HEAD~1';
+        targetLabel = 'HEAD';
+      }
+    }
+    const mergeBase =
+      config.mode === 'mergeBase' || (config.mode === 'auto' && baseLabel !== 'HEAD~1');
+    let base: string;
+    try {
+      base = await resolve(baseLabel, mergeBase ? 'commit' : 'tree');
+    } catch (error) {
+      if (config.mode !== 'auto' || baseLabel !== 'HEAD~1') throw error;
+      // The initial commit is compared with Git's empty tree without writing it.
+      base = (await this.git(root, ['hash-object', '-t', 'tree', '/dev/null'])).trim();
+      baseLabel = 'Empty tree';
+    }
     const target =
       config.mode === 'workingDirectory'
         ? null
-        : await resolve(config.targetRef, config.mode === 'mergeBase' ? 'commit' : 'tree');
-    if (config.mode === 'mergeBase') {
+        : await resolve(targetLabel, mergeBase ? 'commit' : 'tree');
+    if (mergeBase) {
       const bases = (await this.git(root, ['merge-base', '--all', base, target!]))
         .trim()
         .split('\n');
@@ -114,7 +157,16 @@ export class GitComparison {
         throw new Error('No unique merge base; histories may be unrelated or ambiguous.');
       base = bases[0];
     }
-    const comparison = { root, base, target, config, files: [] as FileChange[], time: Date.now() };
+    const comparison = {
+      root,
+      base,
+      target,
+      config,
+      baseLabel: mergeBase ? `Merge base of ${baseLabel}` : baseLabel,
+      targetLabel,
+      files: [] as FileChange[],
+      time: Date.now(),
+    };
     comparison.files = parseFiles(
       await this.git(root, [...this.diffArgs(comparison), '--name-status']),
     );
@@ -137,6 +189,25 @@ export class GitComparison {
       );
     }
     return comparison;
+  }
+  async references(folder: string): Promise<string[]> {
+    return [
+      'HEAD',
+      'HEAD~1',
+      ...(
+        await this.git(folder, [
+          'for-each-ref',
+          '--count=1000',
+          '--format=%(refname:short)',
+          'refs/heads',
+          'refs/remotes',
+          'refs/tags',
+        ])
+      )
+        .trim()
+        .split('\n')
+        .filter(Boolean),
+    ];
   }
   diffArgs(c: Comparison) {
     return [

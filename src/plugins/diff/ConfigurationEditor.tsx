@@ -1,50 +1,61 @@
+import { useId } from 'react';
 import type { ConfigurationEditorProps } from '..';
 import { changeMode, defaults, type Settings } from './settings';
 export function ComparisonFields({
   config,
   onChange,
+  references = [],
 }: {
   config: Settings;
   onChange: (config: Settings) => void;
+  references?: string[];
 }) {
+  const referenceList = useId();
   return (
     <>
-      <label>
-        Repository folder
-        <input
-          value={config.folder ?? ''}
-          placeholder="Session directory"
-          onChange={(e) => onChange({ ...config, folder: e.target.value || null })}
-        />
-      </label>
       <label>
         Comparison
         <select
           value={config.mode}
           onChange={(e) => onChange(changeMode(config, e.target.value as Settings['mode']))}
         >
+          <option value="auto">Automatic</option>
           <option value="workingDirectory">Working directory</option>
-          <option value="refs">Two refs</option>
+          <option value="refs">Two references</option>
           <option value="mergeBase">Merge base</option>
         </select>
       </label>
-      <label>
-        Base ref
-        <input
-          required
-          value={config.baseRef}
-          onChange={(e) => onChange({ ...config, baseRef: e.target.value })}
-        />
-      </label>
-      {config.mode !== 'workingDirectory' && (
-        <label>
-          Destination ref
-          <input
-            required
-            value={config.targetRef}
-            onChange={(e) => onChange({ ...config, targetRef: e.target.value })}
-          />
-        </label>
+      <datalist id={referenceList}>
+        {references.map((ref) => (
+          <option key={ref} value={ref} />
+        ))}
+      </datalist>
+      {config.mode !== 'auto' && (
+        <>
+          <label>
+            Base reference
+            <input
+              required
+              list={referenceList}
+              value={config.baseRef}
+              onChange={(e) => onChange({ ...config, baseRef: e.target.value })}
+            />
+          </label>
+          {config.mode !== 'workingDirectory' && (
+            <>
+              <span aria-hidden="true">→</span>
+              <label>
+                Destination reference
+                <input
+                  required
+                  list={referenceList}
+                  value={config.targetRef}
+                  onChange={(e) => onChange({ ...config, targetRef: e.target.value })}
+                />
+              </label>
+            </>
+          )}
+        </>
       )}
     </>
   );
@@ -56,5 +67,14 @@ export function ConfigurationEditor({ value, onChange }: ConfigurationEditorProp
   } catch {
     /* Host displays malformed JSON. */
   }
-  return <ComparisonFields config={config} onChange={(c) => onChange(JSON.stringify(c))} />;
+  return (
+    <label>
+      Repository folder
+      <input
+        value={config.folder ?? ''}
+        placeholder="Session directory"
+        onChange={(e) => onChange(JSON.stringify({ ...config, folder: e.target.value || null }))}
+      />
+    </label>
+  );
 }

@@ -9,7 +9,7 @@
   "capabilities": ["process", "storage"],
   "defaults": {
     "folder": null,
-    "mode": "workingDirectory",
+    "mode": "auto",
     "baseRef": "HEAD",
     "targetRef": "HEAD"
   },
@@ -36,8 +36,8 @@
       },
       "mode": {
         "type": "string",
-        "enum": ["workingDirectory", "refs", "mergeBase"],
-        "description": "Working contents, direct snapshots, or common ancestor comparison."
+        "enum": ["auto", "workingDirectory", "refs", "mergeBase"],
+        "description": "Automatic branch/latest-commit comparison, working contents, direct snapshots, or common ancestor comparison."
       },
       "baseRef": {
         "type": "string",
