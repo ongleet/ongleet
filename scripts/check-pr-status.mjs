@@ -481,3 +481,85 @@ test('draft status applies only to open PRs', () => {
   assert.equal(pullRequestStatus({ state: 'CLOSED', isDraft: true }), 'CLOSED');
   assert.equal(pullRequestStatus({ state: 'MERGED', isDraft: true }), 'MERGED');
 });
+
+const { pipelineStatus, updatePipelineTag } =
+  await import('../src/plugins/pull-request/status-tag.ts');
+test('pipeline handles running reruns, mixed failures, skipped checks and absent checks', () => {
+  assert.equal(pipelineStatus([]), 'No checks');
+  assert.equal(
+    pipelineStatus([
+      { status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { state: 'SUCCESS' },
+      { conclusion: 'SKIPPED' },
+    ]),
+    'Passed',
+  );
+  assert.equal(pipelineStatus([{ status: 'IN_PROGRESS', conclusion: 'FAILURE' }]), 'Pending');
+  for (const conclusion of ['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED'])
+    assert.equal(pipelineStatus([{ conclusion }, { status: 'QUEUED' }]), 'Failed');
+  assert.equal(pipelineStatus([{ state: 'ERROR' }]), 'Failed');
+  assert.equal(pipelineStatus([{ state: 'PENDING' }]), 'Pending');
+  assert.equal(pipelineStatus([{}]), 'Unknown');
+});
+test('pipeline failure tag survives unchanged snapshots and clears on recovery or association removal', async () => {
+  const sibling = { name: 'PR: Open', dot: '#3FB950' };
+  let tags = [sibling];
+  let writes = 0;
+  const service = {
+    async listTags() {
+      return tags;
+    },
+    async addTag(tag) {
+      writes++;
+      tags.push(tag);
+      return tags;
+    },
+    async removeTag(name) {
+      writes++;
+      tags = tags.filter((tag) => tag.name !== name);
+      return tags;
+    },
+  };
+  await updatePipelineTag(service, true);
+  assert.deepEqual(tags, [sibling, { name: 'PR: Pipeline failed', dot: '#F85149' }]);
+  await updatePipelineTag(service, true);
+  assert.equal(writes, 1);
+  await updatePipelineTag(service, false, () => false);
+  assert.equal(tags.length, 2);
+  await updatePipelineTag(service, false);
+  assert.deepEqual(tags, [sibling]);
+});
+test('linked issues paginate across repositories and reject incomplete snapshots', async () => {
+  const first = {
+    id: 'issue1',
+    number: 1,
+    title: 'Fix bug',
+    state: 'OPEN',
+    url: 'https://github.com/example/repo/issues/1',
+    repository: { nameWithOwner: 'example/repo' },
+  };
+  const second = { ...first, id: 'issue2', repository: { nameWithOwner: 'example/other' } };
+  for (const fail of [false, true]) {
+    const sdk = {
+      http: {
+        async request(request) {
+          const { query, variables } = JSON.parse(request.body);
+          assert.match(query, /closingIssuesReferences/);
+          if (!variables.id) {
+            const page = prPage(connection([]), connection([]));
+            page.data.repository.pullRequest.closingIssuesReferences = connection(
+              [first],
+              'issues_next',
+            );
+            return response(page);
+          }
+          if (fail) throw new Error('offline');
+          return response({ data: { node: { closingIssuesReferences: connection([second]) } } });
+        },
+      },
+    };
+    const result = fetchPullRequest(sdk, { repository: 'example/repo', number: 42 }, 'dummy');
+    if (fail) await assert.rejects(result, /offline/);
+    else assert.deepEqual((await result).issues, [first, second]);
+  }
+});

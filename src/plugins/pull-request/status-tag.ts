@@ -37,3 +37,41 @@ export async function updatePullRequestTag(
   )
     await service.addTag(desired);
 }
+
+export function pipelineStatus(checks: import('./github').Check[]): string {
+  if (!checks.length) return 'No checks';
+  const states = checks.map((check) =>
+    check.status && check.status !== 'COMPLETED'
+      ? 'PENDING'
+      : check.conclusion || check.state || 'UNKNOWN',
+  );
+  if (
+    states.some((state) =>
+      [
+        'FAILURE',
+        'ERROR',
+        'TIMED_OUT',
+        'CANCELLED',
+        'ACTION_REQUIRED',
+        'STARTUP_FAILURE',
+        'STALE',
+      ].includes(state),
+    )
+  )
+    return 'Failed';
+  if (states.some((state) => state === 'PENDING' || state === 'EXPECTED')) return 'Pending';
+  if (states.every((state) => ['SUCCESS', 'NEUTRAL', 'SKIPPED'].includes(state))) return 'Passed';
+  return 'Unknown';
+}
+
+export async function updatePipelineTag(
+  service: TagService,
+  failed: boolean,
+  isCurrent: () => boolean = () => true,
+) {
+  const desired = { name: 'PR: Pipeline failed', dot: '#F85149' };
+  const existing = (await service.listTags()).find((tag) => tag.name === desired.name);
+  if (!isCurrent()) return;
+  if (failed && (!existing || existing.dot !== desired.dot)) await service.addTag(desired);
+  else if (!failed && existing) await service.removeTag(desired.name);
+}

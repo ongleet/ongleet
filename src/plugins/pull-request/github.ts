@@ -91,7 +91,7 @@ export async function graphql<T>(
       throw new GitHubError('authentication', 'GitHub token is invalid. Replace token to resume.');
     throw new GitHubError(
       'permission',
-      'GitHub could not read the PR or its checks. Check repository access, token permissions and organization policies.',
+      'GitHub could not read the PR, linked issues or checks. Check repository access, token permissions and organization policies.',
     );
   }
   if (!result.data) throw new Error('Invalid GitHub response');
@@ -114,12 +114,20 @@ export async function fetchViewer(
   return data.viewer.login;
 }
 type Connection<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
-type Check = {
+export type Check = {
   name?: string;
   context?: string;
   status?: string;
   conclusion?: string;
   state?: string;
+};
+export type LinkedIssue = {
+  id: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  repository: { nameWithOwner: string };
 };
 export type PullRequest = {
   number: number;
@@ -130,6 +138,7 @@ export type PullRequest = {
   reviewDecision: string;
   reviews: import('./reviews').Review[];
   statusCheckRollup: Check[];
+  issues: LinkedIssue[];
 };
 function append<T>(target: T[], connection: Connection<T>) {
   if (!connection || !Array.isArray(connection.nodes) || !connection.pageInfo)
@@ -148,8 +157,9 @@ export async function fetchPullRequest(
   signal?: AbortSignal,
 ): Promise<PullRequest> {
   const [owner, name] = association.repository.split('/');
-  type Pr = Omit<PullRequest, 'reviews' | 'statusCheckRollup'> & {
+  type Pr = Omit<PullRequest, 'reviews' | 'statusCheckRollup' | 'issues'> & {
     id: string;
+    closingIssuesReferences: Connection<LinkedIssue> | null;
     reviews: Connection<import('./reviews').Review>;
     commits: {
       nodes: {
@@ -171,6 +181,22 @@ export async function fetchPullRequest(
             state
             isDraft
             reviewDecision
+            closingIssuesReferences(first: 100) {
+              nodes {
+                id
+                number
+                title
+                url
+                state
+                repository {
+                  nameWithOwner
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
             reviews(first: 100) {
               nodes {
                 id
@@ -302,7 +328,46 @@ export async function fetchPullRequest(
     );
     cursor = append(checks, page.node.statusCheckRollup.contexts);
   }
+  const issues: LinkedIssue[] = [];
+  cursor = pr.closingIssuesReferences ? append(issues, pr.closingIssuesReferences) : null;
+  seen.clear();
+  while (cursor) {
+    if (seen.has(cursor)) throw new Error('Repeated GitHub pagination cursor');
+    seen.add(cursor);
+    const page: { node: { closingIssuesReferences: Connection<LinkedIssue> } } = await graphql(
+      sdk,
+      token,
+      `
+        query ($id: ID!, $cursor: String!) {
+          node(id: $id) {
+            ... on PullRequest {
+              closingIssuesReferences(first: 100, after: $cursor) {
+                nodes {
+                  id
+                  number
+                  title
+                  url
+                  state
+                  repository {
+                    nameWithOwner
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+              }
+            }
+          }
+        }
+      `,
+      { id: pr.id, cursor },
+      signal,
+    );
+    cursor = append(issues, page.node.closingIssuesReferences);
+  }
   return {
+    issues,
     number: pr.number,
     title: pr.title,
     url: pr.url,

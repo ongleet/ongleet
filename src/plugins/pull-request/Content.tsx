@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../../sdk';
 import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
 import { githubAuth } from './auth';
-import { pullRequestStatus, updatePullRequestTag } from './status-tag';
+import {
+  pullRequestStatus,
+  updatePullRequestTag,
+  pipelineStatus,
+  updatePipelineTag,
+} from './status-tag';
 import { refreshSeconds, DEFAULT_REFRESH_SECONDS } from './settings';
 import {
   otherReviews,
@@ -156,6 +161,11 @@ export function PullRequestContent({
           pullRequestStatus(result),
           () => request === generation.current,
         );
+        await updatePipelineTag(
+          sdk.session,
+          pipelineStatus(result.statusCheckRollup) === 'Failed',
+          () => request === generation.current,
+        );
         if (request !== generation.current) return;
         const reviews = otherReviews(result.reviews ?? [], viewer);
         const key = `ongleet.pr-reviews.v1:${session.id}:${associationKey}:${viewer.toLowerCase()}`;
@@ -218,6 +228,7 @@ export function PullRequestContent({
     if (session.pullRequest) refreshRef.current();
     else
       void updatePullRequestTag(sdk.session, null, () => current === generation.current)
+        .then(() => updatePipelineTag(sdk.session, false, () => current === generation.current))
         .then(() => syncReviewTag(false, current))
         .catch((error) => {
           if (current === generation.current) setError(String(error));
@@ -484,6 +495,30 @@ export function PullRequestContent({
           >
             Open pull request
           </button>
+          <section aria-label="Linked issues">
+            <h3>Linked issues</h3>
+            {data.issues.length ? (
+              <ul>
+                {data.issues.map((issue) => (
+                  <li key={issue.id}>
+                    <button
+                      onClick={() =>
+                        void sdk.desktop
+                          .openUrl(issue.url)
+                          .catch((error) => setError(String(error)))
+                      }
+                    >
+                      {issue.repository.nameWithOwner}#{issue.number}: {issue.title}
+                    </button>{' '}
+                    · {issue.state}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No linked issues.</p>
+            )}
+          </section>
+          <p role="status">Pipeline: {pipelineStatus(data.statusCheckRollup)}</p>
           <section aria-label="Reviews">
             <h3>Reviews</h3>
             {data.reviews?.length ? (
