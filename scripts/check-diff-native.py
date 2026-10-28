@@ -28,8 +28,9 @@ def run(args):
     git('config', 'user.name', 'Fixture')
     file = folder / 'hello.txt'
     file.write_text('before\n')
-    (folder/'nested').mkdir()
-    second = folder/'nested/z-second.txt'
+    nested = folder/'nested'/'long-directory-name-for-ellipsis-validation'
+    nested.mkdir(parents=True)
+    second = nested/('z-second.txt-' + 'long-filename-' * 6)
     second.write_text('second original\n')
     git('add', '.')
     git('commit', '-m', 'base')
@@ -131,11 +132,69 @@ def run(args):
             assert filter_layout['fixed'] and filter_layout['fits'], filter_layout
             mark('Filename filter stays fixed while tree scrolls; input right border fits inside sidebar')
 
-            assert client.js("const v=document.querySelector('.diff-file-content'); return v.scrollWidth>v.clientWidth")
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'patches loaded')
+            assert client.js("return Array.from(document.querySelectorAll('.diff-file-content')).some(v=>v.scrollWidth>v.clientWidth)")
             assert client.js("const node=document.querySelector('.diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
             assert client.js("const file=document.querySelector('.diff-file');const viewer=document.querySelector('.diff-viewer');const r=file.getBoundingClientRect();const v=viewer.getBoundingClientRect();return r.right < v.right && viewer.scrollWidth===viewer.clientWidth")
             mark('Long-line overflow and DOM text selection; right card border stays inside viewer')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'patches loaded')
+            assert client.js("""
+                const tree=Array.from(document.querySelectorAll('.diff-layout nav button')).map(row=>row.title);
+                const panels=Array.from(document.querySelectorAll('.diff-file > header .diff-file-name')).map(row=>Array.from(row.childNodes).filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent).join('').trim());
+                return tree.length===2 && tree[0].includes('z-second.txt') && tree[1]==='hello.txt' &&
+                    panels.length===2 && panels.every((path,index)=>path===tree[index]);
+            """)
+            mark('Diff panels match folder-first tree order, including root-level files')
+            client.js("""
+                const viewer=document.querySelector('.diff-viewer');
+                for (const content of viewer.querySelectorAll('.diff-file-content')) content.style.minHeight='1200px';
+                viewer.scrollTop=100;
+            """)
+            native.wait_for(lambda: client.js("""
+                const viewer=document.querySelector('.diff-viewer');
+                const header=viewer.querySelector('.diff-file > header');
+                return Math.abs(header.getBoundingClientRect().top-viewer.getBoundingClientRect().top)<2 &&
+                    document.querySelector('.diff-layout nav button[aria-current=true]')?.title.includes('z-second.txt');
+            """), 'sticky first file header')
+            client.js("""
+                const viewer=document.querySelector('.diff-viewer');
+                const second=viewer.querySelectorAll('.diff-file')[1];
+                const nav=document.querySelector('.diff-layout nav');
+                nav.firstElementChild.style.paddingTop='1200px';
+                for (const folder of nav.querySelectorAll('details')) folder.open=false;
+                viewer.scrollTop+=second.getBoundingClientRect().top-viewer.getBoundingClientRect().top+100;
+                window.diffExpectedScroll=viewer.scrollTop;
+            """)
+            native.wait_for(lambda: client.js("""
+                const viewer=document.querySelector('.diff-viewer');
+                const header=viewer.querySelectorAll('.diff-file > header')[1];
+                return Math.abs(header.getBoundingClientRect().top-viewer.getBoundingClientRect().top)<2 &&
+                    document.querySelector('.diff-layout nav button[aria-current=true]')?.title==='hello.txt';
+            """), 'scroll highlights next file and sticks its header')
+            native.wait_for(lambda: client.js("""
+                const nav=document.querySelector('.diff-layout nav');
+                const row=nav.querySelector('button[aria-current=true]');
+                const r=row.getBoundingClientRect(), n=nav.getBoundingClientRect();
+                return nav.scrollTop>0 && r.top>=n.top-1 && r.bottom<=n.bottom+1 &&
+                    document.querySelector('.diff-viewer').scrollTop===window.diffExpectedScroll;
+            """), 'current tree row revealed without moving diff viewer')
+            client.js("""
+                const viewer=document.querySelector('.diff-viewer');
+                for (const content of viewer.querySelectorAll('.diff-file-content')) content.style.minHeight='';
+                for (const folder of document.querySelectorAll('.diff-layout nav details')) folder.open=false;
+                viewer.scrollTop=0;
+            """)
+            native.wait_for(lambda: client.js("""
+                const nav=document.querySelector('.diff-layout nav');
+                const row=nav.querySelector('button[aria-current=true]');
+                const r=row.getBoundingClientRect(), n=nav.getBoundingClientRect();
+                return row.title.includes('z-second.txt') && r.top>=n.top-1 && r.bottom<=n.bottom+1 &&
+                    Array.from(nav.querySelectorAll('details')).every(folder=>folder.open) &&
+                    document.querySelector('.diff-viewer').scrollTop===0;
+            """), 'tree follows scrolling back to first file')
+            client.js("document.querySelector('.diff-layout nav > ul').style.paddingTop=''")
+            mark('Scrolling keeps current filename header visible and updates the highlighted tree file')
+            mark('Tree reveals current row in both directions, opens ancestors and preserves diff scroll position')
+
             assert client.js(f"return document.querySelector('#tab-{tab} .tab-name').textContent==='Diff (2)'")
             tags = client.invoke('sessions')['sessions'][0]['tags']
             assert any(tag['name'] == f'Diff #{tab}: 2 files' for tag in tags), tags
@@ -151,8 +210,9 @@ def run(args):
             mark('Viewed folds patch; independent expansion and unchanged refresh retain review state')
 
             file.write_text('refreshed\n')
+            second.write_text('second changed refreshed\n')
             client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'refresh')
+            native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'refresh')
             assert client.js("return !document.querySelector('.diff-file input').checked && !!document.querySelector('.diff-file:first-child .diff-file-content')")
             mark('Changed patch clears viewed marker, expands file and displays fresh contents')
             client.click('.diff-layout nav summary')
@@ -160,12 +220,24 @@ def run(args):
             client.click('.diff-layout nav summary')
             client.click("//nav[@aria-label='Changed files']//button[contains(.,'z-second.txt')]",'xpath')
             assert client.js("return document.querySelector('.diff-layout nav button[aria-pressed=true]').textContent.includes('z-second.txt')")
-            native.wait_for(lambda: client.js("return document.querySelectorAll('.diff-file').length===2 && document.querySelectorAll('.diff-code-insert')[1]?.textContent.includes('second changed')"),'second file')
+            assert client.js("""
+                const nav=document.querySelector('.diff-layout nav');
+                const button=nav.querySelector('button[aria-pressed=true]');
+                const label=button.querySelector('.diff-tree-label');
+                const style=getComputedStyle(label);
+                const border=getComputedStyle(button);
+                return style.whiteSpace==='nowrap' && style.textOverflow==='ellipsis' && label.scrollWidth>label.clientWidth &&
+                    button.getBoundingClientRect().right<=nav.getBoundingClientRect().right && nav.scrollWidth===nav.clientWidth &&
+                    border.outlineStyle==='none' && border.borderRightWidth==='1px' && button.title.includes('long-filename-');
+            """)
+            mark('Nested long filenames truncate with ellipses; selected border stays inside row and full path remains in tooltip')
+
+            native.wait_for(lambda: client.js("return document.querySelectorAll('.diff-file').length===2 && document.querySelectorAll('.diff-code-insert')[0]?.textContent.includes('second changed')"),'second file')
             client.click("//button[normalize-space()='Refresh']",'xpath')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelectorAll('.diff-code-insert')[1]?.textContent.includes('second changed')"),'retained selection')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelectorAll('.diff-code-insert')[0]?.textContent.includes('second changed')"),'retained selection')
             second.write_text('second original\n')
             client.click("//button[normalize-space()='Refresh']",'xpath')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'removed selection fallback')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'removed selection fallback')
             assert client.js(f"return document.querySelector('#tab-{tab} .tab-name').textContent==='Diff (1)'")
             tags = client.invoke('sessions')['sessions'][0]['tags']
             assert any(tag['name'] == f'Diff #{tab}: 1 file' for tag in tags), tags
@@ -184,7 +256,7 @@ def run(args):
             mode('workingDirectory')
             client.js("const el=document.querySelector('.diff-toolbar input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'HEAD');el.dispatchEvent(new Event('input',{bubbles:true}));")
             client.click("//button[normalize-space()='Compare']",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'working directory restored')
+            native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'working directory restored')
             shell = session['tabs'][0]['id']
             client.click(f'#tab-{shell}')
             file.write_text('activation refreshed\n')
@@ -192,7 +264,7 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('activation refreshed')"),'activation refresh')
             file.write_text('refreshed\n')
             client.js("window.dispatchEvent(new Event('focus'))")
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'focus refresh')
+            native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'focus refresh')
             mark('Tab activation and focus event refresh visible comparison')
 
             client.js("const inputs=document.querySelectorAll('.diff-toolbar input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(inputs[0],'missing'); inputs[0].dispatchEvent(new Event('input',{bubbles:true}));")
@@ -205,7 +277,7 @@ def run(args):
             client.request('DELETE','')
             client.session=None
             start()
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'restart comparison')
+            native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'restart comparison')
             assert client.js("return document.querySelectorAll('.diff-toolbar input')[0].value==='HEAD'")
             mark('Restart restores successful settings and fetches fresh patch')
             assert client.js("return Number(document.querySelector('.diff-sidebar-resizer').getAttribute('aria-valuenow'))") == initial_width+50
@@ -233,7 +305,7 @@ def run(args):
             slow.unlink()
             active.unlink()
             client.click(f'#tab-{tab}')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-code-insert')?.textContent.includes('refreshed')"),'visible comparison')
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'visible comparison')
             mark('Hiding cancels and reaps active Git work; returning restores comparison')
             slow.touch()
             client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')

@@ -396,168 +396,188 @@ export function PullRequestContent({
       id={`tab-panel-${tab.id}`}
       aria-labelledby={`tab-${tab.id}`}
       hidden={!visible}
-      className="plugin-panel"
+      className="plugin-panel pr-panel"
     >
-      {!auth.loading && (!auth.login || auth.paused) && (
-        <p className="muted">Configure this tab to connect your GitHub account.</p>
-      )}
-      {!session.pullRequest && !configurationOpen && configuration}
-      <dialog
-        ref={configurationDialog}
-        aria-label="Pull request configuration"
-        onCancel={(event) => {
-          if (saving) event.preventDefault();
-          else dismissConfiguration?.();
-        }}
-      >
-        {configurationOpen && (
-          <div className="pr-configuration-body">
-            <h2>Configure {tab.name}</h2>
-            {connection}
-            {configuration}
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
-            )}
+      <div className="pr-content">
+        {!auth.loading && (!auth.login || auth.paused) && (
+          <p className="muted">Configure this tab to connect your GitHub account.</p>
+        )}
+        {!session.pullRequest && !configurationOpen && configuration}
+        <dialog
+          ref={configurationDialog}
+          aria-label="Pull request configuration"
+          onCancel={(event) => {
+            if (saving) event.preventDefault();
+            else dismissConfiguration?.();
+          }}
+        >
+          {configurationOpen && (
+            <div className="pr-configuration-body">
+              <h2>Configure {tab.name}</h2>
+              {connection}
+              {configuration}
+              {error && (
+                <p role="alert" className="error">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+        </dialog>
+        {session.pullRequest && (
+          <header className="pr-heading">
+            <h2>
+              {data
+                ? `#${data.number} ${data.title}`
+                : `${session.pullRequest.repository} #${session.pullRequest.number}`}{' '}
+              <button
+                type="button"
+                className="pr-refresh"
+                aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
+                title={busy ? 'Refreshing…' : 'Refresh pull request'}
+                disabled={busy || !auth.login || auth.paused || auth.busy || auth.loading}
+                onClick={() => void refresh()}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M20 7v5h-5M4 17v-5h5" />
+                  <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1" />
+                </svg>
+              </button>
+            </h2>
+          </header>
+        )}
+        {configurationError && (
+          <p role="alert" className="error">
+            {configurationError}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        {unread.length > 0 && (
+          <div role="status">
+            <p>
+              New reviews from{' '}
+              {Array.from(new Set(unread.map((review) => review.author!.login))).join(', ')}
+            </p>
+            <ul>
+              {unread.map((review) => (
+                <li key={review.id}>
+                  {review.author!.login}: {review.state} ·{' '}
+                  {new Date(review.submittedAt!).toLocaleString()}
+                </li>
+              ))}
+            </ul>
+            <button onClick={() => void markReviewsRead()}>Mark reviews read</button>
           </div>
         )}
-      </dialog>
-      {session.pullRequest && (
-        <header className="pr-heading">
-          <h2>
-            {data
-              ? `#${data.number} ${data.title}`
-              : `${session.pullRequest.repository} #${session.pullRequest.number}`}{' '}
+        {data && (
+          <>
+            <p>
+              State: {pullRequestStatus(data)} · Review:{' '}
+              {data.reviewDecision || 'No review decision'}
+            </p>
             <button
-              type="button"
-              className="pr-refresh"
-              aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
-              title={busy ? 'Refreshing…' : 'Refresh pull request'}
-              disabled={busy || !auth.login || auth.paused || auth.busy || auth.loading}
-              onClick={() => void refresh()}
+              onClick={() =>
+                void sdk.desktop.openUrl(data.url).catch((error) => setError(String(error)))
+              }
             >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M20 7v5h-5M4 17v-5h5" />
-                <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1" />
-              </svg>
+              Open pull request
             </button>
-          </h2>
-          {lastRefresh && <p className="muted">Last refresh: {lastRefresh}</p>}
-        </header>
-      )}
-      {configurationError && (
-        <p role="alert" className="error">
-          {configurationError}
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      {unread.length > 0 && (
-        <div role="status">
-          <p>
-            New reviews from{' '}
-            {Array.from(new Set(unread.map((review) => review.author!.login))).join(', ')}
-          </p>
-          <ul>
-            {unread.map((review) => (
-              <li key={review.id}>
-                {review.author!.login}: {review.state} ·{' '}
-                {new Date(review.submittedAt!).toLocaleString()}
-              </li>
-            ))}
-          </ul>
-          <button onClick={() => void markReviewsRead()}>Mark reviews read</button>
-        </div>
-      )}
-      {data && (
-        <>
-          <p>
-            State: {pullRequestStatus(data)} · Review: {data.reviewDecision || 'No review decision'}
-          </p>
-          <button
-            onClick={() =>
-              void sdk.desktop.openUrl(data.url).catch((error) => setError(String(error)))
-            }
-          >
-            Open pull request
-          </button>
-          <section aria-label="Linked issues">
-            <h3>Linked issues</h3>
-            {data.issues.length ? (
-              <ul>
-                {data.issues.map((issue) => (
-                  <li key={issue.id}>
-                    <button
-                      onClick={() =>
-                        void sdk.desktop
-                          .openUrl(issue.url)
-                          .catch((error) => setError(String(error)))
-                      }
-                    >
-                      {issue.repository.nameWithOwner}#{issue.number}: {issue.title}
-                    </button>{' '}
-                    · {issue.state}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No linked issues.</p>
-            )}
-          </section>
-          <p role="status">Pipeline: {pipelineStatus(data.statusCheckRollup)}</p>
-          <section aria-label="Reviews">
-            <h3>Reviews</h3>
-            {data.reviews?.length ? (
-              <ul>
-                {data.reviews.map((review) => (
-                  <li key={review.id}>
-                    {review.author?.login ?? 'Deleted user'}: {review.state}
-                    {review.submittedAt && Number.isFinite(Date.parse(review.submittedAt)) && (
-                      <>
-                        {' '}
-                        ·{' '}
-                        <time dateTime={review.submittedAt}>
-                          {new Date(review.submittedAt).toLocaleString()}
-                        </time>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No reviews submitted.</p>
-            )}
-          </section>
-          <details className="pr-checks" key={associationKey}>
-            <summary>Checks</summary>
-            {data.statusCheckRollup?.length ? (
-              <ul>
-                {data.statusCheckRollup.map((check, index) => (
-                  <li key={index}>
-                    {check.name ?? check.context}:{' '}
-                    {check.conclusion || check.state || check.status || 'Unknown'}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No checks reported.</p>
-            )}
-          </details>
-        </>
+            <section aria-label="Linked issues">
+              <h3>Linked issues</h3>
+              {data.issues.length ? (
+                <ul>
+                  {data.issues.map((issue) => (
+                    <li key={issue.id}>
+                      <button
+                        onClick={() =>
+                          void sdk.desktop
+                            .openUrl(issue.url)
+                            .catch((error) => setError(String(error)))
+                        }
+                      >
+                        {issue.repository.nameWithOwner}#{issue.number}: {issue.title}
+                      </button>{' '}
+                      · {issue.state}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No linked issues.</p>
+              )}
+            </section>
+            <p role="status">Pipeline: {pipelineStatus(data.statusCheckRollup)}</p>
+            <section aria-label="Reviews">
+              <h3>Reviews</h3>
+              {data.reviews?.length ? (
+                <ul>
+                  {data.reviews.map((review) => (
+                    <li key={review.id}>
+                      {review.author?.login ?? 'Deleted user'}: {review.state}
+                      {review.submittedAt && Number.isFinite(Date.parse(review.submittedAt)) && (
+                        <>
+                          {' '}
+                          ·{' '}
+                          <time dateTime={review.submittedAt}>
+                            {new Date(review.submittedAt).toLocaleString()}
+                          </time>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No reviews submitted.</p>
+              )}
+            </section>
+            <details className="pr-checks" key={associationKey}>
+              <summary>Checks</summary>
+              {data.statusCheckRollup?.length ? (
+                <ul>
+                  {data.statusCheckRollup.map((check, index) => (
+                    <li key={index}>
+                      {check.name ?? check.context}:{' '}
+                      {check.conclusion || check.state || check.status || 'Unknown'}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No checks reported.</p>
+              )}
+            </details>
+          </>
+        )}
+      </div>
+      {session.pullRequest && (
+        <footer className="plugin-statusbar" aria-label="Pull request status">
+          <span>
+            {busy
+              ? 'Refreshing…'
+              : error
+                ? 'Refresh failed'
+                : lastRefresh
+                  ? `Last refresh: ${lastRefresh}`
+                  : 'Not refreshed yet'}
+          </span>
+          <span>
+            {!auth.login || auth.paused
+              ? 'Connect GitHub to refresh'
+              : `Auto-refresh every ${interval}s · Also refreshes when hidden`}
+          </span>
+        </footer>
       )}
     </section>
   );

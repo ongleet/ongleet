@@ -68,7 +68,11 @@ or reloading the application resets review state; marks and patch contents are
 never stored on disk.
 
 The filename filter runs locally on a collapsible folder tree. Clicking a file
-jumps to its patch in a continuous page. Drag the divider beside the file tree
+jumps to its patch in a continuous page. File headers stay visible while their
+patches scroll, and the tree highlights and reveals the current file, opening
+collapsed folders when necessary. The diff panels follow the tree's folder-first
+order. The bottom status bar shows comparison refs, refresh time and file counts.
+Drag the divider beside the file tree
 to resize it; its preferred width is saved in localStorage across tabs and restarts.
 The divider also supports arrow keys, Home/End, and double-click to reset. Patches load serially and use
 [react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,

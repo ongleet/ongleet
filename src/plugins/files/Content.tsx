@@ -367,6 +367,15 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
             )}
           </div>
         </div>
+        <footer className="plugin-statusbar" aria-label="Files status">
+          <span>
+            {listing
+              ? `${listing.entries.length} entries loaded${listing.nextOffset != null ? ' · More available' : ''}`
+              : 'No folder loaded'}
+            {busy ? ' · Loading…' : error ? ' · Refresh failed' : ''}
+          </span>
+          <span>Ctrl+H: {showHidden ? 'hide' : 'show'} hidden files</span>
+        </footer>
       </div>
     </section>
   );

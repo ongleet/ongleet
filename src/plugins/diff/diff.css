@@ -46,11 +46,13 @@
   background-size: 5px 5px;
   background-repeat: no-repeat;
 }
-.diff-summary {
+.diff-statusbar.plugin-statusbar {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.diff-statusbar > * {
   flex-shrink: 0;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  opacity: 0.8;
 }
 .diff-layout {
   display: flex;
@@ -82,14 +84,6 @@
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
-}
-.diff-layout nav button {
-  text-align: left;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.diff-layout nav button[aria-pressed='true'] {
-  outline: 1px solid currentColor;
 }
 .diff-viewer {
   flex: 1;
@@ -123,17 +117,54 @@
 .diff-layout nav > ul {
   padding-left: 0;
 }
+.diff-layout nav li,
+.diff-layout nav details {
+  min-width: 0;
+}
 .diff-layout nav summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   cursor: pointer;
-  padding: 5px 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  padding: 4px 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+.diff-layout nav summary::before {
+  content: '▸';
+  flex: 0 0 10px;
+}
+.diff-layout nav details[open] > summary::before {
+  content: '▾';
+}
+.diff-layout nav summary::-webkit-details-marker {
+  display: none;
 }
 .diff-layout nav button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   width: 100%;
-  border: 0;
+  min-width: 0;
+  text-align: left;
+  border: 1px solid transparent;
   background: transparent;
-  padding: 5px 6px;
+  padding: 4px 5px;
+}
+.diff-layout nav .diff-status {
+  flex-shrink: 0;
+}
+.diff-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-layout nav button[aria-pressed='true'],
+.diff-layout nav button:focus-visible,
+.diff-layout nav summary:focus-visible {
+  outline: none;
+  border-color: #a3e6cc;
 }
 .diff-layout nav button:hover,
 .diff-layout nav button[aria-pressed='true'] {
@@ -151,10 +182,13 @@
   border-radius: 6px;
   margin-bottom: 16px;
   min-width: 0;
-  overflow: hidden;
 }
 .diff-file > header {
-  background: #ffffff08;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #1b222c;
+  border-radius: 5px 5px 0 0;
   padding: 10px 12px;
   font-family: monospace;
   white-space: pre-wrap;
@@ -198,6 +232,7 @@
 .diff-file-content {
   overflow-x: auto;
   min-width: 0;
+  border-radius: 0 0 5px 5px;
 }
 .diff-viewer {
   overflow-x: hidden;

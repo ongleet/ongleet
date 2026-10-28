@@ -19,6 +19,7 @@ export function TerminalContent({
   const host = useRef<HTMLDivElement>(null);
   const frontend = useRef<TerminalFrontend | null>(null);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState<ProcessStatus | null>(null);
   const [starting, setStarting] = useState(true);
   const [slow, setSlow] = useState(false);
   const report: Report = (error) => setError(String(error));
@@ -28,6 +29,7 @@ export function TerminalContent({
       host.current!,
       tab.id,
       (status) => {
+        setStatus(status);
         reportStatus(tab.id, status);
       },
       report,
@@ -93,6 +95,19 @@ export function TerminalContent({
         </div>
       )}
       <div ref={host} className="terminal" />
+      <footer className="plugin-statusbar" aria-label="Terminal status">
+        <span>
+          {starting
+            ? 'Starting…'
+            : status?.state === 'exited'
+              ? `Exited (${status.code})`
+              : status?.state === 'running'
+                ? 'Running'
+                : 'Stopped'}
+        </span>
+        <span>Ctrl+Shift+C / V: copy / paste</span>
+        <span>Arrow keys on tab bar: navigate tabs</span>
+      </footer>
     </section>
   );
 }

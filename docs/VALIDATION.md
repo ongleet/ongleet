@@ -754,3 +754,36 @@ Physical keyboard/checkbox interaction, Wayland and multiple live Diff tabs rema
 untested natively; tags show the last successful comparison without background
 polling. Global input/select/textarea focus now colors existing borders; the
 native run exercises Diff controls, not every application form.
+
+### Diff tree ellipses and row borders (2026-10-28)
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-py6zux83/report.json`
+passes seventeen checks with zero application cleanup survivors. The fixture now
+includes a nested long directory and filename. The selected filename remains on
+one line with CSS ellipsis and a full-path tooltip; its existing one-pixel border
+stays inside the row, and the tree has no horizontal overflow. Folder labels also
+use ellipses while retaining disclosure controls. Prior review, count, refresh,
+restart and cancellation checks pass. Frontend/native builds and whitespace
+checks pass. Physical-input/Wayland appearance remains untested.
+
+### Current file while scrolling (2026-10-28)
+
+Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-q864cbif/report.json`
+passes eighteen checks with zero application cleanup survivors. With two tall
+patch containers, scrolling within each file keeps its header at the top of the
+viewer and updates the tree's current-file highlight. Layout changes are observed
+without polling; hidden tabs remove their observers and pending animation frames.
+The prior ellipsis, review, count, refresh, restart and cancellation checks also
+pass. Frontend/native builds and whitespace checks pass. Physical scrolling and
+Wayland remain untested.
+
+### Diff tree following and panel order (2026-10-28)
+
+Private X11/WebKitGTK report
+`/tmp/ongleet-diff-native-gypx3_k6/report.json` passes 20 checks with zero
+application cleanup survivors. Diff panels match the folder-first tree order,
+including nested folders and root-level files. Scrolling follows the highlighted
+tree row in both directions, opens collapsed ancestors and preserves the diff
+viewer's scroll position. The harness waits for all patches before measuring
+long-line overflow. Real-Git checks, frontend build and bundled native build pass.
+Wayland and physical-input acceptance for these changes remain untested.

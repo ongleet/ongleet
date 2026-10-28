@@ -7,6 +7,12 @@ import { join } from 'node:path';
 import { parseDiff } from 'react-diff-view';
 import { updateDiffTag } from '../src/plugins/diff/status-tag.ts';
 import { GitComparison, decodePath, Lane } from '../src/plugins/diff/git.ts';
+import { filesInTreeOrder } from '../src/plugins/diff/file-tree.ts';
+const paths = ['a.txt', 'z-folder/b.txt', 'a-folder/root.txt', 'a-folder/nested/deep.txt', 'z.txt'];
+assert.deepEqual(
+  filesInTreeOrder(paths.map((path) => ({ path }))).map((file) => file.path),
+  ['a-folder/nested/deep.txt', 'a-folder/root.txt', 'z-folder/b.txt', 'a.txt', 'z.txt'],
+);
 const exec = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), 'ongleet-diff-'));
 const command = (args) => exec('git', args, { cwd: root });

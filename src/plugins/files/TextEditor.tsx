@@ -578,7 +578,7 @@ export function TextEditor({
       )}
       {notice && <p role="status">{notice}</p>}
       <div className="editor-surface" ref={host} />
-      <div className="editor-status">
+      <footer className="plugin-statusbar editor-status" aria-label="Editor status">
         Ln {position.line}, Col {position.column} · UTF-8{baseline.current.bom ? ' BOM' : ''} ·{' '}
         {baseline.current.lineEnding} ·{' '}
         <span className={dirty ? 'editor-modified-label' : undefined} role="status">
@@ -588,7 +588,7 @@ export function TextEditor({
               : 'Unsaved changes · Draft saved locally'
             : 'Saved'}
         </span>
-      </div>
+      </footer>
       {confirmation && (
         <dialog
           ref={dialog}

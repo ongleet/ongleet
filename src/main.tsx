@@ -711,9 +711,6 @@ function App() {
             closeTab={archiveTab}
           />
         ))}
-        <footer>
-          <span>Ctrl+Shift+C / V: copy / paste · Arrow keys: navigate terminal tabs</span>
-        </footer>
       </div>
       {configurationTab &&
         !plugins.find((plugin) => plugin.id === configurationTab.kind)?.contentConfiguration && (

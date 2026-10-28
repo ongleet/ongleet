@@ -6,6 +6,7 @@ import { useSdk } from '../../sdk';
 import type { PluginContentProps } from '../types';
 import { updateDiffTag } from './status-tag';
 import { FileReview } from './FileReview';
+import { buildFileTree, filesInTreeOrder, type FileTreeNode } from './file-tree';
 import { DiffSidebar } from './Sidebar';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
@@ -81,10 +82,59 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
   const [references, setReferences] = useState<string[]>([]);
   const fileElements = useRef(new Map<string, HTMLElement>());
+  const viewer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const container = viewer.current;
+    if (!visible || !comparison || !container) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const top = container.getBoundingClientRect().top + 4;
+      const current = comparison.files.find((file) => {
+        const element = fileElements.current.get(file.key);
+        return element && element.getBoundingClientRect().bottom > top;
+      });
+      if (current) setSelected(current.key);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    container.addEventListener('scroll', schedule, { passive: true });
+    const observer = new ResizeObserver(schedule);
+    observer.observe(container);
+    if (container.firstElementChild) observer.observe(container.firstElementChild);
+    schedule();
+    return () => {
+      container.removeEventListener('scroll', schedule);
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [comparison, visible]);
   const [error, setError] = useState('');
   const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('');
+  const tree = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const container = tree.current;
+    if (!visible || !container) return;
+    const row = container.querySelector<HTMLElement>('button[aria-current="true"]');
+    if (!row) return;
+    // Reveal collapsed ancestors, then scroll only the tree, preserving viewer position.
+    for (
+      let parent = row.parentElement;
+      parent && parent !== container;
+      parent = parent.parentElement
+    ) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    const bounds = container.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    const top = bounds.top + container.clientTop;
+    const bottom = top + container.clientHeight;
+    if (item.top < top) container.scrollTop += item.top - top;
+    else if (item.bottom > bottom) container.scrollTop += item.bottom - bottom;
+  }, [selected, filter, visible, comparison]);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const next = { ...defaults, ...(tab.config as Partial<Settings>) };
@@ -112,7 +162,8 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
       .replace(async (current) => {
         try {
           const git = scopedGit(current);
-          const next = await git.compare(configRef.current);
+          const result = await git.compare(configRef.current);
+          const next = { ...result, files: filesInTreeOrder(result.files) };
           if (!current()) return;
           pendingConfiguration.current = JSON.stringify(next.config);
           await sdk.storage.configure(next.config);
@@ -225,25 +276,6 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           Refresh
         </button>
       </form>
-      {comparison && (
-        <div className="diff-summary">
-          {comparison.root} ·{' '}
-          {
-            {
-              auto: 'Automatic',
-              workingDirectory: 'Working directory',
-              refs: 'Two refs',
-              mergeBase: 'Merge base',
-            }[comparison.config.mode]
-          }{' '}
-          · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}
-          {comparison.target
-            ? `${comparison.targetLabel} (${comparison.target.slice(0, 12)})`
-            : 'Working directory'}{' '}
-          · Last successful refresh {new Date(comparison.time).toLocaleTimeString()}
-          {error && ' · Stale'}
-        </div>
-      )}
       {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
       {error && (
         <p role="alert">
@@ -257,7 +289,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
               Filter filenames
               <input value={filter} onChange={(e) => setFilter(e.target.value)} />
             </label>
-            <nav aria-label="Changed files">
+            <nav ref={tree} aria-label="Changed files">
               <FileTree
                 files={comparison.files.filter((f) =>
                   `${f.oldPath}\n${f.path}`.toLowerCase().includes(filter.toLowerCase()),
@@ -269,47 +301,82 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
             </nav>
             {!comparison.files.length && <p>No tracked changes.</p>}
           </DiffSidebar>
-          <div className="diff-viewer" tabIndex={0} aria-label="Unified diff">
-            {comparison.files.map((file) => (
-              <article
-                className="diff-file"
-                key={JSON.stringify([
-                  comparison.root,
-                  comparison.config.mode,
-                  comparison.config.baseRef,
-                  comparison.config.targetRef,
-                  file.key,
-                ])}
-                ref={(element) => {
-                  if (element) fileElements.current.set(file.key, element);
-                  else fileElements.current.delete(file.key);
-                }}
-              >
-                <FileReview
-                  path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
-                  status={labels[file.status[0]]}
-                  patch={patches[file.key]?.text}
-                  failed={!!patches[file.key]?.error}
+          <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label="Unified diff">
+            <div className="diff-page">
+              {comparison.files.map((file) => (
+                <article
+                  className="diff-file"
+                  key={JSON.stringify([
+                    comparison.root,
+                    comparison.config.mode,
+                    comparison.config.baseRef,
+                    comparison.config.targetRef,
+                    file.key,
+                  ])}
+                  ref={(element) => {
+                    if (element) fileElements.current.set(file.key, element);
+                    else fileElements.current.delete(file.key);
+                  }}
                 >
-                  {patches[file.key]?.error ? (
-                    <p role="alert">{patches[file.key].error}</p>
-                  ) : patches[file.key]?.text !== undefined ? (
-                    <Viewer patch={patches[file.key].text!} />
-                  ) : (
-                    <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
-                  )}
-                </FileReview>
-              </article>
-            ))}
-            {!comparison.files.length && <p>No tracked changes.</p>}
+                  <FileReview
+                    path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
+                    status={labels[file.status[0]]}
+                    patch={patches[file.key]?.text}
+                    failed={!!patches[file.key]?.error}
+                  >
+                    {patches[file.key]?.error ? (
+                      <p role="alert">{patches[file.key].error}</p>
+                    ) : patches[file.key]?.text !== undefined ? (
+                      <Viewer patch={patches[file.key].text!} />
+                    ) : (
+                      <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
+                    )}
+                  </FileReview>
+                </article>
+              ))}
+              {!comparison.files.length && <p>No tracked changes.</p>}
+            </div>
           </div>
         </div>
+      )}
+      {comparison && (
+        <footer className="plugin-statusbar diff-statusbar" aria-label="Diff status">
+          <div className="diff-summary">
+            {
+              {
+                auto: 'Automatic',
+                workingDirectory: 'Working directory',
+                refs: 'Two refs',
+                mergeBase: 'Merge base',
+              }[comparison.config.mode]
+            }{' '}
+            · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}
+            {comparison.target
+              ? `${comparison.targetLabel} (${comparison.target.slice(0, 12)})`
+              : 'Working directory'}{' '}
+            · Last successful refresh {new Date(comparison.time).toLocaleTimeString()}
+            {error && ' · Stale'}
+          </div>
+          <span>
+            {comparison.files.length} changed files ·{' '}
+            {
+              comparison.files.filter((file) =>
+                `${file.oldPath}\n${file.path}`.toLowerCase().includes(filter.toLowerCase()),
+              ).length
+            }{' '}
+            matching filter
+          </span>
+          {(loading || error) && (
+            <span>
+              {loading ? 'Loading comparison…' : 'Refresh failed · Showing previous comparison'}
+            </span>
+          )}
+        </footer>
       )}
     </section>
   );
 }
 
-type Tree = { directories: Map<string, Tree>; files: FileChange[] };
 function FileTree({
   files,
   selected,
@@ -321,24 +388,17 @@ function FileTree({
   onSelect: (file: FileChange) => void;
   labels: Record<string, string>;
 }) {
-  const root: Tree = { directories: new Map(), files: [] };
-  for (const file of files) {
-    let node = root;
-    for (const part of file.path.split('/').slice(0, -1)) {
-      if (!node.directories.has(part))
-        node.directories.set(part, { directories: new Map(), files: [] });
-      node = node.directories.get(part)!;
-    }
-    node.files.push(file);
-  }
-  const render = (node: Tree) => (
+  const root = buildFileTree(files);
+  const render = (node: FileTreeNode) => (
     <ul>
       {[...node.directories]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([name, child]) => (
           <li key={name}>
             <details open>
-              <summary>▱ {name}</summary>
+              <summary title={name}>
+                <span className="diff-tree-label">▱ {name}</span>
+              </summary>
               {render(child)}
             </details>
           </li>
@@ -348,12 +408,13 @@ function FileTree({
           <button
             title={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
             aria-pressed={selected === file.key}
+            aria-current={selected === file.key ? 'true' : undefined}
             onClick={() => onSelect(file)}
           >
             <span className="diff-status" aria-label={labels[file.status[0]]}>
               {file.status[0]}
-            </span>{' '}
-            {file.path.split('/').at(-1)}
+            </span>
+            <span className="diff-tree-label">{file.path.split('/').at(-1)}</span>
           </button>
         </li>
       ))}
