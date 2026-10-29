@@ -205,6 +205,15 @@ struct HookEvent {
     tool_use_id: Option<String>,
 }
 
+fn tool_wait_key(event: &HookEvent) -> Option<String> {
+    event.tool_use_id.clone().or_else(|| {
+        event
+            .tool_name
+            .as_ref()
+            .map(|name| format!("\0tool:{name}"))
+    })
+}
+
 fn apply_event(state: &mut State, event: &HookEvent) -> Result<bool, String> {
     let name = event.hook_event_name.as_str();
     if !matches!(
@@ -242,19 +251,26 @@ fn apply_event(state: &mut State, event: &HookEvent) -> Result<bool, String> {
             state.activity = Activity::Working;
         }
         "PreToolUse" if event.tool_name.as_deref() == Some("request_user_input") => {
-            state
-                .pending_questions
-                .insert(event.tool_use_id.clone().ok_or("Missing tool_use_id")?);
+            if let Some(key) = tool_wait_key(event) {
+                state.pending_questions.insert(key);
+            }
         }
         "PermissionRequest" => {
-            state
-                .pending_approvals
-                .insert(event.tool_use_id.clone().ok_or("Missing tool_use_id")?);
+            // PermissionRequest has no tool_use_id in Codex's hook schema.
+            // Coalesce unidentified waits by tool until that tool completes.
+            if let Some(key) = tool_wait_key(event) {
+                state.pending_approvals.insert(key);
+            }
         }
         "PostToolUse" => {
             if let Some(id) = &event.tool_use_id {
                 state.pending_questions.remove(id);
                 state.pending_approvals.remove(id);
+            }
+            if let Some(name) = &event.tool_name {
+                let key = format!("\0tool:{name}");
+                state.pending_questions.remove(&key);
+                state.pending_approvals.remove(&key);
             }
             state.activity = Activity::Working;
         }

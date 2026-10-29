@@ -186,6 +186,40 @@ fn activity_tracks_questions_approvals_and_ignores_unrelated_completions() {
 }
 
 #[test]
+fn permission_hooks_without_call_ids_track_waits_until_the_tool_completes() {
+    let fixture = Fixture::new();
+    let path = fixture.path();
+    let launch = begin(&path, false).unwrap();
+    let send = |value: serde_json::Value| {
+        record(
+            &path,
+            &launch.launch,
+            serde_json::to_vec(&value).unwrap().as_slice(),
+        )
+        .unwrap();
+    };
+    send(
+        serde_json::json!({"session_id":"conversation", "hook_event_name":"UserPromptSubmit", "turn_id":"turn"}),
+    );
+    // Real PermissionRequest metadata deliberately omits tool_use_id.
+    send(
+        serde_json::json!({"session_id":"conversation", "hook_event_name":"PermissionRequest", "turn_id":"turn", "tool_name":"Bash", "tool_input":{"command":"true"}}),
+    );
+    assert_eq!(read_state(&path).unwrap().activity, Activity::Approval);
+    send(
+        serde_json::json!({"session_id":"conversation", "hook_event_name":"PostToolUse", "turn_id":"turn", "tool_name":"apply_patch", "tool_use_id":"other-call"}),
+    );
+    assert_eq!(read_state(&path).unwrap().activity, Activity::Approval);
+    send(
+        serde_json::json!({"session_id":"conversation", "hook_event_name":"PostToolUse", "turn_id":"turn", "tool_name":"Bash", "tool_use_id":"approved-call"}),
+    );
+    let saved = read_state(&path).unwrap();
+    assert_eq!(saved.activity, Activity::Working);
+    assert!(saved.pending_approvals.is_empty());
+    assert_eq!(saved.conversation.as_deref(), Some("conversation"));
+}
+
+#[test]
 fn activity_reports_only_current_main_agent_and_keeps_mappings_separate() {
     let fixture = Fixture::new();
     let path = fixture.path();
