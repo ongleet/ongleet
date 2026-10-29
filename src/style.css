@@ -103,9 +103,6 @@ input {
   background: var(--errorBackground2);
   color: var(--white);
 }
-.window-controls button:focus-visible {
-  outline-offset: -3px;
-}
 .sidebar {
   position: relative;
   min-height: 0;
@@ -745,7 +742,6 @@ dialog[aria-label='Project editor'] > [role='status'] {
 }
 .file-list .file-row:focus-visible {
   background: var(--selected2);
-  outline-offset: -2px;
 }
 .file-icon {
   flex-shrink: 0;
@@ -1010,10 +1006,6 @@ dialog[aria-label='Project editor'] > [role='status'] {
 .app-menu-items button:focus-visible {
   background: var(--hover);
 }
-.app-menu-items button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
 .app-menu-items > div {
   display: grid;
   gap: 0;
@@ -1101,6 +1093,13 @@ dialog[aria-label='Project editor'] > [role='status'] {
 .session-actions-menu .app-menu-items {
   left: auto;
   right: 0;
+}
+
+/* Keep button focus inside existing borders; highlight borderless controls. */
+button:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--hover);
 }
 
 /* Keep form focus indicators inside the existing control bounds. */
