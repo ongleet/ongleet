@@ -59,3 +59,9 @@ and checks runtime/PID retention, hidden output, editor undo/redo and fresh-proc
 preference/draft restoration. Build the native-validation bundle first as described
 in [validation](VALIDATION.md). It does not establish physical desktop input or
 live WASM recoloring support.
+
+Add `--surfaces` to inspect configuration, project creation, populated archives,
+PR reviews/checks, validation errors and fixture network failures under Light+
+and One Dark. The native-validation HTTP fixture uses a dummy environment token.
+Headless native-focus checks are reported separately as unavailable (exit 2),
+leaving real-desktop focus acceptance open.

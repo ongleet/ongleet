@@ -902,3 +902,118 @@ mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongl
 # Known failing selection-retention check:
 mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongleet --check-navigation
 ```
+
+### Transport pressure and runtime/CLI acceptance (2026-10-28)
+
+`terminal_session::tests::input_queue_pressure_rejects_overflow_and_close_cancels_pending_writes`
+uses a real contained raw PTY whose child never reads. It fills the kernel input
+buffer until a write remains blocked, accepts one queued write, verifies the next
+write is rejected promptly while the process remains running, and closes the
+terminal. Both pending completions return errors, resources complete cleanup, and
+new input after close is rejected. Input over 8 KiB is also rejected. No production
+transport code changed. All fourteen `terminal_session::tests` pass serially with
+writable test cgroup delegation; the sandbox cannot create these cgroups.
+
+Private XWayland report `/tmp/ongleet-transport-native-s6bxpis4/report.json` passes
+eight acceptance groups with zero cleanup survivors. Private Wayland repeat
+`/tmp/ongleet-transport-native-boh1id7j/report.json` passes the same eight groups
+with zero cleanup survivors. The native SDK rejects input,
+resize, ACK, status, save-history and close requests for an unknown runtime, another
+tab's runtime in both directions, and a stale runtime after closing/reopening the
+same stable tab ID. Valid runtimes still deliver exact Unicode bytes; invalid ACKs
+are rejected. Sibling runtime IDs remain intact and both processes remain running.
+
+The real private CLI socket reports running terminals, persists tab reorder without
+replacing their runtimes, reports exit code 23 and disabled restart eligibility,
+and rejects input to exited, stopped and closed definitions without implicitly
+launching/reopening them. A stopped open terminal is distinct from a closed tab:
+`tab list` reports `stopped` and `closed`, respectively. The restarted definition
+receives a fresh runtime, accepts valid input and rejects its old runtime ID.
+
+This closes the specific transport-pressure/runtime-ID and remaining CLI
+status/order/stopped/exited input TODOs. CLI output snapshots, comprehensive resource
+and memory acceptance, physical input and selection retention remain separate open
+work. This test does not establish behavior under every scheduler/load condition.
+
+```bash
+mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline --bin ongleet-gui terminal_session::tests -- --test-threads=1
+mise exec -- python scripts/with-private-display.py xwayland python scripts/check-transport-native.py
+mise exec -- python scripts/with-private-display.py wayland python scripts/check-transport-native.py
+```
+
+### Selection retention across navigation fixed (2026-10-28)
+
+This supersedes the earlier known-failing navigation result. The pinned Ghostty
+0.4.0 selection manager installs a document-level click listener that clears its
+selection whenever a user clicks outside that terminal's canvas. The selection
+adapter now detaches only that listener while attached and restores it on cleanup.
+Canvas gestures, terminal keyboard handling, raw output, PTYs and rendering stay
+with the existing adapters; there is no copy/restore of terminal selection state.
+
+The formerly failing private Xvfb command
+`check-clipboard.py --cli src-tauri/target/debug/ongleet --check-navigation`
+now passes all seventeen checks in
+`/tmp/ongleet-clipboard-validation-rmvlonjm/report.json`, with zero cleanup survivors
+and both private selections restored. Wide Unicode selection text and coordinates
+survive independent tab and session switches, with the same runtime ID and primary
+ownership. New pointer selection, middle-click primary paste, mouse reporting,
+clipboard bounds and raw CLI input retain their previous passing behavior.
+
+`check:terminal-selection` now exercises the actual pinned SelectionManager and
+WASM using DOM event targets: outside clicks no longer clear the selection, canvas
+mousedown still starts a new selection, subscription cleanup completes and disposal
+restores the original handler. Input/link, rendering, reuse and plugin boundary
+checks also pass. The native-validation frontend/native build passed. Private
+Xvfb evidence does not certify physical desktop gestures, wrapping/scrollback
+retention under every output pattern, or cross-compositor primary ownership.
+
+After this adapter change, the broader terminal suites pass all twelve checks on
+private Wayland (`/tmp/terminal-native-validation-1oo6_1w7/report.json`) and private
+XWayland (`/tmp/terminal-native-validation-guhfs1z2/report.json`). Their cleanup
+results are retained in the reports; physical desktop input and live Codex remain
+outside these runs.
+
+### Appearance surfaces and explicit focus limitation (2026-10-29)
+
+Expanded `check-appearance-native.py --surfaces` runs checked Light+ and One Dark
+on private Wayland and XWayland. Initial completed reports are
+`/tmp/ongleet-appearance-native-__6ig2hh/report.json` (Wayland) and
+`/tmp/ongleet-appearance-native-7zgq6fzd/report.json` (XWayland), each with seven
+completed visual/state groups and zero application cleanup survivors.
+
+Coverage includes default-action controls, invalid YAML with save rejection,
+new-project controls and disabled Save, populated archive rows/actions, a populated
+PR panel with reviews/checks, PR configuration validation, and network-failure
+presentation that retains the previous PR data. Dialog foreground/background and
+error backgrounds are checked against each preset. Screenshots of those surfaces
+were inspected; invalid YAML and invalid PR association never replace the saved
+fixture settings. GitHub uses a dummy environment token and the native-validation
+HTTP fixture, enabled before creating the PR tab. Authentication does not read or
+write personal Secret Service credentials, and no live GitHub acceptance is claimed.
+
+Native focus is **unavailable**, not passed: both headless WebViews report
+`document.hasFocus() === false` and the active input does not match `:focus`.
+Thus its ordinary border is not evidence of a product focus-style defect. Explicit
+focus requests to the test-owned private XWayland window also failed to establish
+WebView focus; the unsuccessful helper was removed. Native keyboard focus, modal
+Tab navigation and physical focus indicators remain in TODOs for a real desktop.
+No desktop window was targeted. An interrupted early focus-helper fixture was
+cleaned up using only its unique process marker; no surviving processes remained.
+
+The harness now records focus evidence and an `unavailable` list separately from
+completed visual checks. Expanded runs return exit 2 while focus is unavailable;
+a visual assertion failure still fails the run. The default five-group appearance
+suite is unchanged. This avoids declaring the entire appearance acceptance stage
+complete from visual checks alone.
+
+```bash
+mise exec -- python scripts/check-appearance-native.py --backend xwayland --surfaces
+mise exec -- python scripts/check-appearance-native.py --backend wayland --surfaces
+```
+
+Final reruns after removing the focus helper are
+`/tmp/ongleet-appearance-native-nnjwffxu/report.json` (XWayland) and
+`/tmp/ongleet-appearance-native-jsy0a2k5/report.json` (Wayland). Each records seven
+completed groups, two unavailable focus checks, overall `blocked`, and zero
+application cleanup survivors. The runner explicitly accepts exit 2 for that
+known focus limitation; it does not convert blocked focus checks into passes.

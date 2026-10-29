@@ -334,6 +334,73 @@ fn close_interrupts_unacknowledged_output_and_blocked_input() {
 }
 
 #[test]
+fn input_queue_pressure_rejects_overflow_and_close_cancels_pending_writes() {
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn(
+        39,
+        launch("import os,tty,time; tty.setraw(0); print('RAW_READY',flush=True); time.sleep(60)"),
+        output,
+    )
+    .unwrap();
+    let mut ready = Vec::new();
+    while !String::from_utf8_lossy(&ready).contains("RAW_READY") {
+        let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
+        else {
+            panic!("Expected raw-mode readiness output");
+        };
+        ready.extend(bytes);
+        session.acknowledge(seq).unwrap();
+    }
+    assert_eq!(
+        session.queue_input(vec![b'x'; 8193]).unwrap_err(),
+        "Input chunk exceeds 8 KiB"
+    );
+
+    // The raw child never reads. Fill the real kernel PTY input buffer until
+    // one accepted write stays blocked, rather than relying on thread timing.
+    let mut blocked = None;
+    for _ in 0..128 {
+        let completion = session.queue_input(vec![b'x'; 8192]).unwrap();
+        match completion.recv_timeout(Duration::from_millis(100)) {
+            Ok(result) => result.unwrap(),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                blocked = Some(completion);
+                break;
+            }
+            Err(error) => panic!("Writer disconnected before cancellation: {error}"),
+        }
+    }
+    let blocked = blocked.expect("Raw PTY input never became backpressured");
+    let queued = session
+        .queue_input(b"queued after blocked write".to_vec())
+        .unwrap();
+    let before = Instant::now();
+    assert!(session.queue_input(b"must be rejected".to_vec()).is_err());
+    assert!(
+        before.elapsed() < Duration::from_secs(1),
+        "Full input queue blocked its caller"
+    );
+    assert!(matches!(session.status().unwrap(), Status::Running));
+    assert!(matches!(blocked.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    assert!(matches!(queued.try_recv(), Err(mpsc::TryRecvError::Empty)));
+
+    let before = Instant::now();
+    session.close().unwrap();
+    assert!(before.elapsed() < Duration::from_secs(5));
+    for completion in [blocked, queued] {
+        assert!(
+            completion
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap()
+                .is_err(),
+            "Cancelled pending write was reported as successful"
+        );
+    }
+    assert!(session.resources.0.lock().unwrap().completed);
+    assert!(session.queue_input(b"after close".to_vec()).is_err());
+}
+
+#[test]
 fn crash_owner_fixture() {
     let Ok(path) = std::env::var("TERMINAL_TEST_CRASH_STATE") else {
         return;

@@ -412,7 +412,7 @@ finally:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check-navigation", action="store_true", help="Also enforce selection retention across tab/session navigation (known failing on Ghostty 0.4.0)")
+    parser.add_argument("--check-navigation", action="store_true", help="Also enforce selection retention across tab/session navigation")
     parser.add_argument("--cli", help="Also verify exact terminal CLI input bytes using this executable")
     parser.add_argument("--xvfb", default=shutil.which("Xvfb"))
     parser.add_argument("--driver", default="WebKitWebDriver")

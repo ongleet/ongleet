@@ -39,13 +39,18 @@ def run(args):
     actions.write_text(json.dumps({'actions':[
         {'id':'stream','name':'Stream','kind':'terminal','config':{'executable':'/usr/bin/python3','args':[str(probe)]}},
         {'id':'files','name':'Files','kind':'files','config':{}},
-        {'id':'diff','name':'Diff','kind':'diff','config':{}}
+        {'id':'diff','name':'Diff','kind':'diff','config':{}},
+        *([{'id':'pr','name':'Pull request','kind':'pull-request','config':{}},
+           {'id':'archive','name':'Archive fixture','kind':'terminal','config':{'executable':'/bin/true','args':[]}}] if args.surfaces else [])
     ]}))
     runtime = directory/'runtime'
     runtime.mkdir(mode=0o700)
     env = dict(os.environ, XDG_DATA_HOME=str(directory/'data'), XDG_CONFIG_HOME=str(directory/'config'), XDG_CACHE_HOME=str(directory/'cache'), XDG_RUNTIME_DIR=str(runtime), TAURI_WEBVIEW_AUTOMATION='true', TERMINAL_VALIDATION_RUN=str(directory))
     env.pop('DISPLAY',None)
     env.pop('WAYLAND_DISPLAY',None)
+    if args.surfaces:
+        env['GH_TOKEN']='first-fixture'
+        env.pop('GITHUB_TOKEN',None)
     report = {'backend':args.backend,'artifacts':str(directory),'checks':[]}
     client = None
     compositor = driver = None
@@ -175,7 +180,88 @@ def run(args):
             assert client.js("const p=JSON.parse(localStorage.getItem('ongleet.appearance'));return p.application==='original' && p.terminal===null")
             button('Done')
             mark('Fresh app restart restores application/terminal preferences and unsaved draft; Restore defaults resets both')
+            if args.surfaces:
+                # Dummy launch token + validation HTTP interception avoid Secret Service
+                # access and live GitHub calls while rendering a populated PR panel.
+                client.js("window.__prFixture.enable()")
+                pr=new_tab('Pull request')
+                native.wait_for(lambda:client.js("return !!document.querySelector('.pr-association-fields input')"),'PR association form')
+                client.fill('.pr-association-fields input[placeholder="owner/repository or GitHub PR URL"]','example/repo')
+                client.fill('.pr-association-fields input[placeholder="PR number"]','42')
+                client.click("//section[contains(@class,'pr-panel')]//button[normalize-space()='Save']",'xpath')
+                native.wait_for(lambda:client.js("return document.querySelector('.pr-heading')?.textContent.includes('Plugin native fixture')"),'fixture PR loaded')
+                archive=new_tab('Archive fixture')
+                native.wait_for(lambda:client.js("return document.getElementById('tab-'+arguments[0])?.textContent.includes('(0)')",archive),'archive fixture exited')
+                client.click(f'#tab-{archive} + .tab-close')
+                native.wait_for(lambda:len(client.invoke('archives')['entries'])==1,'fixture archive')
+                client.click(f'#tab-{pr}')
+                def app_menu(label):
+                    client.js("const menu=document.querySelector('.window-titlebar .titlebar-menu');menu.querySelector('summary').focus();menu.open=true")
+                    client.click(f"//header//details[@open]//button[normalize-space()='{label}']",'xpath')
+                def themed_dialog(theme):
+                    return client.js("const el=document.querySelector('dialog[open]');const s=getComputedStyle(el);return {background:s.backgroundColor,text:s.color}") == {
+                        'background':'rgb(243, 243, 243)' if theme=='light-plus' else 'rgb(33, 37, 43)',
+                        'text':'rgb(32, 32, 32)' if theme=='light-plus' else 'rgb(171, 178, 191)'}
+                for theme in ['light-plus','one-dark']:
+                    appearance();choose(0,theme);button('Done')
+                    app_menu('Configure…')
+                    native.wait_for(lambda:client.js("return !!document.querySelector('dialog[aria-label=\"Default actions\"] input:not(:disabled)')"),'default actions loaded')
+                    assert themed_dialog(theme)
+                    client.click('dialog[open] [aria-label="Action name"]')
+                    focus=client.js("const el=document.activeElement;window.previousFocus=el;return {border:getComputedStyle(el).borderTopColor,focused:el.matches(':focus'),documentFocused:document.hasFocus(),accent:getComputedStyle(el).getPropertyValue('--accent')}")
+                    report.setdefault('focusEvidence',[]).append({'theme':theme,**focus})
+                    if focus['documentFocused']:
+                        assert focus['border']==('rgb(0, 95, 184)' if theme=='light-plus' else 'rgb(97, 175, 239)'),focus
+                        client.keys('\ue004')
+                        assert client.js("return document.activeElement!==window.previousFocus && document.querySelector('dialog[open]').contains(document.activeElement)")
+                    else:
+                        report.setdefault('unavailable',[]).append(f'{theme}: headless compositor did not grant native keyboard focus; physical focus remains open')
+                    screenshot('default-actions-controls-'+theme)
+                    client.click('#settings-yaml')
+                    client.fill('#project-actions-yaml','actions: [')
+                    client.click("//dialog[@open]//button[normalize-space()='Save actions']",'xpath')
+                    native.wait_for(lambda:client.js("return !!document.querySelector('dialog[open] [role=alert]')"),'invalid YAML error')
+                    error_color=client.js("return getComputedStyle(document.querySelector('dialog[open] [role=alert]')).backgroundColor")
+                    assert error_color==('rgb(255, 225, 228)' if theme=='light-plus' else 'rgb(86, 43, 50)'),error_color
+                    screenshot('configuration-error-'+theme)
+                    client.click("//dialog[@open]//button[normalize-space()='Close']",'xpath')
+                    app_menu('New project…')
+                    assert themed_dialog(theme)
+                    screenshot('new-project-'+theme)
+                    client.click("//dialog[@open]//button[normalize-space()='Cancel']",'xpath')
+                    app_menu('Archives')
+                    native.wait_for(lambda:client.js("return !!document.querySelector('.archives-table tbody tr')"),'archive row visible')
+                    assert themed_dialog(theme)
+                    screenshot('archives-'+theme)
+                    client.click("//dialog[@open]//button[normalize-space()='Close']",'xpath')
+                    client.js("const menu=document.querySelector('.session-pane:not([hidden]) .session-actions-menu');menu.querySelector('summary').focus();menu.open=true")
+                    client.click("//details[@open]//button[normalize-space()='Configure…']",'xpath')
+                    native.wait_for(lambda:client.js("return document.querySelector('dialog[open]')?.getAttribute('aria-label')==='Pull request configuration'"),'PR configuration modal')
+                    assert themed_dialog(theme)
+                    native.wait_for(lambda:client.js("return document.querySelector('dialog[open]')?.textContent.includes('Connected as fixture-user')"),'dummy environment account')
+                    client.fill('dialog[open] .pr-association-fields input[placeholder="owner/repository or GitHub PR URL"]','invalid-repository')
+                    client.click("//dialog[@open]//button[normalize-space()='Save']",'xpath')
+                    native.wait_for(lambda:client.js("return !!document.querySelector('dialog[open] [role=alert]')"),'PR local validation error')
+                    screenshot('pr-configuration-error-'+theme)
+                    client.click("//dialog[@open]//button[normalize-space()='Cancel']",'xpath')
+                    assert client.invoke('sessions')['sessions'][0]['pullRequest']=={'repository':'example/repo','number':42}
+                    client.js("window.__prFixture.mode('offline')")
+                    client.click('.pr-refresh')
+                    native.wait_for(lambda:client.js("return document.querySelector('.pr-content')?.textContent.includes('Fixture network offline')"),'PR fixture network error')
+                    screenshot('pr-network-error-'+theme)
+                    client.js("window.__prFixture.mode('ok')")
+                    client.click('.pr-refresh')
+                    native.wait_for(lambda:client.js("return !document.querySelector('.pr-content > [role=alert]') && document.querySelector('.pr-heading')?.textContent.includes('Plugin native fixture')"),'PR restored')
+                    if not client.js("return document.querySelector('.pr-checks').open"):
+                        client.click('.pr-checks summary')
+                    screenshot('pr-checks-'+theme)
+                    mark(f'{theme}: configuration/project/archive/PR surfaces and validation/network errors checked; native focus result recorded')
+                assert client.js('return window.__prFixture.calls()>0')
+                assert not (directory/'config/ongleet/actions.yaml').read_text().strip().endswith('actions: [')
+
+            report['result']='blocked' if report.get('unavailable') else 'passed'
         except Exception as error:
+            report['result']='failed'
             report['error']=str(error)
             if client and client.session:
                 try:(directory/'failure.txt').write_text(client.js('return document.body.innerText'))
@@ -199,10 +285,12 @@ def run(args):
                     process.wait(timeout=5)
             (directory/'report.json').write_text(json.dumps(report,indent=2))
             print(directory,flush=True)
+    return 2 if report.get('unavailable') else 0
 
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--application',default=str(native.ROOT/'src-tauri/target/debug/ongleet-gui'))
+    parser.add_argument('--surfaces',action='store_true',help='Inspect configuration/archive/PR/error surfaces with dummy environment authentication and fixture HTTP')
     parser.add_argument('--backend',choices=['wayland','xwayland','xvfb'],default='wayland')
-    run(parser.parse_args())
+    raise SystemExit(run(parser.parse_args()))

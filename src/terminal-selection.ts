@@ -5,6 +5,7 @@ import type { Terminal } from 'ghostty-web';
 type Point = { col: number; absoluteRow: number };
 
 type Manager = {
+  boundClickHandler: (event: MouseEvent) => void;
   selectionStart: Point | null;
   selectionEnd: Point | null;
   autoScrollDirection: number;
@@ -22,7 +23,13 @@ function managerFor(term: Terminal) {
 // move. Keep Ghostty's selection logic, but stop its timer at scroll boundaries.
 export function attachTerminalSelection(term: Terminal) {
   const manager = managerFor(term);
-  if (!manager) throw new Error('Unsupported Ghostty selection API');
+  if (!manager || typeof manager.boundClickHandler !== 'function')
+    throw new Error('Unsupported Ghostty selection API');
+  // Pinned 0.4.0 clears selections on every click outside its own canvas.
+  // Navigation must retain each terminal's selection, so remove only that
+  // document listener; canvas selection and keyboard clearing stay upstream.
+  const outsideClick = manager.boundClickHandler;
+  document.removeEventListener('click', outsideClick);
   const start = manager.startAutoScroll;
   const getSelection = manager.getSelection;
   // Upstream's automatic/browser copy must use the same Unicode text as the
@@ -51,6 +58,7 @@ export function attachTerminalSelection(term: Terminal) {
       manager.stopAutoScroll();
       manager.startAutoScroll = start;
       manager.getSelection = getSelection;
+      document.addEventListener('click', outsideClick);
     },
   };
 }
