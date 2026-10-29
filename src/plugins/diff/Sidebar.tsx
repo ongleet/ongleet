@@ -20,11 +20,19 @@ function savedWidth() {
 export function DiffSidebar({ children }: { children: ReactNode }) {
   const [preferredWidth, setWidth] = useState(savedWidth);
   const [limit, setLimit] = useState(maximum);
+  const [pixelRatio, setPixelRatio] = useState(() => window.devicePixelRatio || 1);
   const [resizing, setResizing] = useState(false);
   const sidebar = useRef<HTMLDivElement>(null);
   const origin = useRef<{ x: number; width: number } | null>(null);
-  const width = Math.min(preferredWidth, limit);
+  // Snap restored and dragged widths so the viewer starts on a physical pixel.
+  const width = Math.round(Math.min(preferredWidth, limit) * pixelRatio) / pixelRatio;
   const clamp = (value: number) => Math.max(minimum, Math.min(limit, value));
+
+  useEffect(() => {
+    const updatePixelRatio = () => setPixelRatio(window.devicePixelRatio || 1);
+    window.addEventListener('resize', updatePixelRatio);
+    return () => window.removeEventListener('resize', updatePixelRatio);
+  }, []);
 
   useEffect(() => {
     try {
