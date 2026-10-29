@@ -168,9 +168,6 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           pendingConfiguration.current = JSON.stringify(next.config);
           await sdk.storage.configure(next.config);
           if (!current()) return;
-          setComparison(next);
-          setPatches({});
-          setSelected('');
           try {
             await updateDiffTag(sdk.session, tab.id, next.files.length, current);
           } catch (error) {
@@ -184,6 +181,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
             if (current()) setReferences([]);
           }
           // Stream patches serially, keeping IPC and total retained text bounded.
+          const nextPatches: Record<string, { text?: string; error?: string }> = {};
           let bytes = 0;
           for (const file of next.files) {
             if (!current()) return;
@@ -200,12 +198,19 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                 );
               bytes += size;
               if (!current()) return;
-              setPatches((previous) => ({ ...previous, [file.key]: { text } }));
+              nextPatches[file.key] = { text };
             } catch (error) {
               if (!current()) return;
-              setPatches((previous) => ({ ...previous, [file.key]: { error: String(error) } }));
+              nextPatches[file.key] = { error: String(error) };
             }
           }
+          if (!current()) return;
+          // Commit together so refresh never collapses the existing scroll surface.
+          setComparison(next);
+          setPatches(nextPatches);
+          setSelected((previous) =>
+            next.files.some((file) => file.key === previous) ? previous : '',
+          );
         } catch (e) {
           if (current()) setError(String(e));
         } finally {
