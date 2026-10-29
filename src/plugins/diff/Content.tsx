@@ -11,52 +11,73 @@ import { DiffSidebar } from './Sidebar';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange } from './git';
-const Viewer = memo(function Viewer({ patch }: { patch: string }) {
-  try {
-    if (!patch) return <p>This file changed during the comparison. Refresh to update.</p>;
-    const files = parseDiff(patch);
-    if (!files.length || (patch.includes('\n@@ ') && !files.some((file) => file.hunks.length)))
-      throw new Error('Patch parser returned no text hunks.');
-    const metadata = patch
-      .split('\n')
-      .filter((line) =>
-        /^(old mode|new mode|new file mode|deleted file mode|similarity index|rename from|rename to)/.test(
-          line,
-        ),
-      )
-      .join('\n');
-    return (
-      <>
-        {metadata && <pre>{metadata}</pre>}
-        {files.map((file, i) =>
-          file.hunks.length ? (
-            <Diff key={i} viewType="unified" diffType={file.type} hunks={file.hunks}>
-              {(hunks) =>
-                hunks.map((hunk) => (
-                  <Fragment key={hunk.content}>
-                    <Decoration>{hunk.content}</Decoration>
-                    <Hunk hunk={hunk} />
-                  </Fragment>
-                ))
-              }
-            </Diff>
-          ) : (
-            <div key={i}>
-              <p>
-                {file.isBinary
-                  ? 'Binary file changed.'
-                  : 'Metadata-only change (permissions, rename, symlink or submodule).'}
-              </p>
-              <pre>{patch}</pre>
-            </div>
+const Viewer = memo(
+  function Viewer({
+    patch,
+    expand,
+    loading,
+  }: {
+    patch: string;
+    expand: () => void;
+    loading: boolean;
+  }) {
+    try {
+      if (!patch) return <p>This file changed during the comparison. Refresh to update.</p>;
+      const files = parseDiff(patch);
+      if (!files.length || (patch.includes('\n@@ ') && !files.some((file) => file.hunks.length)))
+        throw new Error('Patch parser returned no text hunks.');
+      const metadata = patch
+        .split('\n')
+        .filter((line) =>
+          /^(old mode|new mode|new file mode|deleted file mode|similarity index|rename from|rename to)/.test(
+            line,
           ),
-        )}
-      </>
-    );
-  } catch (error) {
-    return <p role="alert">Cannot render patch: {String(error)}</p>;
-  }
-});
+        )
+        .join('\n');
+      return (
+        <>
+          {metadata && <pre>{metadata}</pre>}
+          {files.map((file, i) =>
+            file.hunks.length ? (
+              <Diff key={i} viewType="unified" diffType={file.type} hunks={file.hunks}>
+                {(hunks) =>
+                  hunks.map((hunk) => (
+                    <Fragment key={hunk.content}>
+                      <Decoration>
+                        <button
+                          type="button"
+                          className="diff-expand-context"
+                          disabled={loading}
+                          onClick={expand}
+                        >
+                          ↕ Show 20 more context lines
+                        </button>
+                        {hunk.content}
+                      </Decoration>
+                      <Hunk hunk={hunk} />
+                    </Fragment>
+                  ))
+                }
+              </Diff>
+            ) : (
+              <div key={i}>
+                <p>
+                  {file.isBinary
+                    ? 'Binary file changed.'
+                    : 'Metadata-only change (permissions, rename, symlink or submodule).'}
+                </p>
+                <pre>{patch}</pre>
+              </div>
+            ),
+          )}
+        </>
+      );
+    } catch (error) {
+      return <p role="alert">Cannot render patch: {String(error)}</p>;
+    }
+  },
+  (previous, next) => previous.patch === next.patch && previous.loading === next.loading,
+);
 
 export function DiffContent({ tab, visible }: PluginContentProps) {
   const sdk = useSdk();
@@ -70,6 +91,9 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
     ...defaults,
     ...(tab.config as Partial<Settings>),
   }));
+  const contextLines = useRef<Record<string, number>>({});
+  const contextKey = (value: Settings, file: FileChange) =>
+    JSON.stringify([value.folder, value.mode, value.baseRef, value.targetRef, file.key]);
   const pendingConfiguration = useRef('');
   const observedConfiguration = useRef(JSON.stringify(config));
   const configRef = useRef(config);
@@ -201,7 +225,11 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                 throw new Error(
                   'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
                 );
-              const text = await git.patch(next, file);
+              const text = await git.patch(
+                next,
+                file,
+                contextLines.current[contextKey(next.config, file)] ?? 3,
+              );
               const size = new TextEncoder().encode(text).length;
               if (bytes + size > 8 * 1024 * 1024)
                 throw new Error(
@@ -360,7 +388,15 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                     {patches[file.key]?.error ? (
                       <p role="alert">{patches[file.key].error}</p>
                     ) : patches[file.key]?.text !== undefined ? (
-                      <Viewer patch={patches[file.key].text!} />
+                      <Viewer
+                        patch={patches[file.key].text!}
+                        loading={loading}
+                        expand={() => {
+                          const key = contextKey(comparison.config, file);
+                          contextLines.current[key] = (contextLines.current[key] ?? 3) + 20;
+                          refresh();
+                        }}
+                      />
                     ) : (
                       <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
                     )}

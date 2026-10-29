@@ -337,3 +337,12 @@
   --diff-gutter-selected-background-color: var(--selected);
   --diff-omit-gutter-line-color: var(--error);
 }
+
+.diff-expand-context {
+  margin-right: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.diff-expand-context:disabled {
+  cursor: wait;
+}

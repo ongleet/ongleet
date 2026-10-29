@@ -225,12 +225,12 @@ export class GitComparison {
       ...(c.target ? [c.target] : []),
     ];
   }
-  patch(c: Comparison, file: FileChange) {
+  patch(c: Comparison, file: FileChange, context = 3) {
     return this.git(c.root, [
       '--literal-pathspecs',
       ...this.diffArgs(c),
       '--patch',
-      '--unified=3',
+      `--unified=${context}`,
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--',
