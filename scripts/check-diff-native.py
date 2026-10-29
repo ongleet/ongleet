@@ -181,6 +181,33 @@ def run(args):
                 return nav.scrollTop>0 && r.top>=n.top-1 && r.bottom<=n.bottom+1 &&
                     document.querySelector('.diff-viewer').scrollTop===window.diffExpectedScroll;
             """), 'current tree row revealed without moving diff viewer')
+            def assert_navigation_position():
+                time.sleep(0.5)  # Allow the visibility-triggered refresh debounce to fire.
+                native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'navigation refresh complete')
+                assert client.js("return document.querySelector('.diff-layout nav button[aria-current=true]')?.title==='hello.txt' && Math.abs(document.querySelector('.diff-viewer').scrollTop-window.diffExpectedScroll)<2"), 'Navigation lost selected file or scroll position'
+
+            client.click(f"#tab-{session['tabs'][0]['id']}")
+            client.click(f'#tab-{tab}')
+            assert_navigation_position()
+            mark('Tab navigation retains current file and exact nonzero scroll after refresh')
+            client.click('[aria-label="Create session"]')
+            client.fill('#session-name','Navigation sibling')
+            client.fill('#session-directory',str(folder))
+            client.click("//button[normalize-space()='Save session']",'xpath')
+            client.click("//button[contains(@class,'session-choice')][.//span[normalize-space()='Diff test']]",'xpath')
+            assert_navigation_position()
+            mark('Session navigation retains current file and exact nonzero scroll after refresh')
+            client.js("window.retainedArticle=document.querySelectorAll('.diff-file')[1]; window.retainedCode=window.retainedArticle.querySelector('.diff'); window.anchorOffset=window.retainedArticle.getBoundingClientRect().top-document.querySelector('.diff-viewer').getBoundingClientRect().top")
+            second.write_text(''.join(f'new line {i}\n' for i in range(200)))
+            client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
+            time.sleep(0.5)
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'changed patch refresh')
+            assert client.js("return document.querySelectorAll('.diff-file')[1]===window.retainedArticle && window.retainedArticle.querySelector('.diff')===window.retainedCode && document.querySelector('.diff-layout nav button[aria-current=true]')?.title==='hello.txt' && Math.abs(window.retainedArticle.getBoundingClientRect().top-document.querySelector('.diff-viewer').getBoundingClientRect().top-window.anchorOffset)<2"), 'Changed earlier file displaced reading position or replaced unchanged DOM'
+            second.write_text('second changed\n')
+            client.click("//section[contains(@class,'diff-panel')]//button[normalize-space()='Refresh']",'xpath')
+            time.sleep(0.5)
+            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'restore fixture patch')
+            mark('Growing an earlier patch retains current file, viewport offset and unchanged diff DOM')
             client.js("""
                 const viewer=document.querySelector('.diff-viewer');
                 for (const content of viewer.querySelectorAll('.diff-file-content')) content.style.minHeight='';

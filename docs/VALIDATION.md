@@ -1017,3 +1017,9 @@ Final reruns after removing the focus helper are
 completed groups, two unavailable focus checks, overall `blocked`, and zero
 application cleanup survivors. The runner explicitly accepts exit 2 for that
 known focus limitation; it does not convert blocked focus checks into passes.
+
+## Diff navigation retention (2026-10-29)
+
+Private WebKitGTK/X11 report `ongleet-diff-native-o6k1uyxg` passes tab and session navigation with the second file selected and a nonzero viewer scroll position, including the debounced visibility refresh. The full Diff harness passes with no cleanup survivors. The regression scenarios use enlarged file content to provide deterministic scroll geometry. Physical desktop and Wayland navigation were not exercised by this run.
+
+Native WebKitGTK/X11 report `ongleet-diff-native-57rr9kk8` additionally passes refresh after growing an earlier patch by 200 lines: the current file, viewport offset and unchanged patch DOM identity survive. The complete harness passes with no cleanup survivors. Refresh anchors to file-relative pixels; edits inside the currently read file do not yet preserve a specific source line. Production assets were restored.
