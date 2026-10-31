@@ -39,15 +39,24 @@ and project action files are preserved). Comparisons resolve the enclosing
 repository only on request by this tab and include its entire tracked tree,
 even when the configured folder is a subdirectory or linked worktree.
 
-- **Automatic** (default) compares a feature branch’s merge base with `HEAD`,
+- **Automatic (committed only)** (default) compares a feature branch’s merge base with `HEAD`,
   using `origin/HEAD` when available, then `main` or `master`. On the default
   branch, detached HEAD, or without a default branch, it shows the latest commit.
   Initial commits compare against the empty tree. No fetch is performed.
-- **Working directory** compares a base tree (default `HEAD`) with final tracked
+- **Uncommitted changes** compares a base tree (default `HEAD`) with final tracked
   contents, including staged and unstaged changes. Changes that cancel disappear.
-- **Two refs** compares snapshots directly (`git diff A B`); switching from the
+- **Branch + uncommitted changes** compares the unique common ancestor of the
+  base branch and `HEAD` with final tracked contents. This includes branch commits
+  plus staged and unstaged changes, excluding changes unique to the base branch.
+  The initial base suggestion is `main`; choose another branch/ref if needed.
+- **Since commit + uncommitted changes** compares the selected commit snapshot
+  with current tracked contents, including later commits plus staged and unstaged
+  changes. The selected commit itself is excluded. The dropdown shows the latest
+  200 commits reachable from `HEAD`, with abbreviated hashes and subjects. Saved
+  selections outside that list remain available. Refresh updates the list.
+- **Between two references** compares snapshots directly (`git diff A B`); switching from the
   initial defaults suggests `HEAD~1` to `HEAD`.
-- **Merge base** compares the unique common ancestor with the destination
+- **Branch commits (merge base)** compares the unique common ancestor with the destination
   (`git diff A...B`); switching from the initial defaults suggests `main` to `HEAD`.
 
 Branches, annotated tags, hashes and revision expressions are supported. Missing

@@ -147,6 +147,57 @@ try {
     'feature branch excludes unrelated main changes',
   );
   assert.equal(automaticSide.base, merged.base);
+  await writeFile(join(root, 'side'), 'side with local edits\n');
+  await writeFile(join(root, 'staged-local'), 'staged addition\n');
+  await command(['add', 'staged-local']);
+  await writeFile(join(root, 'untracked-local'), 'untracked\n');
+  const branchWorking = await git.compare({
+    ...config,
+    mode: 'branch',
+    baseRef: 'main',
+    targetRef: 'missing-unused-ref',
+  });
+  assert.deepEqual(
+    branchWorking.files.map((f) => f.path),
+    ['side', 'staged-local'],
+    'branch comparison includes committed, staged and unstaged changes without base-only or untracked files',
+  );
+  const history = await git.commits(root);
+  assert.equal(history[0].subject, 'side');
+  assert.equal(history[0].hash, (await command(['rev-parse', 'HEAD'])).stdout.trim());
+  const baseCommit = history.find((commit) => commit.subject === 'base');
+  assert.ok(baseCommit);
+  const sinceCommit = await git.compare({
+    ...config,
+    mode: 'sinceCommit',
+    baseRef: baseCommit.hash,
+    targetRef: 'unused-missing-ref',
+  });
+  assert.deepEqual(
+    sinceCommit.files.map((file) => file.path),
+    ['side', 'staged-local'],
+  );
+  assert.match(await git.patch(sinceCommit, sinceCommit.files[0]), /side with local edits/);
+  const sinceHead = await git.compare({ ...config, mode: 'sinceCommit', baseRef: history[0].hash });
+  const sidePatch = await git.patch(
+    sinceHead,
+    sinceHead.files.find((file) => file.path === 'side'),
+  );
+  assert.match(sidePatch, /-side/);
+  assert.match(sidePatch, /\+side with local edits/);
+  assert.equal(sinceHead.target, null);
+  await assert.rejects(git.compare({ ...config, mode: 'sinceCommit', baseRef: 'missing-commit' }));
+  assert.equal(branchWorking.target, null);
+  assert.match(await git.patch(branchWorking, branchWorking.files[0]), /side with local edits/);
+  assert.deepEqual(
+    (await git.compare({ ...config, mode: 'refs', baseRef: 'main', targetRef: 'side' })).files,
+    direct.files,
+    'reference comparison remains committed-only with local changes present',
+  );
+  await assert.rejects(git.compare({ ...config, mode: 'branch', baseRef: 'missing-base' }), /./);
+  await command(['reset', '--hard', 'HEAD']);
+  await rm(join(root, 'untracked-local'));
+
   await rename(join(root, 'normal'), join(root, 'renamed'));
   await command(['add', '.']);
   await chmod(join(root, 'space name'), 0o755);
@@ -225,6 +276,10 @@ try {
   const bare = join(root, 'bare.git');
   await command(['clone', '--bare', '.', bare]);
   await assert.rejects(git.compare({ ...config, folder: bare }), /non-bare/);
+  await assert.rejects(
+    git.compare({ ...config, mode: 'branch', baseRef: 'main', folder: bare }),
+    /non-bare/,
+  );
   assert.equal(
     (
       await git.compare({
@@ -237,6 +292,7 @@ try {
     ).files.length,
     0,
   );
+  await assert.rejects(git.compare({ ...config, mode: 'sinceCommit', folder: bare }), /non-bare/);
   const unborn = join(root, 'unborn');
   await mkdir(unborn);
   await command(['init', unborn]);

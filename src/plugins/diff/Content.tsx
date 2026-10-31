@@ -10,7 +10,7 @@ import { buildFileTree, filesInTreeOrder, type FileTreeNode } from './file-tree'
 import { DiffSidebar } from './Sidebar';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
-import { GitComparison, Lane, type Comparison, type FileChange } from './git';
+import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
 const Viewer = memo(
   function Viewer({
     patch,
@@ -105,6 +105,8 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const [selected, setSelected] = useState('');
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
   const [references, setReferences] = useState<string[]>([]);
+  const [commits, setCommits] = useState<CommitOption[]>([]);
+  const [commitError, setCommitError] = useState('');
   const fileElements = useRef(new Map<string, HTMLElement>());
   const viewer = useRef<HTMLDivElement>(null);
   const refreshAnchor = useRef<{ key: string; offset: number; left: number } | null>(null);
@@ -214,6 +216,18 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
             if (current()) setReferences(refs);
           } catch {
             if (current()) setReferences([]);
+          }
+          try {
+            const history = await git.commits(next.root);
+            if (current()) {
+              setCommits(history);
+              setCommitError('');
+            }
+          } catch (error) {
+            if (current()) {
+              setCommits([]);
+              setCommitError(String(error));
+            }
           }
           // Stream patches serially, keeping IPC and total retained text bounded.
           const nextPatches: Record<string, { text?: string; error?: string }> = {};
@@ -326,7 +340,13 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           refresh();
         }}
       >
-        <ComparisonFields config={config} onChange={setConfig} references={references} />
+        <ComparisonFields
+          config={config}
+          onChange={setConfig}
+          references={references}
+          commits={commits}
+          commitError={commitError}
+        />
         <button type="submit">Compare</button>
         <button type="button" className="diff-refresh" onClick={refresh}>
           <span className="diff-spinner-slot">
@@ -413,10 +433,12 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           <div className="diff-summary">
             {
               {
-                auto: 'Automatic',
-                workingDirectory: 'Working directory',
-                refs: 'Two refs',
-                mergeBase: 'Merge base',
+                auto: 'Automatic (committed only)',
+                workingDirectory: 'Uncommitted changes',
+                branch: 'Branch + uncommitted changes',
+                sinceCommit: 'Since commit + uncommitted changes',
+                refs: 'Between two references',
+                mergeBase: 'Branch commits (merge base)',
               }[comparison.config.mode]
             }{' '}
             · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}

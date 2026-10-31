@@ -1,5 +1,6 @@
 import type { ProcessRequest, ProcessResult } from '../../sdk';
 import { settings, type Settings } from './settings.ts';
+export type CommitOption = { hash: string; subject: string };
 export type FileChange = { status: string; oldPath: string; path: string; key: string };
 export type Comparison = {
   root: string;
@@ -93,7 +94,12 @@ export class GitComparison {
     if (!config.folder) throw new Error('Choose an absolute repository folder.');
     const bare =
       (await this.git(config.folder, ['rev-parse', '--is-bare-repository'])).trim() === 'true';
-    if (bare && config.mode === 'workingDirectory')
+    if (
+      bare &&
+      (config.mode === 'workingDirectory' ||
+        config.mode === 'branch' ||
+        config.mode === 'sinceCommit')
+    )
       throw new Error('Working directory comparisons require a non-bare repository.');
     // rev-parse emits the root verbatim; remove only its terminating newline.
     const root = bare
@@ -135,10 +141,15 @@ export class GitComparison {
       }
     }
     const mergeBase =
-      config.mode === 'mergeBase' || (config.mode === 'auto' && baseLabel !== 'HEAD~1');
+      config.mode === 'mergeBase' ||
+      config.mode === 'branch' ||
+      (config.mode === 'auto' && baseLabel !== 'HEAD~1');
     let base: string;
     try {
-      base = await resolve(baseLabel, mergeBase ? 'commit' : 'tree');
+      base = await resolve(
+        baseLabel,
+        mergeBase || config.mode === 'sinceCommit' ? 'commit' : 'tree',
+      );
     } catch (error) {
       if (config.mode !== 'auto' || baseLabel !== 'HEAD~1') throw error;
       // The initial commit is compared with Git's empty tree without writing it.
@@ -146,11 +157,20 @@ export class GitComparison {
       baseLabel = 'Empty tree';
     }
     const target =
-      config.mode === 'workingDirectory'
+      config.mode === 'workingDirectory' ||
+      config.mode === 'branch' ||
+      config.mode === 'sinceCommit'
         ? null
         : await resolve(targetLabel, mergeBase ? 'commit' : 'tree');
     if (mergeBase) {
-      const bases = (await this.git(root, ['merge-base', '--all', base, target!]))
+      const bases = (
+        await this.git(root, [
+          'merge-base',
+          '--all',
+          base,
+          config.mode === 'branch' ? await resolve('HEAD', 'commit') : target!,
+        ])
+      )
         .trim()
         .split('\n');
       if (bases.length !== 1 || !bases[0])
@@ -189,6 +209,23 @@ export class GitComparison {
       );
     }
     return comparison;
+  }
+  async commits(folder: string): Promise<CommitOption[]> {
+    const output = await this.git(folder, [
+      'log',
+      '--max-count=200',
+      '--format=%H%x00%s',
+      'HEAD',
+      '--',
+    ]);
+    return output
+      .trimEnd()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const separator = line.indexOf('\0');
+        return { hash: line.slice(0, separator), subject: line.slice(separator + 1) };
+      });
   }
   async references(folder: string): Promise<string[]> {
     return [

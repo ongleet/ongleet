@@ -26,7 +26,14 @@
   flex: 0 1 240px;
 }
 .diff-toolbar .diff-mode-field {
-  flex: 0 1 200px;
+  flex: 0 1 290px;
+}
+.diff-comparison-help {
+  flex-basis: 100%;
+  order: 1;
+  margin: 0;
+  color: var(--muted4);
+  font-size: 12px;
 }
 .diff-toolbar input,
 .diff-toolbar select,
