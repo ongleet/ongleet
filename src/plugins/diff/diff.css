@@ -208,7 +208,21 @@
 }
 .diff-status {
   font-size: 11px;
-  opacity: 0.8;
+}
+.diff-status[data-status='A'],
+.diff-status[data-status='C'] {
+  color: var(--diffAdded);
+}
+.diff-status[data-status='D'],
+.diff-status[data-status='U'] {
+  color: var(--diffDeleted);
+}
+.diff-status[data-status='M'],
+.diff-status[data-status='T'] {
+  color: var(--diffModified);
+}
+.diff-status[data-status='R'] {
+  color: var(--diffRenamed);
 }
 .diff-viewer {
   scroll-padding-top: 4px;

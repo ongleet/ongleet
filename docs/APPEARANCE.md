@@ -9,7 +9,11 @@ back independently to Original or inheritance. Storage failures leave changes
 available in memory and display a notice in Appearance.
 
 Presets cover chrome, controls, Files syntax and editor surfaces, PR surfaces,
-and Diff additions/deletions. Session tag colors remain explicit user/plugin
+and Diff additions/deletions. Diff backgrounds blend each application preset's
+terminal ANSI green/red into its background, with stronger tints for gutters.
+File-status indicators use the same ANSI palette: green for added/copied, red
+for deleted/unmerged, yellow for modified/type changes, and blue for renamed.
+A terminal override does not change the Diff palette. Session tag colors remain explicit user/plugin
 values. No network access, system-theme tracking, custom palettes or CLI settings
 are needed. CodeMirror compartments update highlighting and light/dark mode
 without replacing the document, selection or undo history.

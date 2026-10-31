@@ -15,7 +15,7 @@ export async function updateDiffTag(
   const prefix = `Diff #${tabId}: `;
   const desired = {
     name: `${prefix}${count} ${count === 1 ? 'file' : 'files'}`,
-    dot: count ? '#D29922' : '#9198A1',
+    dot: count ? '#D29922' : '#3FB950',
   };
   const existing = await service.listTags();
   for (const tag of existing) {

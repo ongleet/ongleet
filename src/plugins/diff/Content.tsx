@@ -402,6 +402,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                   <FileReview
                     path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
                     status={labels[file.status[0]]}
+                    statusCode={file.status[0]}
                     patch={patches[file.key]?.text}
                     failed={!!patches[file.key]?.error}
                   >
@@ -502,7 +503,11 @@ function FileTree({
             aria-current={selected === file.key ? 'true' : undefined}
             onClick={() => onSelect(file)}
           >
-            <span className="diff-status" aria-label={labels[file.status[0]]}>
+            <span
+              className="diff-status"
+              data-status={file.status[0]}
+              aria-label={labels[file.status[0]]}
+            >
               {file.status[0]}
             </span>
             <span className="diff-tree-label">{file.path.split('/').at(-1)}</span>

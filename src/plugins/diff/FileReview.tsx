@@ -3,12 +3,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 export function FileReview({
   path,
   status,
+  statusCode,
   patch,
   failed,
   children,
 }: {
   path: string;
   status: string;
+  statusCode: string;
   patch: string | undefined;
   failed: boolean;
   children: ReactNode;
@@ -38,7 +40,10 @@ export function FileReview({
           <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
         </button>
         <span className="diff-file-name">
-          <span className="diff-status">{status}</span> {path}
+          <span className="diff-status" data-status={statusCode}>
+            {status}
+          </span>{' '}
+          {path}
         </span>
         <label className="diff-viewed">
           <input

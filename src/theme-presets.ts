@@ -124,6 +124,17 @@ const vscodeAnsi = [
   '#29b8db',
   '#ffffff',
 ];
+// Tint diff surfaces with the preset's ANSI colors while preserving text contrast.
+function diffTint(background: string, color: string, amount: number): string {
+  const channels = [1, 3, 5].map((offset) => {
+    const base = parseInt(background.slice(offset, offset + 2), 16);
+    const tint = parseInt(color.slice(offset, offset + 2), 16);
+    return Math.round(base + (tint - base) * amount)
+      .toString(16)
+      .padStart(2, '0');
+  });
+  return `#${channels.join('')}`;
+}
 function preset(
   id: ThemeId,
   name: string,
@@ -151,10 +162,10 @@ function preset(
     warningBackground: light ? '#fff1c1' : '#49391f',
     error: light ? '#b42332' : '#ff8b98',
     errorBackground: light ? '#ffe1e4' : '#562b32',
-    insert: light ? '#daf2df' : '#193d2a',
-    delete: light ? '#ffdddd' : '#4b242b',
-    insertGutter: light ? '#b6e3c1' : '#245237',
-    deleteGutter: light ? '#f5bec4' : '#603039',
+    insert: diffTint(background, ansi[2], 0.18),
+    delete: diffTint(background, ansi[1], 0.18),
+    insertGutter: diffTint(background, ansi[2], 0.3),
+    deleteGutter: diffTint(background, ansi[1], 0.3),
     overlay: '#0008',
     highlight: light ? '#00000008' : '#ffffff06',
     subtleBorder: light ? '#00000025' : '#ffffff25',
@@ -164,14 +175,22 @@ function preset(
   const ui = Object.fromEntries(
     Object.keys(originalUi).map((key) => [
       key,
-      id === 'original' ? originalUi[key] : values[key.replace(/\d+$/, '')],
+      id === 'original' && !['insert', 'delete', 'insertGutter', 'deleteGutter'].includes(key)
+        ? originalUi[key]
+        : values[key.replace(/\d+$/, '')],
     ]),
   );
   return Object.freeze({
     id,
     name,
     mode,
-    ui: Object.freeze(ui),
+    ui: Object.freeze({
+      ...ui,
+      diffAdded: ansi[2],
+      diffDeleted: ansi[1],
+      diffModified: ansi[3],
+      diffRenamed: ansi[4],
+    }),
     syntax: Object.freeze(
       Object.fromEntries(
         ['keyword', 'string', 'number', 'comment', 'function', 'type', 'property', 'invalid'].map(
