@@ -50,10 +50,24 @@ const Viewer = memo(
                         <button
                           type="button"
                           className="diff-expand-context"
+                          aria-label="Show 20 more context lines"
+                          title="Show 20 more context lines"
                           disabled={loading}
                           onClick={expand}
                         >
-                          ↕ Show 20 more context lines
+                          <svg
+                            width="16"
+                            height="16"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 9V3m-3 3 3-3 3 3M12 15v6m-3-3 3 3 3-3M4 12h16" />
+                          </svg>
                         </button>
                         {hunk.content}
                       </Decoration>

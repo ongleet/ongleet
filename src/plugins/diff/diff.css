@@ -263,6 +263,11 @@
 }
 
 .diff-expand-context {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  vertical-align: middle;
   margin-right: 12px;
   color: var(--text);
   cursor: pointer;
