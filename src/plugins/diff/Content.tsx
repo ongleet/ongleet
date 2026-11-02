@@ -8,6 +8,8 @@ import type { PluginContentProps } from '../types';
 import { updateDiffTag } from './status-tag';
 import { FileReview } from './FileReview';
 import { buildFileTree, filesInTreeOrder, type FileTreeNode } from './file-tree';
+import { FileIcon } from '../../components/FileIcon';
+import { FolderIcon } from '../../components/FolderIcon';
 import { DiffSidebar } from './Sidebar';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
@@ -490,7 +492,8 @@ function FileTree({
           <li key={name}>
             <details open>
               <summary title={name}>
-                <span className="diff-tree-label file-tree-label">▱ {name}</span>
+                <FolderIcon />
+                <span className="diff-tree-label file-tree-label">{name}</span>
               </summary>
               {render(child)}
             </details>
@@ -504,13 +507,7 @@ function FileTree({
             aria-current={selected === file.key ? 'true' : undefined}
             onClick={() => onSelect(file)}
           >
-            <span
-              className="diff-status"
-              data-status={file.status[0]}
-              aria-label={labels[file.status[0]]}
-            >
-              {file.status[0]}
-            </span>
+            <FileIcon status={file.status[0]} statusLabel={labels[file.status[0]]} />
             <span className="diff-tree-label file-tree-label">{file.path.split('/').at(-1)}</span>
           </button>
         </li>

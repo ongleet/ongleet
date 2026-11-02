@@ -5,6 +5,7 @@ import { readDraft } from './editor-drafts';
 import { FileSidebar } from '../../components/FileSidebar';
 import '../../components/file-tree.css';
 import { FileBranch } from './FileBranch';
+import { FileDetails, editorLimitation, type UnsupportedFile } from './FileDetails';
 import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
 export function FilesContent({ tab, visible }: PluginContentProps) {
@@ -14,9 +15,11 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   const [restoringEditor, setRestoringEditor] = useState(!!config?.editorFile);
   const [restoreError, setRestoreError] = useState('');
   const [editing, setEditing] = useState<TextDocument>();
+  const [details, setDetails] = useState<UnsupportedFile>();
+  const selectedPath = editing?.path ?? details?.path;
   useEffect(() => {
-    sdk.tab.setTitle(editing ? editing.path.split('/').pop()! : null);
-  }, [sdk, editing?.path]);
+    sdk.tab.setTitle(selectedPath ? selectedPath.split('/').pop()! : null);
+  }, [sdk, selectedPath]);
   const opening = useRef(false);
   const [listing, setListing] = useState<Listing>();
   const [path, setPath] = useState(configuredFolder ?? '');
@@ -94,8 +97,8 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
       .readText(file)
       .then((document) => {
         if (cancelled) return;
-        if (!document) throw new Error('Saved file is no longer supported UTF-8 text.');
-        setEditing(document);
+        if (document) setEditing(document);
+        else setDetails({ path: file, reason: 'This file is not supported UTF-8 text.' });
       })
       .catch((error) => {
         if (cancelled) return;
@@ -107,6 +110,11 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
           }
         } catch {
           // Retain the disk error and leave inaccessible draft data untouched.
+        }
+        const reason = editorLimitation(error);
+        if (reason) {
+          setDetails({ path: file, reason });
+          return;
         }
         setRestoreError(`Could not reopen ${file}: ${String(error)}`);
       })
@@ -122,6 +130,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     await sdk.storage.configure({ editorFile: null });
     setRestoreError('');
     setEditing(undefined);
+    setDetails(undefined);
   }
   useEffect(() => {
     if (!visible || restoringEditor) return;
@@ -166,7 +175,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   async function openFile(path: string) {
     if (opening.current) return;
     opening.current = true;
-    if (editing?.path === path) {
+    if (selectedPath === path) {
       opening.current = false;
       return;
     }
@@ -179,16 +188,23 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     setBusy(true);
     setError('');
     try {
-      const document = await sdk.fs.readText(path);
+      let document: TextDocument | null = null;
+      let reason = 'This file is not supported UTF-8 text.';
+      try {
+        document = await sdk.fs.readText(path);
+      } catch (error) {
+        const limitation = editorLimitation(error);
+        if (!limitation) throw error;
+        reason = limitation;
+      }
       const latest = fileEditors.get(tab.id);
       if (latest && (latest.busy || !latest.canSwitch())) {
         throw new Error('Save or close the current file before opening another file.');
       }
-      if (document) {
-        await sdk.storage.configure({ editorFile: document.path });
-        setRestoreError('');
-        setEditing(document);
-      } else await sdk.desktop.openFile(path);
+      await sdk.storage.configure({ editorFile: document?.path ?? path });
+      setRestoreError('');
+      setEditing(document ?? undefined);
+      setDetails(document ? undefined : { path, reason });
     } catch (error) {
       setError(String(error));
     } finally {
@@ -310,7 +326,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
                   <FileBranch
                     key={entry.path}
                     entry={entry}
-                    selected={editing?.path}
+                    selected={selectedPath}
                     openFile={openFile}
                     showHidden={showHidden}
                     order={order}
@@ -354,6 +370,8 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
               visible={visible}
               back={leaveEditor}
             />
+          ) : details ? (
+            <FileDetails key={details.path} file={details} close={leaveEditor} />
           ) : (
             <p className="muted files-editor-empty">Select a file from the explorer to open it.</p>
           )}

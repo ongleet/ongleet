@@ -1172,3 +1172,32 @@ button:focus-visible {
   padding: 24px;
   text-align: center;
 }
+
+.file-details {
+  flex: 1;
+  min-width: 0;
+  padding: 24px;
+  overflow: auto;
+  user-select: text;
+}
+.file-details h2,
+.file-details dd {
+  overflow-wrap: anywhere;
+}
+.file-details dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px 20px;
+  margin: 24px 0;
+}
+.file-details dt {
+  color: var(--muted3);
+}
+.file-details dd {
+  margin: 0;
+}
+.file-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

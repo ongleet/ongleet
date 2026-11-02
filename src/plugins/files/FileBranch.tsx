@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { FileIcon } from '../../components/FileIcon';
+import { FolderIcon } from '../../components/FolderIcon';
 import { useSdk, type Listing, type SortOrder } from '../../sdk';
 
 type Props = {
@@ -63,8 +65,9 @@ export function FileBranch(props: Props) {
       {entry.directory ? (
         <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
           <summary title={entry.path}>
+            <FolderIcon />
             <span className="file-tree-label">
-              ▱ {entry.name}
+              {entry.name}
               {entry.symlink ? ' ↗' : ''}
             </span>
           </summary>
@@ -96,7 +99,7 @@ export function FileBranch(props: Props) {
           aria-current={selected === entry.path ? 'true' : undefined}
           onClick={() => void openFile(entry.path)}
         >
-          <span aria-hidden="true">·</span>
+          <FileIcon />
           <span className="file-tree-label">{entry.name}</span>
           {entry.symlink && <span aria-label="Symbolic link">↗</span>}
         </button>

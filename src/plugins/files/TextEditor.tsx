@@ -513,7 +513,7 @@ export function TextEditor({
               else void leave();
             }}
           >
-            ← Files
+            Close file
           </button>
           <button
             role="menuitem"
