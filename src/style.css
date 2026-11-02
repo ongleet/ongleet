@@ -1130,3 +1130,45 @@ button:focus-visible {
   background: var(--selected);
   color: var(--text);
 }
+
+.files-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.files-workspace {
+  gap: 12px;
+}
+.files-sidebar > aside {
+  padding-right: 4px;
+}
+.files-sidebar .files-browser {
+  height: 100%;
+}
+.files-browser > .plugin-toolbar {
+  flex-wrap: wrap;
+}
+.files-browser .files-path,
+.files-browser .files-search {
+  flex: 1 1 100%;
+  width: 100%;
+  min-width: 0;
+}
+.files-browser .file-list {
+  margin: 0;
+}
+.files-browser .plugin-statusbar {
+  flex-wrap: wrap;
+}
+.files-editor-pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.files-editor-empty {
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+}

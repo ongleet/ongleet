@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useSdk, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
 import { readDraft } from './editor-drafts';
+import { FileSidebar } from '../../components/FileSidebar';
+import '../../components/file-tree.css';
+import { FileBranch } from './FileBranch';
+import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
 export function FilesContent({ tab, visible }: PluginContentProps) {
   const sdk = useSdk();
@@ -120,7 +124,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     setEditing(undefined);
   }
   useEffect(() => {
-    if (!visible || editing || restoringEditor) return;
+    if (!visible || restoringEditor) return;
     const toggleHidden = (event: KeyboardEvent) => {
       if (
         event.ctrlKey &&
@@ -141,7 +145,6 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   useEffect(() => {
     if (
       !visible ||
-      editing ||
       restoringEditor ||
       busy ||
       error ||
@@ -163,22 +166,33 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   async function openFile(path: string) {
     if (opening.current) return;
     opening.current = true;
-    const request = ++generation.current;
+    if (editing?.path === path) {
+      opening.current = false;
+      return;
+    }
+    const current = fileEditors.get(tab.id);
+    if (current && (current.busy || !current.canSwitch())) {
+      setError('Save or close the current file before opening another file.');
+      opening.current = false;
+      return;
+    }
     setBusy(true);
     setError('');
     try {
       const document = await sdk.fs.readText(path);
-      if (request !== generation.current) return;
+      const latest = fileEditors.get(tab.id);
+      if (latest && (latest.busy || !latest.canSwitch())) {
+        throw new Error('Save or close the current file before opening another file.');
+      }
       if (document) {
         await sdk.storage.configure({ editorFile: document.path });
-        if (request !== generation.current) return;
         setRestoreError('');
         setEditing(document);
       } else await sdk.desktop.openFile(path);
     } catch (error) {
-      if (request === generation.current) setError(String(error));
+      setError(String(error));
     } finally {
-      if (request === generation.current) setBusy(false);
+      setBusy(false);
       opening.current = false;
     }
   }
@@ -190,192 +204,160 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
       hidden={!visible}
       className="plugin-panel files-panel"
     >
-      {editing && (
-        <TextEditor id={tab.id} document={editing} visible={visible} back={leaveEditor} />
-      )}
-      <div className="files-browser" hidden={!!editing}>
-        {restoringEditor && <p role="status">Reopening text file…</p>}
-        {restoreError && (
-          <div className="error" role="alert">
-            <p>{restoreError}</p>
-            <button
-              onClick={() => void leaveEditor().catch((error) => setRestoreError(String(error)))}
-            >
-              Keep browsing
-            </button>
-          </div>
-        )}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!busy && !restoringEditor) void browse(path);
-          }}
-          className="plugin-toolbar"
+      <div className="files-workspace">
+        <FileSidebar
+          storageKey="ongleet.files.sidebarWidth"
+          label="Session file explorer"
+          className="files-sidebar"
         >
-          <div className="files-path">
-            <input
-              aria-label="Folder"
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  if (!busy && !restoringEditor) void browse(path);
-                }
-              }}
-            />
-            <button
-              className="files-refresh"
-              type="button"
-              aria-label="Refresh folder"
-              title="Refresh folder"
-              disabled={busy || restoringEditor}
-              onClick={() => void browse(listing?.folder)}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                style={{ display: 'block' }}
-              >
-                <path d="M20 7v5h-5M4 17v-5h5" />
-                <path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9" />
-              </svg>
-            </button>
-          </div>
-          <input
-            className="files-search"
-            type="search"
-            aria-label="Search filenames in current folder"
-            placeholder="Search files…"
-            disabled={restoringEditor || opening.current}
-            maxLength={1024}
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.preventDefault();
-            }}
-          />
-          <select
-            aria-label="Sort order (folders first)"
-            value={order}
-            disabled={busy || restoringEditor}
-            onChange={(event) => {
-              setOrder(event.target.value as SortOrder);
-              void browse(listing?.folder, 0, event.target.value as SortOrder);
-            }}
-          >
-            <option value="nameAscending">Name A–Z</option>
-            <option value="nameDescending">Name Z–A</option>
-            <option value="dateDescending">Newest</option>
-            <option value="dateAscending">Oldest</option>
-            <option value="sizeAscending">Smallest</option>
-            <option value="sizeDescending">Largest</option>
-          </select>
-        </form>
-
-        <div className="files-content" ref={content}>
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-          <div className="file-list-heading" aria-hidden="true">
-            <span>Name</span>
-            <span>Kind</span>
-          </div>
-          <ul className="file-list" aria-label="Folder contents" aria-busy={busy}>
-            {listing?.parent && (
-              <li>
+          <div className="files-browser">
+            {restoringEditor && <p role="status">Reopening text file…</p>}
+            {restoreError && (
+              <div className="error" role="alert">
+                <p>{restoreError}</p>
                 <button
-                  type="button"
-                  className="file-row"
-                  aria-label="Parent folder"
-                  disabled={busy || restoringEditor}
-                  onClick={() => void browse(listing.parent!)}
+                  onClick={() =>
+                    void leaveEditor().catch((error) => setRestoreError(String(error)))
+                  }
                 >
-                  <span className="file-icon" aria-hidden="true">
-                    ↑
-                  </span>
-                  <span className="file-name">../</span>
+                  Keep browsing
                 </button>
-              </li>
+              </div>
             )}
-            {listing?.entries.map((entry) => (
-              <li key={entry.path}>
-                <button
-                  type="button"
-                  className="file-row"
-                  disabled={busy || restoringEditor}
-                  onClick={() => {
-                    if (entry.directory) void browse(entry.path);
-                    else void openFile(entry.path);
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!busy && !restoringEditor) void browse(path);
+              }}
+              className="plugin-toolbar"
+            >
+              <div className="files-path">
+                <input
+                  aria-label="Folder"
+                  value={path}
+                  onChange={(event) => setPath(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      if (!busy && !restoringEditor) void browse(path);
+                    }
                   }}
+                />
+                <button
+                  className="files-refresh"
+                  type="button"
+                  aria-label="Refresh folder"
+                  title="Refresh folder"
+                  disabled={busy || restoringEditor}
+                  onClick={() => void browse(listing?.folder)}
                 >
                   <svg
-                    className={`file-icon ${entry.directory ? 'folder-icon' : ''}`}
-                    width="20"
-                    height="20"
+                    width="16"
+                    height="16"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.5"
+                    strokeWidth="1.8"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden="true"
+                    style={{ display: 'block' }}
                   >
-                    {entry.directory ? (
-                      <path d="M3 7V5a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7Zm0 1h18" />
-                    ) : (
-                      <>
-                        <path d="M14 3H5v18h14V8l-5-5Z" />
-                        <path d="M14 3v5h5M8 12h8M8 16h6" />
-                      </>
-                    )}
+                    <path d="M20 7v5h-5M4 17v-5h5" />
+                    <path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9" />
                   </svg>
-                  <span className="file-name">{entry.name}</span>
-                  {entry.symlink && (
-                    <span className="file-symlink" aria-label="Symbolic link">
-                      ↗
-                    </span>
-                  )}
-                  <span className="file-kind">
-                    {entry.directory ? 'Folder' : 'File'}
-                    {entry.symlink ? ' link' : ''}
-                  </span>
                 </button>
-              </li>
-            ))}
-          </ul>
-          {listing && !busy && listing.entries.length === 0 && (
-            <p className="muted file-list-empty">
-              {search ? 'No matching files.' : 'No entries in this folder.'}
-            </p>
-          )}
-          <div ref={loadMore} className="files-load-more">
-            {busy && <p role="status">Loading files…</p>}
-            {error && listing?.nextOffset != null && (
-              <button onClick={() => void browse(listing.folder, listing.nextOffset!)}>
-                Retry loading
-              </button>
-            )}
+              </div>
+              <input
+                className="files-search"
+                type="search"
+                aria-label="Search filenames in current folder"
+                placeholder="Search files…"
+                disabled={restoringEditor || opening.current}
+                maxLength={1024}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.preventDefault();
+                }}
+              />
+              <select
+                aria-label="Sort order (folders first)"
+                value={order}
+                disabled={busy || restoringEditor}
+                onChange={(event) => {
+                  setOrder(event.target.value as SortOrder);
+                  void browse(listing?.folder, 0, event.target.value as SortOrder);
+                }}
+              >
+                <option value="nameAscending">Name A–Z</option>
+                <option value="nameDescending">Name Z–A</option>
+                <option value="dateDescending">Newest</option>
+                <option value="dateAscending">Oldest</option>
+                <option value="sizeAscending">Smallest</option>
+                <option value="sizeDescending">Largest</option>
+              </select>
+            </form>
+
+            <div className="files-content file-tree" ref={content}>
+              {error && (
+                <p role="alert" className="error">
+                  {error}
+                </p>
+              )}
+              <ul className="file-list" aria-label="Folder contents" aria-busy={busy}>
+                {listing?.entries.map((entry) => (
+                  <FileBranch
+                    key={entry.path}
+                    entry={entry}
+                    selected={editing?.path}
+                    openFile={openFile}
+                    showHidden={showHidden}
+                    order={order}
+                    search={search}
+                    refresh={listing}
+                    disabled={restoringEditor}
+                  />
+                ))}
+              </ul>
+              {listing && !busy && listing.entries.length === 0 && (
+                <p className="muted file-list-empty">
+                  {search ? 'No matching files.' : 'No entries in this folder.'}
+                </p>
+              )}
+              <div ref={loadMore} className="files-load-more">
+                {busy && <p role="status">Loading files…</p>}
+                {error && listing?.nextOffset != null && (
+                  <button onClick={() => void browse(listing.folder, listing.nextOffset!)}>
+                    Retry loading
+                  </button>
+                )}
+              </div>
+            </div>
+            <footer className="plugin-statusbar" aria-label="Files status">
+              <span>
+                {listing
+                  ? `${listing.entries.length} entries loaded${listing.nextOffset != null ? ' · More available' : ''}`
+                  : 'No folder loaded'}
+                {busy ? ' · Loading…' : error ? ' · Refresh failed' : ''}
+              </span>
+              <span>Ctrl+H: {showHidden ? 'hide' : 'show'} hidden files</span>
+            </footer>
           </div>
+        </FileSidebar>
+        <div className="files-editor-pane">
+          {editing ? (
+            <TextEditor
+              key={editing.path}
+              id={tab.id}
+              document={editing}
+              visible={visible}
+              back={leaveEditor}
+            />
+          ) : (
+            <p className="muted files-editor-empty">Select a file from the explorer to open it.</p>
+          )}
         </div>
-        <footer className="plugin-statusbar" aria-label="Files status">
-          <span>
-            {listing
-              ? `${listing.entries.length} entries loaded${listing.nextOffset != null ? ' · More available' : ''}`
-              : 'No folder loaded'}
-            {busy ? ' · Loading…' : error ? ' · Refresh failed' : ''}
-          </span>
-          <span>Ctrl+H: {showHidden ? 'hide' : 'show'} hidden files</span>
-        </footer>
       </div>
     </section>
   );

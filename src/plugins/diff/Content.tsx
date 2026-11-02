@@ -2,6 +2,7 @@ import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { parseDiff, Diff, Hunk, Decoration } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import './diff.css';
+import '../../components/file-tree.css';
 import { useSdk } from '../../sdk';
 import type { PluginContentProps } from '../types';
 import { updateDiffTag } from './status-tag';
@@ -370,7 +371,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
               Filter filenames
               <input value={filter} onChange={(e) => setFilter(e.target.value)} />
             </label>
-            <nav ref={tree} aria-label="Changed files">
+            <nav className="file-tree" ref={tree} aria-label="Changed files">
               <FileTree
                 files={comparison.files.filter((f) =>
                   `${f.oldPath}\n${f.path}`.toLowerCase().includes(filter.toLowerCase()),
@@ -489,7 +490,7 @@ function FileTree({
           <li key={name}>
             <details open>
               <summary title={name}>
-                <span className="diff-tree-label">▱ {name}</span>
+                <span className="diff-tree-label file-tree-label">▱ {name}</span>
               </summary>
               {render(child)}
             </details>
@@ -510,7 +511,7 @@ function FileTree({
             >
               {file.status[0]}
             </span>
-            <span className="diff-tree-label">{file.path.split('/').at(-1)}</span>
+            <span className="diff-tree-label file-tree-label">{file.path.split('/').at(-1)}</span>
           </button>
         </li>
       ))}

@@ -74,7 +74,20 @@ export function TextEditor({
       }
     }
     statusRef.current = { dirty: nextDirty, busy: nextBusy };
-    fileEditors.set(id, { path: baseline.current.path, dirty: nextDirty, busy: nextBusy });
+    fileEditors.set(id, {
+      path: baseline.current.path,
+      dirty: nextDirty,
+      busy: nextBusy,
+      canSwitch: () => {
+        if (saving.current || confirmationRef.current) return false;
+        if (!statusRef.current.dirty) return true;
+        try {
+          return readDraft(id, baseline.current.path)?.text === view.current?.state.doc.toString();
+        } catch {
+          return false;
+        }
+      },
+    });
     setDirty(nextDirty);
     setBusy(nextBusy);
   }

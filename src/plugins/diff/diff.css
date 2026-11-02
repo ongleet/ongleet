@@ -68,20 +68,6 @@
   gap: 12px;
   min-width: 0;
 }
-.diff-sidebar {
-  position: relative;
-  flex-shrink: 0;
-  min-height: 0;
-}
-.diff-layout aside {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  overflow: hidden;
-  padding-right: 4px;
-}
 .diff-layout nav {
   display: flex;
   flex-direction: column;
@@ -115,67 +101,6 @@
 .diff-panel .diff-decoration {
   background: var(--hover3);
   color: var(--text2);
-}
-.diff-layout nav ul {
-  list-style: none;
-  padding: 0 0 0 14px;
-  margin: 0;
-}
-.diff-layout nav > ul {
-  padding-left: 0;
-}
-.diff-layout nav li,
-.diff-layout nav details {
-  min-width: 0;
-}
-.diff-layout nav summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  padding: 4px 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-}
-.diff-layout nav summary::before {
-  content: '▸';
-  flex: 0 0 10px;
-}
-.diff-layout nav details[open] > summary::before {
-  content: '▾';
-}
-.diff-layout nav summary::-webkit-details-marker {
-  display: none;
-}
-.diff-layout nav button {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  width: 100%;
-  min-width: 0;
-  text-align: left;
-  border: 1px solid transparent;
-  background: transparent;
-  padding: 4px 5px;
-}
-.diff-layout nav .diff-status {
-  flex-shrink: 0;
-}
-.diff-tree-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.diff-layout nav button[aria-pressed='true'],
-.diff-layout nav button:focus-visible,
-.diff-layout nav summary:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-}
-.diff-layout nav button:hover,
-.diff-layout nav button[aria-pressed='true'] {
-  background: var(--highlight2);
 }
 .diff-layout aside > label {
   display: flex;
@@ -226,28 +151,6 @@
 }
 .diff-viewer {
   scroll-padding-top: 4px;
-}
-
-.diff-sidebar-resizer {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: -9px;
-  width: 6px;
-  cursor: col-resize;
-  touch-action: none;
-  z-index: 1;
-}
-.diff-sidebar-resizer:hover,
-.diff-sidebar-resizer:focus-visible {
-  background: var(--accentWash);
-}
-.diff-sidebar-resize-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  cursor: col-resize;
-  user-select: none;
 }
 
 .diff-file-content {
@@ -366,4 +269,8 @@
 }
 .diff-expand-context:disabled {
   cursor: wait;
+}
+
+.diff-status {
+  flex-shrink: 0;
 }
