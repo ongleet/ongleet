@@ -141,8 +141,8 @@ def run(args):
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original')"),'automatic latest commit')
             assert client.js("return !Array.from(document.querySelectorAll('.diff-toolbar label')).some(el=>el.textContent.includes('Repository folder'))")
             mark('Automatic latest-commit default and repository settings absent from toolbar')
-            initial_width = client.js("return Number(document.querySelector('[aria-label=\"Resize diff sidebar\"]').getAttribute('aria-valuenow'))")
-            point = client.js("const r=document.querySelector('.diff-sidebar-resizer').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+40)}")
+            initial_width = client.js("return Number(document.querySelector('[aria-label=\"Resize diff files sidebar\"]').getAttribute('aria-valuenow'))")
+            point = client.js("const r=document.querySelector('.diff-sidebar .file-sidebar-resizer').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+40)}")
             client.request('POST','/actions',{'actions':[{'type':'pointer','id':'resize-mouse','parameters':{'pointerType':'mouse'},'actions':[
                 {'type':'pointerMove','duration':0,'x':point['x'],'y':point['y']},
                 {'type':'pointerDown','button':0},
@@ -150,9 +150,9 @@ def run(args):
                 {'type':'pointerUp','button':0}
             ]}]})
             native.wait_for(lambda: client.js("return Number(localStorage.getItem('ongleet.diff.sidebarWidth'))") == initial_width+50, 'saved drag width')
-            assert client.js("return !document.querySelector('.diff-sidebar-resize-overlay')")
+            assert client.js("return !document.querySelector('.file-sidebar-resize-overlay')")
             client.request('POST','/refresh',{})
-            native.wait_for(lambda: client.js("return Number(document.querySelector('.diff-sidebar-resizer')?.getAttribute('aria-valuenow'))") == initial_width+50, 'restored sidebar width')
+            native.wait_for(lambda: client.js("return Number(document.querySelector('.diff-sidebar .file-sidebar-resizer')?.getAttribute('aria-valuenow'))") == initial_width+50, 'restored sidebar width')
             mark('Native pointer drag resizes Diff sidebar; localStorage restores width after reload')
 
             def mode(value):
@@ -323,7 +323,7 @@ def run(args):
                 client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
             mode('refs')
             client.click("//button[normalize-space()='Compare']",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original') && document.querySelector('.diff-summary').textContent.includes('Two refs')"),'two refs')
+            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original') && document.querySelector('.diff-summary').textContent.includes('Between two references')"),'two refs')
             mode('mergeBase')
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-summary')?.textContent.includes('Merge base')"),'merge base')
@@ -355,8 +355,8 @@ def run(args):
             native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'restart comparison')
             assert client.js("return document.querySelectorAll('.diff-toolbar input')[0].value==='HEAD'")
             mark('Restart restores successful settings and fetches fresh patch')
-            assert client.js("return Number(document.querySelector('.diff-sidebar-resizer').getAttribute('aria-valuenow'))") == initial_width+50
-            client.click('.diff-sidebar-resizer')
+            assert client.js("return Number(document.querySelector('.diff-sidebar .file-sidebar-resizer').getAttribute('aria-valuenow'))") == initial_width+50
+            client.click('.diff-sidebar .file-sidebar-resizer')
             client.request('POST','/actions',{'actions':[{'type':'key','id':'resize-keyboard','actions':[
                 {'type':'keyDown','value':'\ue012'}, {'type':'keyUp','value':'\ue012'}
             ]}]})

@@ -43,7 +43,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     settings['actions'] += [
         {'id':'sdk','name':'SDK example','kind':'sdk-example','config':{}},
         {'id':'files','name':'Files','kind':'files','config':{}},
-        {'id':'pr','name':'Pull request','kind':'pull-request','config':{}},
+        {'id':'pr','name':'Pull request','kind':'pull-request','config':{'refreshIntervalSeconds':30}},
     ]
     path.write_text(json.dumps(settings))
     if cli:
@@ -54,8 +54,8 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     client.request('POST', '/refresh', {})
     wait_for(lambda: client.js("return !!document.querySelector(arguments[0]+' .file-list button')", f'#tab-panel-{files}'), 'file browser listing')
     # Navigate through a symlink using the real WebKitGTK button.
-    client.click(f"//section[@id='tab-panel-{files}']//button[contains(.,'browser-link')]", 'xpath')
-    wait_for(lambda: client.js("return document.querySelector(arguments[0]).value===arguments[1]", f'#tab-panel-{files} input[aria-label="Folder"]', str(folder)), 'symlink folder navigation')
+    client.click(f"//section[@id='tab-panel-{files}']//summary[contains(.,'browser-link')]", 'xpath')
+    wait_for(lambda: client.js("return document.querySelector(arguments[0]).value===arguments[1]", f'#tab-panel-{files} input[aria-label="Folder"]', str(directory)), 'symlink expansion preserves explorer root')
     try:
         sdk(client, files, 'fs', 'list', {'folder':str(folder / 'missing'),'offset':0,'order':'nameAscending','showHidden':False,'query':''})
     except RuntimeError as error:
@@ -67,7 +67,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('read-only fixture')"), 'inline text editor')
     assert not (directory / 'opened-file').exists()
     client.click('.editor-toolbar button[popovertarget]')
-    client.click("//div[contains(@class,'editor-menu')]//button[normalize-space()='← Files']", 'xpath')
+    client.click("//div[contains(@class,'editor-menu')]//button[normalize-space()='Close file']", 'xpath')
     # The native external opener remains available for non-text files.
     sdk(client, files, 'desktop', 'openFile', str(folder / 'unchanged.txt'))
     wait_for(lambda: (directory / 'opened-file').exists(), 'associated file application')
@@ -81,7 +81,7 @@ def run(client, directory, session, terminal, stream_pid, wait_for, pid_alive, m
     wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])', pr), 'PR SDK attachment')
     pr_auth_checks(client, session['id'], pr, terminal, wait_for, mark)
     client.invoke('close_tab', {'id':pr,'confirmed':False})
-    return files, pr, str(folder)
+    return files, pr, str(directory)
 
 
 def restored(client, session_id, saved, mark):
@@ -106,17 +106,47 @@ def after_quit(directory, pending_pid, pid_alive, mark):
     mark('Quit completed with an outstanding frontend HTTP fixture; native transport cancellation has separate Rust coverage')
 
 
+def open_pr_configuration(client, tab):
+    selector = f"#tab-panel-{tab} dialog[open]"
+    if client.js('return !!document.querySelector(arguments[0])', selector): return
+    client.js("document.querySelector('dialog[open] .dialog-actions button[type=button]')?.click()")
+    client.click(f'#tab-{tab}')
+    client.click('[aria-label="Session and tab menu"]')
+    client.click("//details[@open]//button[normalize-space()='Configure…']", 'xpath')
+
+
+def close_pr_configuration(client):
+    client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
+
+
+def pr_connection_text(client, tab):
+    open_pr_configuration(client, tab)
+    value = client.js('return document.querySelector(arguments[0])?.textContent', f'#tab-panel-{tab}') or ''
+    close_pr_configuration(client)
+    return value
+
+
+def pr_connection_button(client, tab, label):
+    open_pr_configuration(client, tab)
+    client.click(f"//dialog[@open]//button[normalize-space()='{label}']", 'xpath')
+    close_pr_configuration(client)
+
+
 def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
     # Run only on an isolated Secret Service bus with fixture credentials.
     require_private_secret_service()
     client.js("window.__prFixture.enable()")
     current = sdk(client, pr, 'storage', 'read', 'session')
     sdk(client, pr, 'storage', 'replace', 'session', current['revision'] if current else 0, 1, {'repository':'example/repo','number':42})
-    def text(tab): return client.js('return document.querySelector(arguments[0])?.innerText', f'#tab-panel-{tab}') or ''
-    def button(tab, label): client.click(f"//section[@id='tab-panel-{tab}']//button[normalize-space()='{label}']", 'xpath')
+    def text(tab): return pr_connection_text(client, tab)
+    def button(tab, label): pr_connection_button(client, tab, label)
     def connect(tab, token):
+        open_pr_configuration(client, tab)
+        wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', f'#tab-panel-{tab} input[type=password]:not(:disabled)'), 'token field ready')
         client.fill(f'#tab-panel-{tab} input[type=password]', token)
-        button(tab, 'Replace token' if 'Connected as' in text(tab) else 'Connect')
+        client.click("//dialog[@open]//form//button[normalize-space()='Replace token' or normalize-space()='Connect']", 'xpath')
+        wait_for(lambda: not client.js("return !!document.querySelector('dialog[open] input[type=password]:disabled')"), 'token request completed')
+        close_pr_configuration(client)
     connect(pr, 'first-fixture')
     wait_for(lambda: 'Plugin native fixture' in text(pr), 'connected PR data')
     other = client.invoke('create_tab', {'sessionId':session_id,'actionId':'pr'})['sessions'][0]['selectedTabId']
@@ -130,6 +160,7 @@ def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
     assert 'Plugin native fixture' in text(pr)
     connect(pr, 'second-fixture')
     wait_for(lambda: 'Connected as second-user' in text(other), 'replacement shared across tabs')
+    client.click(f'#tab-{pr}')
     client.js("window.__prFixture.mode('offline')")
     client.click(f'#tab-panel-{pr} .pr-refresh')
     wait_for(lambda: 'offline' in text(pr), 'network error')
@@ -155,7 +186,9 @@ def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
     client.invoke('close_tab', {'id':other,'confirmed':False})
     client.request('POST','/refresh',{})
     wait_for(lambda: client.js('return !!window.__prFixture'), 'fixture bridge after reload')
+    open_pr_configuration(client, pr)
     wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', f'#tab-panel-{pr} input[type=password]:not(:disabled)'), 'reconnect field')
+    close_pr_configuration(client)
     client.js("window.__prFixture.mode('ok')")
     connect(pr, 'first-fixture')
     wait_for(lambda: 'Plugin native fixture' in text(pr), 'reconnected fixture')

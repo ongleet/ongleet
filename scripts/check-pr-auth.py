@@ -80,7 +80,7 @@ def run(args):
             client.request('POST','/refresh',{})
             native.wait_for(lambda: client.js('return window.__sdkValidation?.ready(arguments[0])',pr),'PR attachment')
             if args.environment_token:
-                def text(): return client.js('return document.querySelector(arguments[0])?.innerText',f'#tab-panel-{pr}') or ''
+                def text(): return plugins.pr_connection_text(client, pr)
                 native.wait_for(lambda: 'Connected as fixture-user' in text() and 'Using GH_TOKEN' in text(),'environment account')
                 assert plugins.sdk(client,pr,'env','get','ONGLEET_ENV_FIXTURE') == 'custom-value'
                 assert plugins.sdk(client,pr,'env','get','GITHUB_TOKEN') == 'second-fixture'
@@ -91,10 +91,10 @@ def run(args):
                 assert plugins.sdk(client,pr,'credentials','get','github-account') is None
                 saved = json.dumps({'token':'saved-only-fixture','login':'stored-user'})
                 plugins.sdk(client,pr,'credentials','set','github-account',saved)
-                client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Disconnect']",'xpath')
+                plugins.pr_connection_button(client, pr, 'Disconnect')
                 native.wait_for(lambda: 'Connected as' not in text(),'environment disconnected')
                 assert plugins.sdk(client,pr,'credentials','get','github-account') == saved
-                client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Reconnect']",'xpath')
+                plugins.pr_connection_button(client, pr, 'Reconnect')
                 native.wait_for(lambda: 'Connected as fixture-user' in text(),'environment reconnected')
                 mark('Native SDK reads arbitrary launch variables, enforces capability, and PR prioritizes GH_TOKEN without saving it')
                 client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
@@ -152,10 +152,10 @@ def run(args):
             except Exception: pass
             client.session = None
             launch()
-            native.wait_for(lambda: client.js("return document.querySelector(arguments[0])?.innerText.includes('Connected as fixture-user')",f'#tab-panel-{pr}'),'account restored after native restart')
+            native.wait_for(lambda: 'Connected as fixture-user' in plugins.pr_connection_text(client, pr), 'account restored after native restart')
             mark('Native Quit cancels stalled TLS I/O; restart restores shared account from Secret Service')
             client.js('window.__prFixture.enable()')
-            client.click(f"//section[@id='tab-panel-{pr}']//button[normalize-space()='Disconnect']",'xpath')
+            plugins.pr_connection_button(client, pr, 'Disconnect')
             native.wait_for(lambda: plugins.sdk(client,pr,'credentials','get','github-account') is None,'credential deleted after restart')
             report['passed'] = True
     except Exception as error:

@@ -479,13 +479,23 @@ def run(args):
             driver.terminate()
             try: driver.wait(timeout=5)
             except subprocess.TimeoutExpired: driver.kill(); driver.wait()
+            # WebKit child shutdown can finish asynchronously after the GUI exits.
+            try:
+                wait_for(lambda: not native.owned_processes(directory), 'native/WebKit cleanup', timeout=5)
+            except AssertionError:
+                pass
             survivors = native.owned_processes(directory)
             report["cleanupSurvivors"] = survivors
+            cleanup_failed = bool(survivors) and report["result"] == "passed"
+            if cleanup_failed:
+                report["result"] = "failed"
+                report["error"] = "Native processes survived the five-second cleanup grace period"
             for process in survivors:
                 try: os.kill(process["pid"], signal.SIGKILL)
                 except ProcessLookupError: pass
             (directory / "report.json").write_text(json.dumps(report, indent=2))
             print("Report:", directory / "report.json", flush=True)
+            assert not cleanup_failed, f"Native processes survived cleanup grace period: {survivors}"
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ with (directory / 'driver.log').open('w') as log:
         started = client.request('POST', '/session', {'capabilities': {'alwaysMatch': {
             'webkitgtk:browserOptions': {'binary': str(Path(args.application).resolve())}}}}, session=False)
         client.session = started['sessionId']
-        native.wait_for(lambda: client.js("return !!document.querySelector('footer button:not(:disabled)')"), 'app ready')
+        native.wait_for(lambda: client.js("return !!document.querySelector('[aria-label=\"Create session\"]:not(:disabled)')"), 'app ready')
         project = cli('project', 'create', '--name', 'Codex fixture', '--root', directory)['id']
         config = directory / f'config/ongleet/projects/{project}/actions.yaml'
         config.parent.mkdir(parents=True, exist_ok=True)

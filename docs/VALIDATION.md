@@ -1045,3 +1045,47 @@ mise exec -- /usr/bin/python3 scripts/check-diff-native.py --syntax-only \
 The first attempt stopped on an incorrect test dialog selector after observing
 syntax rendering; the corrected run above passed. Production frontend assets were
 restored afterward. Build, real-Git diff checks and syntax mapping checks passed.
+
+## Broad regression sweep (2026-11-03)
+
+All thirteen npm `check:*` groups passed. Production/native-validation frontend
+builds, Rust formatting/checking and 137 default Rust tests passed. Both normally
+ignored credential tests also passed, each on a fresh private D-Bus/keyring
+(total: 139 Rust tests). The first sandboxed Rust attempt failed a socket-peer
+permission check; the normal local-socket run passed. Source formatting passed;
+repository-wide `format:check` reported only the ignored generated
+`.playwright-mcp/page-2026-10-27T20-35-19-474Z.yml` artifact.
+
+Current native evidence on private displays, with isolated metadata:
+
+| Area                      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal Wayland/XWayland | PTY/reload, UTF-8, mouse/curses, 350,000-line hidden floods, resize and reuse passed (`nbj7b88j`, `odspnvg9`).                                                                                                                                                                                                                                                                                                                                 |
+| Idle                      | Five terminals, including scrolled history: zero frames/draws/status polls during three seconds; GUI CPU 0.67%, WebProcess 0% (`8fohim6s`). Finite sample only.                                                                                                                                                                                                                                                                                |
+| Diff                      | 25 general checks passed (`f8p_k8zr`); four syntax/theme/reload checks passed on each backend (`3_590aof`, `9aq64pbc`).                                                                                                                                                                                                                                                                                                                        |
+| Files/editor              | 23 refresh, save, draft, conflict/merge, restoration and archive checks passed (`6p264nv5`).                                                                                                                                                                                                                                                                                                                                                   |
+| Clipboard and transport   | 17 private clipboard/navigation/CLI-input checks (`a389o71y`) and eight transport/ownership/saturation checks (`we9f20o_`) passed.                                                                                                                                                                                                                                                                                                             |
+| Startup and Codex hooks   | Pending/failed-start isolation with eleven sibling PTYs passed (`qskwlzwj`); real wrapper/activity hooks passed (`vgnd8y5t`); wrapper subprocess suite passed. No live model task was submitted.                                                                                                                                                                                                                                               |
+| PR authentication         | Six capability/HTTP-limit/token/restart/hidden-polling checks passed (`8atxe0_4`); environment-token checks passed (`7cocaqkt`). Real private Secret Service, fixture GitHub responses.                                                                                                                                                                                                                                                        |
+| Legacy upgrade            | Six actual old-profile migration checks passed (`4c4poo7o`).                                                                                                                                                                                                                                                                                                                                                                                   |
+| Delayed close             | Six checks, including both real two-minute waits, passed (`u5b9abvt`).                                                                                                                                                                                                                                                                                                                                                                         |
+| Lifecycle/plugins         | 21 behavior checks passed (`rbqx2az9`), but immediate cleanup found one WebKit child and killed it. The subsequent bounded-cleanup mixed run timed out in WebDriver while clicking close confirmation (`96xd5pgl`); its harness killed the remaining owned processes. A separate 15-check lifecycle run with a five-second natural-cleanup grace period passed with zero survivors (`4xnratrw`). Mixed-run timeout/cleanup remains unresolved. |
+| Appearance/input/windows  | Seven visual/state assertions passed per backend (`rl8i3pc7`, `27eyba_e`); native keyboard focus was unavailable. Keyboard and minimize/restart scenarios stopped at the same focus prerequisite and are not counted as passed.                                                                                                                                                                                                                |
+
+Several harnesses assumed the old Files browser, Diff sidebar/labels, inline PR
+authentication or global footer controls. Updated them to exercise the current
+persistent explorer, shared resizer, configuration dialog and session controls.
+The lifecycle harness now allows five seconds for asynchronous child shutdown
+and fails a successful behavior run if processes still survive. It preserves an
+original scenario failure instead of masking it with a cleanup assertion.
+
+A test build was initially replaced by credential-test compilation; the affected
+startup failures were rerun against copied immutable bundled executables. Logs
+and run summaries remain under `/tmp/ongleet-full-validation*`; individual native
+reports use the suffixes above. Production frontend assets were restored.
+
+This sweep does not certify physical keyboard/IME/focus behavior, other
+compositors/separate Xorg, live GitHub/live Codex conversations, clean-system
+package installation, sudden power loss or unattended crash/memory behavior.
+Existing acceptance items remain open; passing selected checks does not close
+the terminal-stack gate.
