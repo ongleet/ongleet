@@ -1,7 +1,13 @@
 import type { ProcessRequest, ProcessResult } from '../../sdk';
 import { settings, type Settings } from './settings.ts';
 export type CommitOption = { hash: string; subject: string };
-export type FileChange = { status: string; oldPath: string; path: string; key: string };
+export type FileChange = {
+  status: string;
+  oldPath: string;
+  path: string;
+  key: string;
+  untracked?: boolean;
+};
 export type Comparison = {
   root: string;
   base: string;
@@ -11,6 +17,7 @@ export type Comparison = {
   time: number;
   baseLabel: string;
   targetLabel: string;
+  detectedBase: string;
 };
 export type Runner = (request: ProcessRequest) => Promise<ProcessResult>;
 export function decodePath(value: string): string {
@@ -66,7 +73,7 @@ export class GitComparison {
   constructor(run: Runner) {
     this.run = run;
   }
-  async git(cwd: string, args: string[]) {
+  async git(cwd: string, args: string[], diffExit = false) {
     const result = await this.run({
       executable: 'git',
       args: [
@@ -82,7 +89,7 @@ export class GitComparison {
       timeoutMs: 20000,
       outputLimit: 524288,
     });
-    if (result.code !== 0)
+    if (result.code !== 0 && !(diffExit && result.code === 1))
       throw new Error(
         result.stderr.trim() ||
           `Git exited ${result.code}. Check Git installation, folder and revisions.`,
@@ -94,12 +101,7 @@ export class GitComparison {
     if (!config.folder) throw new Error('Choose an absolute repository folder.');
     const bare =
       (await this.git(config.folder, ['rev-parse', '--is-bare-repository'])).trim() === 'true';
-    if (
-      bare &&
-      (config.mode === 'workingDirectory' ||
-        config.mode === 'branch' ||
-        config.mode === 'sinceCommit')
-    )
+    if (bare && config.mode === 'branch' && config.includeUncommitted)
       throw new Error('Working directory comparisons require a non-bare repository.');
     // rev-parse emits the root verbatim; remove only its terminating newline.
     const root = bare
@@ -110,79 +112,53 @@ export class GitComparison {
         await this.git(root, ['rev-parse', '--verify', '--end-of-options', `${ref}^{${kind}}`])
       ).trim();
     let baseLabel = config.baseRef;
-    let targetLabel = config.targetRef;
-    if (config.mode === 'auto') {
-      const branch = (await this.git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
-      // Prefer the remote default branch, then conventional local default branches.
-      let defaultRef = '';
+    const targetLabel = config.mode === 'branch' ? 'HEAD' : config.targetRef;
+    let detectedBase = '';
+    let base: string;
+    if (config.mode === 'branch' && config.compareFrom === 'divergence') {
+      let remoteDefault = '';
       try {
-        defaultRef = (
+        remoteDefault = (
           await this.git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'])
         ).trim();
       } catch {
-        /* A remote default is optional; never fetch or modify Git metadata. */
+        /* No fetch or metadata writes during detection. */
       }
-      for (const candidate of [...new Set([defaultRef, 'main', 'master'].filter(Boolean))]) {
+      for (const candidate of [...new Set([remoteDefault, 'main', 'master'].filter(Boolean))]) {
         try {
           await resolve(candidate, 'commit');
-          defaultRef = candidate;
+          detectedBase = candidate;
           break;
         } catch {
-          defaultRef = '';
+          /* Try the next conventional base. */
         }
       }
-      const defaultBranch = defaultRef.replace(/^refs\/remotes\/[^/]+\//, '');
-      if (branch !== 'HEAD' && defaultRef && branch !== defaultBranch) {
-        baseLabel = defaultRef;
-        targetLabel = 'HEAD';
-      } else {
-        baseLabel = 'HEAD~1';
-        targetLabel = 'HEAD';
-      }
-    }
-    const mergeBase =
-      config.mode === 'mergeBase' ||
-      config.mode === 'branch' ||
-      (config.mode === 'auto' && baseLabel !== 'HEAD~1');
-    let base: string;
-    try {
-      base = await resolve(
-        baseLabel,
-        mergeBase || config.mode === 'sinceCommit' ? 'commit' : 'tree',
-      );
-    } catch (error) {
-      if (config.mode !== 'auto' || baseLabel !== 'HEAD~1') throw error;
-      // The initial commit is compared with Git's empty tree without writing it.
-      base = (await this.git(root, ['hash-object', '-t', 'tree', '/dev/null'])).trim();
-      baseLabel = 'Empty tree';
-    }
-    const target =
-      config.mode === 'workingDirectory' ||
-      config.mode === 'branch' ||
-      config.mode === 'sinceCommit'
-        ? null
-        : await resolve(targetLabel, mergeBase ? 'commit' : 'tree');
-    if (mergeBase) {
-      const bases = (
-        await this.git(root, [
-          'merge-base',
-          '--all',
-          base,
-          config.mode === 'branch' ? await resolve('HEAD', 'commit') : target!,
-        ])
-      )
+      if (!detectedBase)
+        throw new Error(
+          'Could not detect a base branch. Select a starting commit or compare two refs.',
+        );
+      const bases = (await this.git(root, ['merge-base', '--all', detectedBase, 'HEAD']))
         .trim()
         .split('\n');
       if (bases.length !== 1 || !bases[0])
         throw new Error('No unique merge base; histories may be unrelated or ambiguous.');
       base = bases[0];
+      baseLabel = `Branch divergence (Base: ${detectedBase})`;
+    } else {
+      baseLabel = config.mode === 'branch' ? config.compareFrom : config.baseRef;
+      base = await resolve(baseLabel, 'commit');
     }
+    const target =
+      config.mode === 'branch' && config.includeUncommitted
+        ? null
+        : await resolve(targetLabel, 'commit');
     const comparison = {
       root,
       base,
       target,
       config,
-      baseLabel: mergeBase ? `Merge base of ${baseLabel}` : baseLabel,
+      baseLabel,
+      detectedBase,
       targetLabel,
       files: [] as FileChange[],
       time: Date.now(),
@@ -207,6 +183,22 @@ export class GitComparison {
       comparison.files = comparison.files.filter(
         (file) => file.status !== 'M' || changed.has(file.path),
       );
+    }
+    if (!target) {
+      const untracked = await this.git(root, ['ls-files', '--others', '--exclude-standard']);
+      const existing = new Set(comparison.files.map((file) => file.path));
+      for (const line of untracked.split('\n').filter(Boolean)) {
+        const path = decodePath(line);
+        if (!existing.has(path))
+          comparison.files.push({
+            status: 'A',
+            oldPath: path,
+            path,
+            key: JSON.stringify([path, path]),
+            untracked: true,
+          });
+      }
+      comparison.files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     }
     return comparison;
   }
@@ -263,6 +255,24 @@ export class GitComparison {
     ];
   }
   patch(c: Comparison, file: FileChange, context = 3) {
+    if (file.untracked)
+      return this.git(
+        c.root,
+        [
+          'diff',
+          '--no-index',
+          '--no-ext-diff',
+          '--no-textconv',
+          '--no-color',
+          `--unified=${context}`,
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          '--',
+          '/dev/null',
+          file.path,
+        ],
+        true,
+      );
     return this.git(c.root, [
       '--literal-pathspecs',
       ...this.diffArgs(c),

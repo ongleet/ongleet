@@ -39,31 +39,25 @@ and project action files are preserved). Comparisons resolve the enclosing
 repository only on request by this tab and include its entire tracked tree,
 even when the configured folder is a subdirectory or linked worktree.
 
-- **Automatic (committed only)** (default) compares a feature branch’s merge base with `HEAD`,
-  using `origin/HEAD` when available, then `main` or `master`. On the default
-  branch, detached HEAD, or without a default branch, it shows the latest commit.
-  Initial commits compare against the empty tree. No fetch is performed.
-- **Uncommitted changes** compares a base tree (default `HEAD`) with final tracked
-  contents, including staged and unstaged changes. Changes that cancel disappear.
-- **Branch + uncommitted changes** compares the unique common ancestor of the
-  base branch and `HEAD` with final tracked contents. This includes branch commits
-  plus staged and unstaged changes, excluding changes unique to the base branch.
-  The initial base suggestion is `main`; choose another branch/ref if needed.
-- **Since commit + uncommitted changes** compares the selected commit snapshot
-  with current tracked contents, including later commits plus staged and unstaged
-  changes. The selected commit itself is excluded. The dropdown shows the latest
-  200 commits reachable from `HEAD`, with abbreviated hashes and subjects. Saved
-  selections outside that list remain available. Refresh updates the list.
-- **Between two references** compares snapshots directly (`git diff A B`); switching from the
-  initial defaults suggests `HEAD~1` to `HEAD`.
-- **Branch commits (merge base)** compares the unique common ancestor with the destination
-  (`git diff A...B`); switching from the initial defaults suggests `main` to `HEAD`.
+- **Branch changes** (default) compares the branch divergence point with `HEAD`.
+  The base is detected from `origin/HEAD`, then `main` or `master`, without fetching.
+  The comparison status displays the detected base. On the base branch itself,
+  the divergence point is `HEAD`. If no base can be detected, select a commit or
+  use **Between two refs**.
+- **Compare from** offers **Branch divergence (default)**, **Latest commit**, and
+  the latest 200 commits reachable from `HEAD`. A selected commit is the starting
+  snapshot; its own changes are excluded. Saved selections outside the list remain available.
+- **Include uncommitted changes** adds staged, unstaged, and untracked files.
+  With **Latest commit**, this shows only local changes. Ignored files are excluded.
+  Changes that cancel against the starting snapshot disappear.
+- **Between two refs** compares two committed snapshots directly. Both fields accept
+  branches, tags, hashes, and revision expressions.
 
 Branches, annotated tags, hashes and revision expressions are supported. Missing
 refs remain editable errors. Bare repositories support committed comparisons
 only. Refs are fixed to object IDs for each refresh; working contents can change
 while being read. Refresh when working contents change during loading.
-Untracked/ignored files, editing, staging, reverting and fetching are excluded.
+Editing, staging, reverting and fetching are excluded.
 
 The tab title shows the number of changed files after each successful comparison.
 A session tag (`Diff #<tab ID>: N files`) carries the same count, including zero.
@@ -105,9 +99,9 @@ actions:
     kind: diff
     config:
       folder: /absolute/repository # omitted/null initializes from session.directory
-      mode: mergeBase # auto | workingDirectory | refs | mergeBase
-      baseRef: main
-      targetRef: HEAD # unused in workingDirectory mode
+      mode: branch # branch | refs
+      compareFrom: divergence # or HEAD or a commit revision
+      includeUncommitted: false
 ```
 
 Discover configuration with `ongleet --json tab types`, then use an action ID:

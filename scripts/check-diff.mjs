@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseDiff } from 'react-diff-view';
 import { updateDiffTag } from '../src/plugins/diff/status-tag.ts';
+import { defaults, settings } from '../src/plugins/diff/settings.ts';
 import { GitComparison, decodePath, Lane } from '../src/plugins/diff/git.ts';
 import { filesInTreeOrder } from '../src/plugins/diff/file-tree.ts';
 const paths = ['a.txt', 'z-folder/b.txt', 'a-folder/root.txt', 'a-folder/nested/deep.txt', 'z.txt'];
@@ -30,7 +31,9 @@ const runner = async (r) => {
   }
 };
 const git = new GitComparison(runner);
-const config = { folder: root, mode: 'workingDirectory', baseRef: 'HEAD', targetRef: 'HEAD' };
+const config = { ...defaults, folder: root, compareFrom: 'HEAD', includeUncommitted: true };
+assert.equal(settings({}).mode, 'branch');
+assert.equal(settings({}).includeUncommitted, false);
 try {
   await command(['init', '-b', 'main']);
   await command(['config', 'user.email', 'fixture@example.test']);
@@ -41,8 +44,12 @@ try {
   await command(['add', '.']);
   await command(['commit', '-m', 'base']);
   await command(['tag', '-a', 'base-tag', '-m', 'base']);
-  const initial = await git.compare({ ...config, mode: 'auto' });
-  assert.equal(initial.files.length, 6, 'initial commit compares against empty tree');
+  const initial = await git.compare({
+    ...config,
+    compareFrom: 'divergence',
+    includeUncommitted: false,
+  });
+  assert.equal(initial.files.length, 0, 'base branch compares HEAD with itself');
   const indexBefore = await readFile(join(root, '.git/index'));
   await writeFile(join(root, 'café'), 'one\ntwo\nthree\n');
   await git.compare(config);
@@ -73,17 +80,17 @@ try {
   await command(['reset', '--soft', 'HEAD~1']);
   await command(['rm', '--cached', '-f', 'context.txt']);
   await rm(join(root, 'context.txt'));
-  await writeFile(join(root, 'untracked'), 'hidden');
+  await writeFile(join(root, 'untracked'), 'new file\n');
   await writeFile(join(root, 'ignored'), 'hidden');
   for (const name of names) await writeFile(join(root, name), 'changed\n');
   let c = await git.compare(config);
-  assert.equal(c.files.length, names.length);
+  assert.equal(c.files.length, names.length + 1);
   for (const file of c.files) {
     const parsed = parseDiff(await git.patch(c, file));
     assert.equal(parsed.length, 1);
     assert.ok(parsed[0].hunks.length);
   }
-  assert.deepEqual(new Set(c.files.map((f) => f.path)), new Set(names));
+  assert.deepEqual(new Set(c.files.map((f) => f.path)), new Set([...names, 'untracked']));
   await rm(join(root, 'untracked'));
   await command(['add', '.']);
   await command(['commit', '-m', 'next']);
@@ -95,73 +102,76 @@ try {
   await command(['commit', '-m', 'move']);
   assert.equal(await git.patch(c, c.files[0]), fixed);
   assert.equal((await git.compare({ ...config, mode: 'refs', baseRef: 'HEAD~1' })).files.length, 1);
-  const automaticMain = await git.compare({ ...config, mode: 'auto' });
+  const automaticMain = await git.compare({
+    ...config,
+    compareFrom: 'divergence',
+    includeUncommitted: false,
+  });
   assert.deepEqual(
     automaticMain.files.map((f) => f.path),
-    ['normal'],
-    'default branch shows last commit',
+    [],
+    'base branch has no committed branch changes',
   );
   await command(['checkout', '--detach', 'HEAD']);
   assert.deepEqual(
-    (await git.compare({ ...config, mode: 'auto' })).files.map((f) => f.path),
-    ['normal'],
-    'detached HEAD shows last commit',
+    (
+      await git.compare({ ...config, compareFrom: 'divergence', includeUncommitted: false })
+    ).files.map((f) => f.path),
+    [],
+    'detached HEAD uses detected base',
   );
   await command(['checkout', 'main']);
   const refs = await git.references(root);
   assert.ok(refs.includes('main') && refs.includes('base-tag'));
-  const tree = (await command(['rev-parse', 'HEAD^{tree}'])).stdout.trim();
-  const commitTree = async (parents) =>
-    (
-      await command(['commit-tree', tree, ...parents.flatMap((p) => ['-p', p]), '-m', 'crisscross'])
-    ).stdout.trim();
-  const ancestor = (await command(['rev-parse', 'HEAD'])).stdout.trim();
-  const left = await commitTree([ancestor]);
-  // Distinguish commits even when they share the same tree and timestamp.
-  const rightUnique = (
-    await command(['commit-tree', tree, '-p', ancestor, '-m', 'right'])
-  ).stdout.trim();
-  const a = await commitTree([left, rightUnique]),
-    b = await commitTree([rightUnique, left]);
-  await assert.rejects(
-    git.compare({ ...config, mode: 'mergeBase', baseRef: a, targetRef: b }),
-    /unique merge base/,
-  );
   await command(['checkout', '-b', 'side', 'base-tag']);
   await writeFile(join(root, 'side'), 'side');
   await command(['add', '.']);
   await command(['commit', '-m', 'side']);
   const direct = await git.compare({ ...config, mode: 'refs', baseRef: 'main', targetRef: 'side' });
-  const merged = await git.compare({
+  const automaticSide = await git.compare({
     ...config,
-    mode: 'mergeBase',
-    baseRef: 'main',
-    targetRef: 'side',
+    compareFrom: 'divergence',
+    includeUncommitted: false,
   });
-  assert.ok(direct.files.length > merged.files.length);
-  assert.equal(merged.files[0].path, 'side');
-  const automaticSide = await git.compare({ ...config, mode: 'auto' });
   assert.deepEqual(
     automaticSide.files.map((f) => f.path),
     ['side'],
-    'feature branch excludes unrelated main changes',
   );
-  assert.equal(automaticSide.base, merged.base);
+  assert.equal(automaticSide.detectedBase, 'main');
+  assert.ok(direct.files.length > automaticSide.files.length);
   await writeFile(join(root, 'side'), 'side with local edits\n');
   await writeFile(join(root, 'staged-local'), 'staged addition\n');
   await command(['add', 'staged-local']);
   await writeFile(join(root, 'untracked-local'), 'untracked\n');
+  const committedOnly = await git.compare({
+    ...config,
+    compareFrom: 'divergence',
+    includeUncommitted: false,
+  });
+  assert.deepEqual(
+    committedOnly.files.map((file) => file.path),
+    ['side'],
+  );
+  assert.doesNotMatch(await git.patch(committedOnly, committedOnly.files[0]), /local edits/);
   const branchWorking = await git.compare({
     ...config,
     mode: 'branch',
-    baseRef: 'main',
+    compareFrom: 'divergence',
     targetRef: 'missing-unused-ref',
   });
   assert.deepEqual(
     branchWorking.files.map((f) => f.path),
-    ['side', 'staged-local'],
-    'branch comparison includes committed, staged and unstaged changes without base-only or untracked files',
+    ['side', 'staged-local', 'untracked-local'],
+    'branch comparison includes committed, staged and unstaged changes including untracked files without base-only changes',
   );
+  const untrackedPatch = await git.patch(
+    branchWorking,
+    branchWorking.files.find((file) => file.path === 'untracked-local'),
+  );
+  assert.match(untrackedPatch, /new file mode/);
+  assert.match(untrackedPatch, /\+untracked/);
+  assert.equal(parseDiff(untrackedPatch)[0].newPath, 'untracked-local');
+  assert.throws(() => settings({ mode: 'invalid' }), /comparison mode/);
   const history = await git.commits(root);
   assert.equal(history[0].subject, 'side');
   assert.equal(history[0].hash, (await command(['rev-parse', 'HEAD'])).stdout.trim());
@@ -169,16 +179,16 @@ try {
   assert.ok(baseCommit);
   const sinceCommit = await git.compare({
     ...config,
-    mode: 'sinceCommit',
-    baseRef: baseCommit.hash,
+    mode: 'branch',
+    compareFrom: baseCommit.hash,
     targetRef: 'unused-missing-ref',
   });
   assert.deepEqual(
     sinceCommit.files.map((file) => file.path),
-    ['side', 'staged-local'],
+    ['side', 'staged-local', 'untracked-local'],
   );
   assert.match(await git.patch(sinceCommit, sinceCommit.files[0]), /side with local edits/);
-  const sinceHead = await git.compare({ ...config, mode: 'sinceCommit', baseRef: history[0].hash });
+  const sinceHead = await git.compare({ ...config, mode: 'branch', compareFrom: history[0].hash });
   const sidePatch = await git.patch(
     sinceHead,
     sinceHead.files.find((file) => file.path === 'side'),
@@ -186,7 +196,7 @@ try {
   assert.match(sidePatch, /-side/);
   assert.match(sidePatch, /\+side with local edits/);
   assert.equal(sinceHead.target, null);
-  await assert.rejects(git.compare({ ...config, mode: 'sinceCommit', baseRef: 'missing-commit' }));
+  await assert.rejects(git.compare({ ...config, mode: 'branch', compareFrom: 'missing-commit' }));
   assert.equal(branchWorking.target, null);
   assert.match(await git.patch(branchWorking, branchWorking.files[0]), /side with local edits/);
   assert.deepEqual(
@@ -194,7 +204,10 @@ try {
     direct.files,
     'reference comparison remains committed-only with local changes present',
   );
-  await assert.rejects(git.compare({ ...config, mode: 'branch', baseRef: 'missing-base' }), /./);
+  await assert.rejects(
+    git.compare({ ...config, mode: 'branch', compareFrom: 'missing-base' }),
+    /./,
+  );
   await command(['reset', '--hard', 'HEAD']);
   await rm(join(root, 'untracked-local'));
 
@@ -292,7 +305,7 @@ try {
     ).files.length,
     0,
   );
-  await assert.rejects(git.compare({ ...config, mode: 'sinceCommit', folder: bare }), /non-bare/);
+  await assert.rejects(git.compare({ ...config, mode: 'branch', folder: bare }), /non-bare/);
   const unborn = join(root, 'unborn');
   await mkdir(unborn);
   await command(['init', unborn]);
@@ -302,11 +315,9 @@ try {
   await writeFile(join(root, 'unrelated'), 'new history');
   await command(['add', 'unrelated']);
   await command(['commit', '-m', 'unrelated']);
-  await assert.rejects(
-    git.compare({ ...config, mode: 'mergeBase', baseRef: 'main', targetRef: 'unrelated' }),
-  );
-  await assert.rejects(git.compare({ ...config, baseRef: 'missing' }));
-  await assert.rejects(git.compare({ ...config, baseRef: '--help' }));
+  await assert.rejects(git.compare({ ...config, mode: 'branch', compareFrom: 'divergence' }));
+  await assert.rejects(git.compare({ ...config, compareFrom: 'missing' }));
+  await assert.rejects(git.compare({ ...config, compareFrom: '--help' }));
   assert.equal(decodePath('"caf\\303\\251\\tname"'), 'café\tname');
   assert.throws(() => decodePath('"\\377"'), /Non-UTF/);
   const text =

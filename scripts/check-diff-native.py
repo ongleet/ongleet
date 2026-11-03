@@ -100,7 +100,7 @@ def run(args):
             client.request('POST','/refresh',{})
             if args.syntax_only:
                 native.wait_for(lambda: client.js("return !!document.querySelector('.diff-toolbar select')"), 'diff toolbar')
-                client.js("const el=document.querySelector('.diff-toolbar select'); el.value='workingDirectory';el.dispatchEvent(new Event('change',{bubbles:true}));")
+                client.js("document.querySelector('.diff-uncommitted-field input').click()")
                 client.click("//button[normalize-space()='Compare']", 'xpath')
                 native.wait_for(lambda: client.js("return !!document.querySelector('.diff-syntax-number')"), 'lazy syntax spans')
                 def probe():
@@ -138,9 +138,9 @@ def run(args):
                 assert (folder/'.git/index').read_bytes()==original_index
                 mark('Syntax rendering leaves Git index unchanged')
                 return
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original')"),'automatic latest commit')
+            native.wait_for(lambda: client.js("return document.querySelector('.diff-summary')?.textContent.includes('Base: main') && document.querySelector('.diff-toolbar select')?.value==='branch'"),'branch default and detected base')
             assert client.js("return !Array.from(document.querySelectorAll('.diff-toolbar label')).some(el=>el.textContent.includes('Repository folder'))")
-            mark('Automatic latest-commit default and repository settings absent from toolbar')
+            mark('Branch default displays detected base; repository settings absent from toolbar')
             initial_width = client.js("return Number(document.querySelector('[aria-label=\"Resize diff files sidebar\"]').getAttribute('aria-valuenow'))")
             point = client.js("const r=document.querySelector('.diff-sidebar .file-sidebar-resizer').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+40)}")
             client.request('POST','/actions',{'actions':[{'type':'pointer','id':'resize-mouse','parameters':{'pointerType':'mouse'},'actions':[
@@ -157,7 +157,8 @@ def run(args):
 
             def mode(value):
                 client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
-            mode('workingDirectory')
+            mode('branch')
+            client.js("const el=document.querySelector('.diff-uncommitted-field input');if(!el.checked)el.click()")
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
@@ -323,13 +324,10 @@ def run(args):
                 client.js("const el=document.querySelector('.diff-toolbar select'); Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('change',{bubbles:true}));", value)
             mode('refs')
             client.click("//button[normalize-space()='Compare']",'xpath')
-            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original') && document.querySelector('.diff-summary').textContent.includes('Between two references')"),'two refs')
-            mode('mergeBase')
-            client.click("//button[normalize-space()='Compare']",'xpath')
-            native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]') && document.querySelector('.diff-summary')?.textContent.includes('Merge base')"),'merge base')
-            mark('Inline two-ref and merge-base comparisons render committed changes')
-            mode('workingDirectory')
-            client.js("const el=document.querySelector('.diff-toolbar input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'HEAD');el.dispatchEvent(new Event('input',{bubbles:true}));")
+            native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original') && document.querySelector('.diff-summary').textContent.includes('Between two refs')"),'two refs')
+            mark('Inline two-ref comparison renders committed changes')
+            mode('branch')
+            client.js("const el=document.querySelector('.diff-uncommitted-field input');if(!el.checked)el.click()")
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'working directory restored')
             shell = session['tabs'][0]['id']

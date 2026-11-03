@@ -312,3 +312,14 @@
 .diff-syntax-invalid {
   color: var(--diff-syntax-invalid);
 }
+
+.diff-toolbar .diff-uncommitted-field {
+  flex-direction: row;
+  align-items: center;
+  flex-basis: auto;
+  height: 34px;
+}
+.diff-toolbar .diff-uncommitted-field input {
+  width: 16px;
+  height: 16px;
+}

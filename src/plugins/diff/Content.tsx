@@ -13,7 +13,7 @@ import { FolderIcon } from '../../components/FolderIcon';
 import { DiffSidebar } from './Sidebar';
 import { HighlightedDiff } from './syntax';
 import { ComparisonFields } from './ConfigurationEditor';
-import { defaults, type Settings } from './settings';
+import { settings, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
 const Viewer = memo(
   function Viewer({
@@ -111,13 +111,18 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
       return sdk.process.run(request);
     });
   const lane = useMemo(() => new Lane(sdk.process.cancel), [sdk]);
-  const [config, setConfig] = useState<Settings>(() => ({
-    ...defaults,
-    ...(tab.config as Partial<Settings>),
-  }));
+  const [config, setConfig] = useState<Settings>(() => settings(tab.config));
   const contextLines = useRef<Record<string, number>>({});
   const contextKey = (value: Settings, file: FileChange) =>
-    JSON.stringify([value.folder, value.mode, value.baseRef, value.targetRef, file.key]);
+    JSON.stringify([
+      value.folder,
+      value.mode,
+      value.baseRef,
+      value.targetRef,
+      value.compareFrom,
+      value.includeUncommitted,
+      file.key,
+    ]);
   const pendingConfiguration = useRef('');
   const observedConfiguration = useRef(JSON.stringify(config));
   const configRef = useRef(config);
@@ -198,7 +203,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   }, [selected, filter, visible, comparison]);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    const next = { ...defaults, ...(tab.config as Partial<Settings>) };
+    const next = settings(tab.config);
     const key = JSON.stringify(next);
     if (key === observedConfiguration.current) return;
     observedConfiguration.current = key;
@@ -404,7 +409,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                 labels={labels}
               />
             </nav>
-            {!comparison.files.length && <p>No tracked changes.</p>}
+            {!comparison.files.length && <p>No changes.</p>}
           </DiffSidebar>
           <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label="Unified diff">
             <div className="diff-page">
@@ -448,7 +453,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                   </FileReview>
                 </article>
               ))}
-              {!comparison.files.length && <p>No tracked changes.</p>}
+              {!comparison.files.length && <p>No changes.</p>}
             </div>
           </div>
         </div>
@@ -458,12 +463,8 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           <div className="diff-summary">
             {
               {
-                auto: 'Automatic (committed only)',
-                workingDirectory: 'Uncommitted changes',
-                branch: 'Branch + uncommitted changes',
-                sinceCommit: 'Since commit + uncommitted changes',
-                refs: 'Between two references',
-                mergeBase: 'Branch commits (merge base)',
+                branch: 'Branch changes',
+                refs: 'Between two refs',
               }[comparison.config.mode]
             }{' '}
             · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}

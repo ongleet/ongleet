@@ -1,7 +1,7 @@
 {
   "id": "diff",
   "label": "Diff",
-  "description": "Read-only tracked Git changes with unified patches.",
+  "description": "Read-only Git changes with unified patches.",
   "configVersion": 1,
   "sdkVersion": 1,
   "entrypoint": "entrypoint.tsx",
@@ -9,9 +9,11 @@
   "capabilities": ["process", "storage"],
   "defaults": {
     "folder": null,
-    "mode": "auto",
-    "baseRef": "HEAD",
-    "targetRef": "HEAD"
+    "mode": "branch",
+    "baseRef": "HEAD~1",
+    "targetRef": "HEAD",
+    "compareFrom": "divergence",
+    "includeUncommitted": false
   },
   "contextDefaults": {
     "folder": "session.directory"
@@ -36,20 +38,30 @@
       },
       "mode": {
         "type": "string",
-        "enum": ["auto", "workingDirectory", "refs", "mergeBase", "branch", "sinceCommit"],
-        "description": "auto: committed branch/latest commit; workingDirectory: base to tracked working contents; branch: merge base of baseRef and HEAD to tracked working contents, including local changes; sinceCommit: selected commit to tracked working contents, including later commits and local changes; refs: direct snapshots; mergeBase: common ancestor to destination commit."
+        "enum": ["branch", "refs", "auto", "workingDirectory", "mergeBase", "sinceCommit"],
+        "description": "branch: detected base or selected commit to HEAD, optionally including local changes; refs: two committed snapshots. Other values are accepted for legacy saved tabs."
       },
       "baseRef": {
         "type": "string",
         "minLength": 1,
         "maxBytes": 8192,
-        "description": "Base revision expression; default HEAD."
+        "description": "Starting revision for refs mode."
       },
       "targetRef": {
         "type": "string",
         "minLength": 1,
         "maxBytes": 8192,
-        "description": "Destination revision; unused for workingDirectory, branch and sinceCommit modes."
+        "description": "Destination revision for refs mode."
+      },
+      "compareFrom": {
+        "type": "string",
+        "minLength": 1,
+        "maxBytes": 8192,
+        "description": "Branch starting commit, HEAD for latest commit, or divergence for the automatically detected base."
+      },
+      "includeUncommitted": {
+        "type": "boolean",
+        "description": "Include staged, unstaged and untracked files in branch mode."
       }
     }
   }
