@@ -1,5 +1,5 @@
 import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { parseDiff, Diff, Hunk, Decoration } from 'react-diff-view';
+import { parseDiff, Hunk, Decoration } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import './diff.css';
 import '../../components/file-tree.css';
@@ -11,6 +11,7 @@ import { buildFileTree, filesInTreeOrder, type FileTreeNode } from './file-tree'
 import { FileIcon } from '../../components/FileIcon';
 import { FolderIcon } from '../../components/FolderIcon';
 import { DiffSidebar } from './Sidebar';
+import { HighlightedDiff } from './syntax';
 import { ComparisonFields } from './ConfigurationEditor';
 import { defaults, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
@@ -42,7 +43,13 @@ const Viewer = memo(
           {metadata && <pre>{metadata}</pre>}
           {files.map((file, i) =>
             file.hunks.length ? (
-              <Diff key={i} viewType="unified" diffType={file.type} hunks={file.hunks}>
+              <HighlightedDiff
+                key={i}
+                path={file.type === 'delete' ? file.oldPath : file.newPath}
+                viewType="unified"
+                diffType={file.type}
+                hunks={file.hunks}
+              >
                 {(hunks) =>
                   hunks.map((hunk) => (
                     <Fragment key={hunk.content}>
@@ -75,7 +82,7 @@ const Viewer = memo(
                     </Fragment>
                   ))
                 }
-              </Diff>
+              </HighlightedDiff>
             ) : (
               <div key={i}>
                 <p>

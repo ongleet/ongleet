@@ -1023,3 +1023,25 @@ known focus limitation; it does not convert blocked focus checks into passes.
 Private WebKitGTK/X11 report `ongleet-diff-native-o6k1uyxg` passes tab and session navigation with the second file selected and a nonzero viewer scroll position, including the debounced visibility refresh. The full Diff harness passes with no cleanup survivors. The regression scenarios use enlarged file content to provide deterministic scroll geometry. Physical desktop and Wayland navigation were not exercised by this run.
 
 Native WebKitGTK/X11 report `ongleet-diff-native-57rr9kk8` additionally passes refresh after growing an earlier patch by 200 lines: the current file, viewport offset and unchanged patch DOM identity survive. The complete harness passes with no cleanup survivors. Refresh anchors to file-relative pixels; edits inside the currently read file do not yet preserve a specific source line. Production assets were restored.
+
+## Diff syntax highlighting (2026-11-03)
+
+Private Xvfb/WebKitGTK run `ongleet-diff-native-mfq_bl9p` passed four focused
+checks with no cleanup survivors. A real Git TypeScript patch verified lazy
+language loading, separate added/deleted syntax, multiline comments, literal
+`<tag>&` text, and retained diff backgrounds. Computed colors changed live when
+switching from Original to Light+, and the selected theme and highlighted patch
+returned after WebView reload. The Git index remained unchanged. Both dark and
+light screenshots were visually inspected. This run did not exercise Wayland or
+every supported language; omitted source before a hunk cannot supply parser context.
+
+Reproduce after building the native-validation frontend and bundled native app:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --syntax-only \
+  --application src-tauri/target/debug/ongleet-gui --driver /usr/bin/WebKitWebDriver
+```
+
+The first attempt stopped on an incorrect test dialog selector after observing
+syntax rendering; the corrected run above passed. Production frontend assets were
+restored afterward. Build, real-Git diff checks and syntax mapping checks passed.

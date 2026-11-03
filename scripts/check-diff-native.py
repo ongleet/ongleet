@@ -28,6 +28,8 @@ def run(args):
     git('config', 'user.name', 'Fixture')
     file = folder / 'hello.txt'
     file.write_text('before\n')
+    if args.syntax_only:
+        (folder/'syntax.ts').write_text('/* comment\n * continued */\nconst value = "old";\nconsole.log("<tag>&");\n')
     nested = folder/'nested'/'long-directory-name-for-ellipsis-validation'
     nested.mkdir(parents=True)
     second = nested/('z-second.txt-' + 'long-filename-' * 6)
@@ -39,6 +41,8 @@ def run(args):
     git('commit', '-m', 'next')
     file.write_text('changed ' + 'long line ' * 80 + '\n')
     second.write_text('second changed\n')
+    if args.syntax_only:
+        (folder/'syntax.ts').write_text('/* comment\n * continued */\nconst value = 42;\nconsole.log("<tag>&");\n')
     original_index = (folder / '.git/index').read_bytes()
     actions = directory / 'config/ongleet/projects/1/actions.yaml'
     actions.parent.mkdir(parents=True)
@@ -94,6 +98,46 @@ def run(args):
             created = client.invoke('create_tab',{'sessionId':session['id'],'actionId':'diff'})
             tab = created['sessions'][0]['selectedTabId']
             client.request('POST','/refresh',{})
+            if args.syntax_only:
+                native.wait_for(lambda: client.js("return !!document.querySelector('.diff-toolbar select')"), 'diff toolbar')
+                client.js("const el=document.querySelector('.diff-toolbar select'); el.value='workingDirectory';el.dispatchEvent(new Event('change',{bubbles:true}));")
+                client.click("//button[normalize-space()='Compare']", 'xpath')
+                native.wait_for(lambda: client.js("return !!document.querySelector('.diff-syntax-number')"), 'lazy syntax spans')
+                def probe():
+                    return client.js("""
+                        const number=document.querySelector('.diff-syntax-number');
+                        const keyword=number.closest('table').querySelector('.diff-syntax-keyword');
+                        const color=el=>getComputedStyle(el).color;
+                        return {
+                            number:number.textContent, numberColor:color(number), keywordColor:color(keyword),
+                            plainColor:color(number.closest('td')), background:getComputedStyle(number.closest('td')).backgroundColor,
+                            oldString:Array.from(document.querySelectorAll('.diff-code-delete .diff-syntax-string')).map(el=>el.textContent).join(''),
+                            comment:Array.from(document.querySelectorAll('.diff-syntax-comment')).some(el=>el.textContent.includes('continued')),
+                            literal:Array.from(document.querySelectorAll('.diff-code')).some(el=>el.textContent==='console.log("<tag>&");')
+                        };
+                    """)
+                first=probe()
+                assert first['number']=='42' and first['oldString']=='"old"' and first['comment'] and first['literal'], first
+                assert first['numberColor'] != first['plainColor'] and first['keywordColor'] != first['plainColor'], first
+                assert first['background'] != 'rgba(0, 0, 0, 0)', first
+                mark('Native lazy parser renders old/new syntax, multiline comments, literal text and preserved diff background')
+                (directory/'syntax-dark.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+                client.click('.titlebar-menu > summary')
+                client.click("//button[normalize-space()='Appearance…']", 'xpath')
+                client.js("const el=document.querySelector('dialog select');el.value='light-plus';el.dispatchEvent(new Event('change',{bubbles:true}));")
+                native.wait_for(lambda: probe()['numberColor'] != first['numberColor'], 'live syntax theme update')
+                client.click("//button[normalize-space()='Done']", 'xpath')
+                second_probe=probe()
+                assert second_probe['keywordColor'] != first['keywordColor'], second_probe
+                (directory/'syntax-light.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+                mark('Changing appearance updates rendered syntax colors live in WebKitGTK')
+                client.request('POST','/refresh',{})
+                native.wait_for(lambda: client.js("return document.querySelector('.diff-syntax-number')?.textContent==='42'"), 'syntax after reload')
+                assert probe()['numberColor']==second_probe['numberColor']
+                mark('Reload restores comparison and selected syntax theme')
+                assert (folder/'.git/index').read_bytes()==original_index
+                mark('Syntax rendering leaves Git index unchanged')
+                return
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('original')"),'automatic latest commit')
             assert client.js("return !Array.from(document.querySelectorAll('.diff-toolbar label')).some(el=>el.textContent.includes('Repository folder'))")
             mark('Automatic latest-commit default and repository settings absent from toolbar')
@@ -410,6 +454,7 @@ def run(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['application','driver']: parser.add_argument('--'+name,required=True)
+    parser.add_argument('--syntax-only', action='store_true')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')
     run(parser.parse_args())

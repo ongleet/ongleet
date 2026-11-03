@@ -279,3 +279,36 @@
 .diff-status {
   flex-shrink: 0;
 }
+
+.diff-syntax-keyword {
+  color: var(--diff-syntax-keyword);
+}
+
+.diff-syntax-string {
+  color: var(--diff-syntax-string);
+}
+
+.diff-syntax-number {
+  color: var(--diff-syntax-number);
+}
+
+.diff-syntax-comment {
+  color: var(--diff-syntax-comment);
+  font-style: italic;
+}
+
+.diff-syntax-function {
+  color: var(--diff-syntax-function);
+}
+
+.diff-syntax-type {
+  color: var(--diff-syntax-type);
+}
+
+.diff-syntax-property {
+  color: var(--diff-syntax-property);
+}
+
+.diff-syntax-invalid {
+  color: var(--diff-syntax-invalid);
+}
