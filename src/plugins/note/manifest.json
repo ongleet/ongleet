@@ -17,11 +17,16 @@
   "interactions": {
     "version": 1,
     "state": {
-      "description": "Current Markdown text, persisted revision and save status. Read again before set-text; stale means loading or unsaved edits.",
+      "description": "Note list with stable IDs and names, selected note ID, Markdown text and notebook revision. Optional noteId reads another note without changing selection. Stale means loading, saving, pending edits or an error.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "noteId": {
+            "type": "string",
+            "maxBytes": 128
+          }
+        },
         "required": []
       },
       "outputSchema": {
@@ -54,9 +59,39 @@
               },
               "error": {
                 "type": ["string", "null"]
+              },
+              "selectedNoteId": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxBytes": 128
+                    },
+                    "name": {
+                      "type": "string",
+                      "maxBytes": 128
+                    }
+                  },
+                  "required": ["id", "name"]
+                }
               }
             },
-            "required": ["text", "revision", "dirty", "saving", "loading", "error"]
+            "required": [
+              "text",
+              "revision",
+              "dirty",
+              "saving",
+              "loading",
+              "error",
+              "selectedNoteId",
+              "notes"
+            ]
           },
           "observedAt": {
             "type": ["string", "null"]
@@ -75,7 +110,7 @@
     },
     "actions": {
       "set-text": {
-        "description": "Replace the entire Markdown note and persist it. Requires the revision from state; rejects unsaved edits, stale revisions, loading and failed saves. At most 24 KiB UTF-8.",
+        "description": "Replace Markdown text in noteId, or the selected note when omitted. Requires the current notebook revision. Persists before returning; rejects unsaved edits or stale revisions. At most 24 KiB UTF-8 per note and 48 KiB encoded per notebook.",
         "readOnly": false,
         "inputSchema": {
           "type": "object",
@@ -88,6 +123,10 @@
             "revision": {
               "type": "integer",
               "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
             }
           },
           "required": ["text", "revision"]
@@ -99,18 +138,154 @@
             "revision": {
               "type": "integer",
               "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
             }
           },
-          "required": ["revision"]
+          "required": ["revision", "noteId"]
         },
         "examples": [
           {
             "args": {
-              "text": "# TODO\n\n- [ ] Review changes\n",
-              "revision": 0
+              "revision": 1,
+              "text": "# TODO\n"
             },
             "result": {
-              "revision": 1
+              "revision": 2,
+              "noteId": "NOTE_ID"
+            }
+          }
+        ]
+      },
+      "create-note": {
+        "description": "Create an empty named note, select it, and persist the notebook. At most 100 notes, within the shared 48 KiB encoded notebook limit. Requires the current notebook revision; rejects loading, pending edits and save failures.",
+        "readOnly": false,
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "name"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "noteId"]
+        },
+        "examples": [
+          {
+            "args": {
+              "revision": 1,
+              "name": "Agent memory"
+            }
+          }
+        ]
+      },
+      "rename-note": {
+        "description": "Rename a note by stable ID. Name must be nonblank, at most 128 UTF-8 bytes, without control characters. Requires the current notebook revision; rejects loading, pending edits and save failures.",
+        "readOnly": false,
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
+            },
+            "name": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "noteId", "name"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "noteId"]
+        },
+        "examples": [
+          {
+            "args": {
+              "revision": 1,
+              "noteId": "NOTE_ID",
+              "name": "Next steps"
+            }
+          }
+        ]
+      },
+      "select-note": {
+        "description": "Select a note by stable ID and persist the selection without changing text. Requires the current notebook revision; rejects loading, pending edits and save failures.",
+        "readOnly": false,
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "noteId"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "noteId": {
+              "type": "string",
+              "maxBytes": 128
+            }
+          },
+          "required": ["revision", "noteId"]
+        },
+        "examples": [
+          {
+            "args": {
+              "revision": 1,
+              "noteId": "NOTE_ID"
             }
           }
         ]

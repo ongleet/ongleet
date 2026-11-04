@@ -1222,3 +1222,36 @@ mise exec -- python3 scripts/check-diff-native.py \
 Wayland, physical keyboard/focus navigation and live agent interpretation remain
 untested for this flow. PTY acknowledgment establishes delivery, not agent
 processing. No terminal input or lifecycle implementation changed.
+
+## Multiple notes per tab (2026-11-04)
+
+Private Xvfb/WebKitGTK report
+`/tmp/ongleet-diff-native-vcm59k8w/report.json` passes three Note acceptance
+checks with zero cleanup survivors. The sidebar creates and selects notes; actual
+React input handlers rename notes and autosave independent Markdown contents.
+CLI state reads by note ID without changing selection. Revision-checked create,
+rename, select and text actions update the UI and reject stale writes and unknown
+IDs. Reload retains all names, contents and the selected note. Session archival
+and CLI restoration retain all three fixture notes, verified after a frontend
+reload. `notes.png` was inspected; the name field stays compact and the editor
+fills the available height with theme colors.
+
+`npm run check:note` passes version-1 migration, initial note creation, selection
+and name persistence, queued notebook writes, independent contents, revision
+conflicts, failed-save recovery, Unicode bounds and aggregate-limit rejection.
+The production build, formatting and Rust suite pass (144 passed, two ignored).
+Earlier native attempts exposed a build-target race, WebDriver clear/blur
+behavior, and missing frontend refresh after direct native restoration; the
+final fixture uses serialized builds, explicit DOM input events, CLI restoration
+and a frontend reload. Immediate agent interaction availability after restoration
+without reload, physical keyboard acceptance and Wayland remain unverified.
+
+Reproduce with the native-validation frontend and bundled GUI:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --notes-only \
+  --application src-tauri/target/debug/ongleet-gui \
+  --cli src-tauri/target/debug/ongleet --driver /usr/bin/WebKitWebDriver
+```
+
+Restore production frontend assets with `mise exec -- npm run build` afterward.

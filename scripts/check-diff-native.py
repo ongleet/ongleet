@@ -49,6 +49,7 @@ def run(args):
     actions.write_text(json.dumps({'actions': [
         {'id': 'shell', 'name': 'Shell', 'kind': 'terminal', 'config': {'executable': '/bin/sleep', 'args': ['600']}},
         {'id': 'comment-recipient', 'name': 'Comment recipient', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', '-c', "import os,tty\nfrom pathlib import Path\ntty.setraw(0)\nPath('recipient-ready').touch()\ndata=b''\nwhile b'\\r' not in data: data+=os.read(0,8192)\nPath('recipient-input').write_bytes(data)"]}},
+        {'id': 'note', 'name': 'Note', 'kind': 'note', 'config': {}},
         {'id': 'diff', 'name': 'Diff', 'kind': 'diff', 'config': {}},
         {'id': 'sdk', 'name': 'SDK', 'kind': 'sdk-example', 'config': {}},
         {'id': 'files', 'name': 'Files', 'kind': 'files', 'config': {}},
@@ -100,6 +101,12 @@ def run(args):
             client.click("//button[normalize-space()='Save session']",'xpath')
             snapshot = native.wait_for(lambda: (s if s['sessions'] else None) if (s := client.invoke('sessions')) else None,'session')
             session = snapshot['sessions'][0]
+            if args.notes_only:
+                spec = importlib.util.spec_from_file_location('notes', Path(__file__).with_name('note-native.py'))
+                notes = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(notes)
+                notes.check(client, native, directory, env, session, mark, Path(args.cli).resolve())
+                return
             created = client.invoke('create_tab',{'sessionId':session['id'],'actionId':'diff'})
             tab = created['sessions'][0]['selectedTabId']
             client.request('POST','/refresh',{})
@@ -475,6 +482,7 @@ def run(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['application','driver']: parser.add_argument('--'+name,required=True)
+    parser.add_argument('--notes-only', action='store_true')
     parser.add_argument('--selection-only', action='store_true')
     parser.add_argument('--comments-only', action='store_true')
     parser.add_argument('--syntax-only', action='store_true')

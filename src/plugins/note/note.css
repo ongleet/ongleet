@@ -24,4 +24,66 @@
   font-family: monospace;
   line-height: 1.5;
   tab-size: 2;
+  color: var(--text);
+  background: var(--editor);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.note-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.note-sidebar {
+  width: 220px;
+  min-width: 160px;
+  max-width: 35%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  margin-right: 12px;
+}
+.note-sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: auto;
+}
+.note-list button {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.note-list button[aria-current='true'] {
+  background: var(--accentWash);
+  border-color: var(--accent);
+}
+.note-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+}
+.note-name {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+.note-name input {
+  flex: 1;
+  min-width: 0;
 }

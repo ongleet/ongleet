@@ -34,16 +34,23 @@ Run `mise exec -- npm run check:plugins`, the frontend build and Rust suite. Nat
 ## Note
 
 Add a **Note** through **Custom tab…** or an action with `kind: note` and
-`config: {}`. Each tab contains one editable Markdown document for session TODOs
-or agent memory, saved automatically to the local SQLite plugin namespace.
+`config: {}`. Each tab contains a notebook for session TODOs or agent memory,
+saved automatically to the local SQLite plugin namespace. A first note named
+**Note 1** is created automatically. Select notes or choose **Add note** in the
+left sidebar. Edit **Name**, then press Enter or leave the field to rename a note.
+Names, contents and the selected note survive restart. Existing single-note tabs
+migrate automatically, preserving their text as the first note.
 No Markdown file is created in the project. Notes survive tab closure, application
 restart and session archive/restore; permanently deleting the archive removes
 them. The existing 30-day archive retention policy applies.
 
 The editor displays save failures and retains pending text for retry. **Discard
 edits and reload** explicitly abandons pending edits and loads the saved version.
-Notes are limited to 24 KiB UTF-8 and 48 KiB encoded JSON. State includes the
-current text, persisted revision, loading/saving status, dirty flag and errors.
+Each note is limited to 24 KiB UTF-8; the entire notebook is limited to 100 notes
+and 48 KiB encoded JSON. Names are nonblank, at most 128 UTF-8 bytes, without
+control characters. State includes note IDs and names, `selectedNoteId`, current
+text, notebook revision, loading/saving status, dirty flag and errors. Pass
+`--args '{"noteId":"NOTE_ID"}'` to read another note without selecting it.
 Read state and wait until it is not stale before replacing text:
 
 ```bash
@@ -51,8 +58,12 @@ ongleet tab state 42 --json
 ongleet tab invoke 42 set-text --args '{"revision":1,"text":"# TODO\n\n- [ ] Review changes\n"}' --json
 ```
 
-`set-text` replaces the whole document and acknowledges persistence with its new
-revision. It rejects a stale revision or pending UI edits. Hidden open tabs remain
+`set-text` replaces the selected note, or an explicit `noteId`, and acknowledges
+persistence with `{revision, noteId}`. The revision belongs to the whole notebook.
+`create-note` takes `{revision, name}` and selects the new empty note;
+`rename-note` takes `{revision, noteId, name}`; `select-note` takes
+`{revision, noteId}`. All actions persist before returning and use the same UI
+mutations. They reject stale revisions and pending UI edits. Hidden open tabs remain
 callable; closed or archived tabs must be reopened first. Actions follow the
 standard cancellation and ambiguous-timeout contract; never retry automatically.
 Run `mise exec -- npm run check:note` for autosave and concurrency checks.
