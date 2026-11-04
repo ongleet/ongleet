@@ -20,8 +20,106 @@
   "id": "pull-request",
   "label": "Pull request",
   "sdkVersion": 1,
-  "defaults": { "refreshIntervalSeconds": 120 },
+  "defaults": {
+    "refreshIntervalSeconds": 120
+  },
   "capabilities": ["env", "http", "credentials", "desktop", "storage"],
   "runtime": null,
-  "entrypoint": "entrypoint.tsx"
+  "entrypoint": "entrypoint.tsx",
+  "interactions": {
+    "version": 1,
+    "state": {
+      "description": "Last PR status, review/check counts and refresh status. No review bodies or network refresh.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "loading": {
+                "type": "boolean"
+              },
+              "url": {
+                "type": ["string", "null"]
+              },
+              "title": {
+                "type": ["string", "null"]
+              },
+              "state": {
+                "type": ["string", "null"]
+              },
+              "draft": {
+                "type": ["boolean", "null"]
+              },
+              "reviewDecision": {
+                "type": ["string", "null"]
+              },
+              "reviewCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "checkCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pipeline": {
+                "type": ["string", "null"]
+              },
+              "lastRefresh": {
+                "type": ["string", "null"]
+              },
+              "refreshError": {
+                "type": ["string", "null"]
+              },
+              "reviewSummary": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "required": [
+              "loading",
+              "url",
+              "title",
+              "state",
+              "draft",
+              "reviewDecision",
+              "reviewCount",
+              "checkCount",
+              "pipeline",
+              "lastRefresh",
+              "refreshError",
+              "reviewSummary"
+            ]
+          },
+          "observedAt": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": ["summary", "data", "observedAt", "stale"]
+      },
+      "examples": [
+        {
+          "args": {}
+        }
+      ]
+    },
+    "actions": {}
+  }
 }

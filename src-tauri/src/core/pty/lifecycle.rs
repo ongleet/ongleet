@@ -235,6 +235,7 @@ impl SessionRegistry {
             .copied()
             .chain(self.http_jobs.keys().map(|(id, _)| *id))
             .collect();
+        self.interactions.disconnect();
         self.cancel_plugin_jobs(&plugin_tabs)?;
         self.file_watches.clear();
         self.sdk_attachments.clear();

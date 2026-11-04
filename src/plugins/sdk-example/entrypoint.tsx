@@ -34,6 +34,35 @@ function Content({ tab, visible }: PluginContentProps) {
       setBusy(false);
     }
   }
+  async function inspectTerminal() {
+    setBusy(true);
+    try {
+      const { tabs } = await sdk.tabs.list();
+      const terminal = tabs.find((tab) => tab.isOpen && tab.kind === 'terminal');
+      if (!terminal) throw new Error('Open a terminal first');
+      const capabilities = await sdk.tabs.capabilities(terminal.id);
+      const state = await sdk.tabs.state(terminal.id, { lines: 10 });
+      setMessage(JSON.stringify({ capabilities, state }));
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function sendExample() {
+    setBusy(true);
+    try {
+      const { tabs } = await sdk.tabs.list();
+      const terminal = tabs.find((tab) => tab.isOpen && tab.kind === 'terminal');
+      if (!terminal) throw new Error('Open a terminal first');
+      await sdk.tabs.invoke(terminal.id, 'send-text', { text: 'SDK example', enter: false });
+      setMessage('Text write acknowledged.');
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <section className="plugin-panel" role="tabpanel" id={`tab-panel-${tab.id}`} hidden={!visible}>
       <p>
@@ -41,6 +70,12 @@ function Content({ tab, visible }: PluginContentProps) {
       </p>
       <button disabled={busy} onClick={() => void run()}>
         Run SDK example
+      </button>
+      <button disabled={busy} onClick={() => void inspectTerminal()}>
+        Discover terminal state
+      </button>
+      <button disabled={busy} onClick={() => void sendExample()}>
+        Send example text without Enter
       </button>
       <p role="status">{message}</p>
     </section>

@@ -7,3 +7,5 @@ pub mod http;
 pub mod process;
 pub mod pty;
 pub mod pull_request_compat;
+
+pub mod interactions;

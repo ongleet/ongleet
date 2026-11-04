@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
 export function FileReview({
   path,
@@ -7,6 +7,10 @@ export function FileReview({
   patch,
   failed,
   children,
+  expanded,
+  viewed,
+  setExpanded,
+  setViewed,
 }: {
   path: string;
   status: string;
@@ -14,19 +18,11 @@ export function FileReview({
   patch: string | undefined;
   failed: boolean;
   children: ReactNode;
+  expanded: boolean;
+  viewed: boolean;
+  setExpanded: (value: boolean) => void;
+  setViewed: (value: boolean) => void;
 }) {
-  const [reviewedPatch, setReviewedPatch] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
-  const viewed =
-    reviewedPatch !== null && !failed && (patch === undefined || reviewedPatch === patch);
-
-  useEffect(() => {
-    if (reviewedPatch !== null && (failed || (patch !== undefined && patch !== reviewedPatch))) {
-      setReviewedPatch(null);
-      setExpanded(true);
-    }
-  }, [patch, failed, reviewedPatch]);
-
   return (
     <>
       <header>
@@ -35,7 +31,7 @@ export function FileReview({
           className="diff-fold"
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${path}`}
           aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setExpanded(!expanded)}
         >
           <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
         </button>
@@ -52,8 +48,7 @@ export function FileReview({
             disabled={patch === undefined || failed || !patch}
             aria-label={`Mark ${path} as viewed`}
             onChange={(event) => {
-              setReviewedPatch(event.target.checked ? patch! : null);
-              setExpanded(!event.target.checked);
+              setViewed(event.target.checked);
             }}
           />
           Viewed

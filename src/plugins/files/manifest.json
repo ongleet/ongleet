@@ -40,5 +40,64 @@
   "contextDefaults": {
     "folder": "session.directory"
   },
-  "entrypoint": "entrypoint.tsx"
+  "entrypoint": "entrypoint.tsx",
+  "interactions": {
+    "version": 1,
+    "state": {
+      "description": "Current folder, selected file and editor status. No file contents.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "folder": {
+                "type": ["string", "null"]
+              },
+              "selectedFile": {
+                "type": ["string", "null"]
+              },
+              "dirty": {
+                "type": "boolean"
+              },
+              "conflict": {
+                "type": "boolean"
+              },
+              "loading": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["folder", "selectedFile", "dirty", "conflict", "loading", "error"]
+          },
+          "observedAt": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": ["summary", "data", "observedAt", "stale"]
+      },
+      "examples": [
+        {
+          "args": {}
+        }
+      ]
+    },
+    "actions": {}
+  }
 }

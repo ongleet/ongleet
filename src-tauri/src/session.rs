@@ -84,6 +84,7 @@ pub struct SessionRegistry {
     pub terminals: HashMap<u64, TerminalSession>,
     codex_activity: HashMap<u64, crate::codex::Activity>,
     pub file_watches: HashMap<u64, crate::core::fs::watch::Watch>,
+    pub interactions: crate::core::interactions::Broker,
     pub sdk_attachments: HashMap<u64, String>,
     pub http_jobs: HashMap<(u64, String), std::sync::Arc<crate::plugins::Job>>,
     pub plugin_jobs: HashMap<u64, std::sync::Arc<crate::plugins::Job>>,
@@ -114,6 +115,7 @@ impl SessionRegistry {
             next_terminal_id: 0,
             terminals: HashMap::new(),
             codex_activity: HashMap::new(),
+            interactions: Default::default(),
             sdk_attachments: HashMap::new(),
             file_watches: HashMap::new(),
             plugin_jobs: HashMap::new(),
@@ -354,6 +356,7 @@ impl SessionRegistry {
         self.cancel_plugin_jobs(&plugin_tabs)?;
         for id in &plugin_tabs {
             self.file_watches.remove(id);
+            self.interactions.detach(*id);
             self.sdk_attachments.remove(id);
         }
         self.sessions.remove(index);
@@ -455,6 +458,7 @@ impl SessionRegistry {
         Ok(self.snapshot())
     }
     pub fn cancel_plugin_work(&mut self, tab: u64) -> Result<(), String> {
+        self.interactions.detach(tab);
         self.file_watches.remove(&tab);
         self.cancel_plugin_jobs(&[tab])
     }

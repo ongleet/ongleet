@@ -1,7 +1,7 @@
 // Keep editors mounted across navigation, and guard explicit GUI destruction.
 export const fileEditors = new Map<
   number,
-  { path: string; dirty: boolean; busy: boolean; canSwitch: () => boolean }
+  { path: string; dirty: boolean; busy: boolean; conflict?: boolean; canSwitch: () => boolean }
 >();
 export async function allowEditorClose(
   ids: number[],

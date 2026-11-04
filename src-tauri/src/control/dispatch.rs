@@ -60,6 +60,19 @@ pub fn handle(
     }
     let visible = lifecycle.visible.load(std::sync::atomic::Ordering::Acquire);
     let shared = &app.state::<AppRegistry>().0;
+    if let Command::TabInteraction {
+        id,
+        operation,
+        args,
+    } = command
+    {
+        return crate::core::interactions::execute(app, shared, None, id, &operation, args)
+            .map(|value| (Some(value), Effect::None))
+            .map_err(|message| {
+                let error = crate::core::commands::SdkError::from(message);
+                RpcError::new(error.code, error.message)
+            });
+    }
     let mut registry = shared.lock().map_err(|e| failed(e.to_string()))?;
     let snapshot = registry.snapshot();
     let tab_id = match &command {
@@ -336,6 +349,7 @@ pub fn handle(
             changed = true;
             json!({"closed":id})
         }
+        Command::TabInteraction { .. } => unreachable!(),
         Command::TabTypes => crate::plugins::catalog(),
         Command::TabActions { session_id } => {
             let session = session(&snapshot, session_id)?;

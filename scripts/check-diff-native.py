@@ -48,8 +48,12 @@ def run(args):
     actions.parent.mkdir(parents=True)
     actions.write_text(json.dumps({'actions': [
         {'id': 'shell', 'name': 'Shell', 'kind': 'terminal', 'config': {'executable': '/bin/sleep', 'args': ['600']}},
-        {'id': 'diff', 'name': 'Diff', 'kind': 'diff', 'config': {}}
-    ]}))
+        {'id': 'diff', 'name': 'Diff', 'kind': 'diff', 'config': {}},
+        {'id': 'sdk', 'name': 'SDK', 'kind': 'sdk-example', 'config': {}},
+        {'id': 'files', 'name': 'Files', 'kind': 'files', 'config': {}},
+        {'id': 'pr', 'name': 'PR', 'kind': 'pull-request', 'config': {}},
+        {'id': 'probe', 'name': 'Probe', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', '-c', "import sys\nfor n in range(600): print(f'row {n} café 日本語 🙂')\nfor line in sys.stdin:\n if line.strip() == 'alternate': print('\x1b[?1049hALT 日本語 🙂', flush=True)\n elif line.strip() == 'budget':\n  for n in range(150): print('日'*1000, flush=True)\n elif line.strip() == 'normal': print('\x1b[?1049l', flush=True)"]}}
+    ]}, ensure_ascii=False))
     report = {'artifacts': str(directory), 'backend': args.backend, 'checks': []}
     def mark(text):
         report['checks'].append(text)
@@ -162,6 +166,12 @@ def run(args):
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
+            if args.interactions_only:
+                spec = importlib.util.spec_from_file_location('interactions', Path(__file__).with_name('tab-interactions-native.py'))
+                interactions = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(interactions)
+                interactions.check(client, native, directory, env, session, tab, mark, Path(args.cli).resolve())
+                return
             filter_layout = client.js("""
                 const aside=document.querySelector('.diff-sidebar aside');
                 const input=aside.querySelector('input');
@@ -453,6 +463,8 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['application','driver']: parser.add_argument('--'+name,required=True)
     parser.add_argument('--syntax-only', action='store_true')
+    parser.add_argument('--interactions-only', action='store_true')
+    parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')
     run(parser.parse_args())

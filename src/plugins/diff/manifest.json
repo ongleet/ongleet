@@ -64,5 +64,226 @@
         "description": "Include staged, unstaged and untracked files in branch mode."
       }
     }
+  },
+  "interactions": {
+    "version": 1,
+    "state": {
+      "description": "Existing comparison and bounded file metadata, without patches or Git refresh.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 50
+          }
+        },
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "comparison": {
+                "type": ["object", "null"],
+                "properties": {
+                  "root": {
+                    "type": "string"
+                  },
+                  "config": {
+                    "type": "object"
+                  },
+                  "base": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "revision": {
+                "type": "string"
+              },
+              "totalFiles": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "oldPath": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "expanded": {
+                      "type": "boolean"
+                    },
+                    "viewed": {
+                      "type": "boolean"
+                    },
+                    "patchAvailable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["path", "oldPath", "status", "expanded", "viewed", "patchAvailable"]
+                }
+              },
+              "nextOffset": {
+                "type": ["integer", "null"],
+                "minimum": 0
+              },
+              "loading": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": ["string", "null"]
+              },
+              "changeCounts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "required": [
+              "comparison",
+              "revision",
+              "totalFiles",
+              "files",
+              "nextOffset",
+              "loading",
+              "error",
+              "changeCounts"
+            ]
+          },
+          "observedAt": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": ["summary", "data", "observedAt", "stale"]
+      },
+      "examples": [
+        {
+          "args": {}
+        }
+      ]
+    },
+    "actions": {
+      "set-files-expanded": {
+        "description": "Set file expanded state atomically. Viewed requires the revision returned by state and loaded successful patches.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "expanded": {
+              "type": "boolean"
+            }
+          },
+          "required": ["paths", "expanded"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "updated": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["updated"]
+        },
+        "examples": [
+          {
+            "args": {
+              "paths": ["package-lock.json"],
+              "expanded": false
+            },
+            "result": {
+              "updated": 1
+            }
+          }
+        ],
+        "readOnly": false
+      },
+      "set-files-viewed": {
+        "description": "Set file viewed state atomically. Viewed requires the revision returned by state and loaded successful patches.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "viewed": {
+              "type": "boolean"
+            },
+            "revision": {
+              "type": "string"
+            }
+          },
+          "required": ["paths", "viewed", "revision"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "updated": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["updated"]
+        },
+        "examples": [
+          {
+            "args": {
+              "paths": ["package-lock.json"],
+              "viewed": false,
+              "revision": "opaque-token-from-state"
+            },
+            "result": {
+              "updated": 1
+            }
+          }
+        ],
+        "readOnly": false
+      }
+    }
   }
 }

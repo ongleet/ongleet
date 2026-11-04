@@ -1089,3 +1089,36 @@ compositors/separate Xorg, live GitHub/live Codex conversations, clean-system
 package installation, sudden power loss or unattended crash/memory behavior.
 Existing acceptance items remain open; passing selected checks does not close
 the terminal-stack gate.
+
+## Discoverable tab interactions (2026-11-04)
+
+The Rust suite passes (143 passed, two existing ignored tests). Broker tests cover
+concurrent replies, attachment ownership, late/duplicate replies, per-target/global
+limits, schemas, encoded result limits and caller/target/reload cancellation.
+Frontend build, plugin boundaries, real-Git Diff checks and terminal engine,
+reuse, input, selection and rendering checks pass. The review model checks atomic
+batches, stale revisions, changed-patch resets and manual unviewed collapse retention.
+
+Isolated Xvfb/WebKitGTK report `/tmp/ongleet-diff-native-nne3so8x/report.json`
+passes CLI-to-plugin and plugin-to-plugin discovery/state/actions, cross-session
+hidden targets, Diff UI synchronization/pagination/batch/revision checks, Files
+folder/selection state and unavailable PR summaries. Real PTY checks cover Unicode
+and wide-cell scrollback, active alternate-screen reads, requested-line and 48 KiB
+UTF-8 truncation, unchanged selection/viewport and 8 KiB acknowledged input.
+Native transport checks reject invalid, non-JSON and oversized results, enforce
+four pending target requests, abort timed-out handlers, describe ambiguous action
+timeouts, cancel on close/reload, reject closed targets and restore live terminal state after reattachment.
+The report records zero cleanup survivors. This does not validate live GitHub PR
+refreshes, Wayland interaction acceptance or physical keyboard input.
+
+Reproduce with isolated app data and a private Xvfb display:
+
+```bash
+mise exec -- npm run build -- --mode native-validation
+mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --interactions-only \
+  --application src-tauri/target/debug/ongleet-gui \
+  --cli src-tauri/target/debug/ongleet --driver /usr/bin/WebKitWebDriver
+mise exec -- node scripts/check-tab-interactions.mjs
+mise exec -- npm run build
+```

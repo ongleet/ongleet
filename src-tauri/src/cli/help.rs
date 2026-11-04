@@ -2,6 +2,9 @@ use super::{invalid, RpcError};
 
 // Keep usage and effects together so every command has useful scoped help.
 const COMMANDS: &[(&str, &str, &str)] = &[
+    ("tab", "capabilities ID", "Discover declared state/actions and attachment availability. Never opens or selects tabs."),
+    ("tab", "state ID [--args JSON]", "Read compact plugin state with validated arguments. Hidden open tabs remain callable."),
+    ("tab", "invoke ID ACTION [--args JSON]", "Invoke a declared action. Five-second timeout; an action may have executed after timeout. Never retry automatically."),
     ("archive", "list", "List archived sessions/tabs with archive IDs, expiry times and pending-cleanup errors. Retention is 30 days from archival, not from last use."),
     ("archive", "restore ID", "Restore saved IDs, plugin configuration and opening state. Previously running terminals may launch fresh commands when a frontend connects. Restore an archived parent session before its separately archived tabs. Working directories/files are never created or restored."),
     ("archive", "purge ID --confirm", "Permanently delete this archive and its Ongleet terminal history/Codex mappings. Requires --confirm. Never deletes working files or Codex's own conversations."),

@@ -78,6 +78,9 @@ export function TextEditor({
       path: baseline.current.path,
       dirty: nextDirty,
       busy: nextBusy,
+      get conflict() {
+        return confirmationRef.current === 'overwrite';
+      },
       canSwitch: () => {
         if (saving.current || confirmationRef.current) return false;
         if (!statusRef.current.dirty) return true;

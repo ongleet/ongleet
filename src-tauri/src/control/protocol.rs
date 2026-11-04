@@ -118,6 +118,11 @@ pub enum Command {
         #[serde(default)]
         confirmed: bool,
     },
+    TabInteraction {
+        id: u64,
+        operation: String,
+        args: Value,
+    },
     TabTypes,
     TabActions {
         session_id: u64,
@@ -237,7 +242,7 @@ impl RpcError {
     #[allow(dead_code)] // Used by the separate CLI binary.
     pub fn exit_code(&self) -> i32 {
         match self.code.as_str() {
-            "invalid_argument" | "invalid_request" => 2,
+            "invalid_argument" | "invalid_arguments" | "invalid_request" => 2,
             "unavailable" => 3,
             "not_found" => 4,
             "confirmation_required" => 5,

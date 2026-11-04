@@ -119,3 +119,95 @@ Plugins can read `sdk.theme.getSnapshot()` for the application and resolved term
 preset and use `sdk.theme.subscribe(listener)` for changes. Call the returned
 unsubscribe function during cleanup. Snapshots and palettes are read-only; global
 appearance preferences are updated by the host's Appearance dialog.
+
+## Discoverable tab interactions
+
+Plugins may opt into `interactions: { version: 1, state?, actions: {} }` in their
+manifest. Each operation declares `description`, `inputSchema`, `outputSchema`
+and `examples` (objects containing `args` and optionally `result`). Actions also
+declare `readOnly`; this describes their semantics and does not grant access.
+Schemas use the configuration validator's types, properties, items,
+`additionalProperties`, `maxBytes` and `absolutePath`, plus `required`, `enum`,
+`minimum` and `maximum`. This is a documented subset, not full JSON Schema.
+Reserved action names are `state`, `capabilities` and `list`.
+
+Register only declared handlers on the current attachment:
+
+```tsx
+const sdk = useSdk();
+useEffect(() => sdk.tab.registerInteractions({
+  state: async (args, { signal }) => ({
+    summary: 'Ready',
+    data: { loading: false },
+    observedAt: new Date().toISOString(),
+    stale: false,
+  }),
+  actions: {
+    'set-enabled': async ({ enabled }, { signal }) => {
+      signal.throwIfAborted();
+      setEnabled(enabled as boolean);
+      return { enabled };
+    },
+  },
+}), [sdk]);
+```
+
+The state output schema must describe `{ summary, data, observedAt, stale }`.
+`observedAt` is an ISO timestamp or `null` when there is no observation. Providers
+must bound metadata themselves and describe loading/stale/unavailable information.
+The host wraps state as `{ tab: { id, sessionId, kind, name }, state, responseMs }`.
+Actions return their declared output directly. `useTabInteractions(handlers)` is
+a convenience hook retaining registration while handlers observe the latest
+committed React state. The set of handler names must stay fixed for that hook.
+Direct registration returns an unregister function; only one registration may
+exist per SDK attachment. Registration failures are reported to the console.
+
+Consumers declare the `tabs` core capability and use:
+
+```ts
+const { tabs } = await sdk.tabs.list({ sessionId: 12 }); // omit filter for all sessions
+const capabilities = await sdk.tabs.capabilities(tabs[0].id);
+const state = await sdk.tabs.state(tabs[0].id, { lines: 100 });
+await sdk.tabs.invoke(tabs[0].id, 'send-text', { text: 'hello', enter: false });
+```
+
+The same routing and validation serve the CLI:
+
+```bash
+ongleet tab types --json
+ongleet tab capabilities 42 --json
+ongleet tab state 42 --args '{"lines":100}' --json
+ongleet tab invoke 42 set-files-expanded \
+  --args '{"paths":["package-lock.json"],"expanded":false}' --json
+```
+
+Capabilities include the manifest descriptor, `available`, `stateAvailable` and
+`availableActions`. Plugins without declarations keep working and return a null
+descriptor with unsupported state/actions. Explicit IDs can cross session
+boundaries. Requests never open or select tabs; hidden open providers remain
+callable. Closed, detached or unregistered providers return `unavailable`.
+
+Rust validates arguments before dispatch and results before delivery, binds
+unique request IDs and replies to the target attachment, and rejects late or
+duplicate replies. Each request has a five-second deadline, 64 KiB encoded
+argument/result limits, four pending requests per target and 32 globally.
+Unregister, caller/target detach, reload and shutdown cancel pending requests;
+providers receive an abort signal. Cancellation is cooperative: it cannot undo
+an action. A timeout explicitly warns that an action may have executed. Never
+automatically retry actions. Errors include `unsupported_operation` and
+`invalid_arguments`, alongside the existing stable SDK codes.
+
+Terminal state defaults to 100 physical buffer lines (maximum 500), bounded to
+48 KiB of text/encoded lines. It reads the active Ghostty buffer without changing
+selection or viewport; alternate screen is active-screen content, not history.
+`send-text` preserves the 8 KiB write-acknowledgment contract, including Enter.
+The existing native `tab input` path remains available independently of a provider.
+Diff state defaults to 50 file records (maximum 200), has a bounded page budget,
+and returns `totalFiles`, `nextOffset` and an opaque `revision`. It never includes
+patches. `set-files-expanded` and `set-files-viewed` use the UI's memory-only
+review state. Viewed actions require the returned revision and loaded successful
+patches; a changed comparison yields `revision_conflict`. Every path in a batch
+is checked before any update. Changed patches clear their viewed/expanded state.
+PR state returns summary counts and status from the last refresh; Files returns
+folder, selected path and editor status. State reads trigger no Git/network
+refresh and return no file contents, credentials or review bodies.

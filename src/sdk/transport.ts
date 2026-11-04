@@ -6,6 +6,7 @@ import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   SdkError,
+  type InteractionHandlers,
   type HttpRequest,
   type HttpResponse,
   type Attachment,
@@ -37,6 +38,12 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
   const attachment = crypto.randomUUID();
   let disposed = false;
   const ready = call<void>('sdk_attach', { id, attachment });
+  let interactionCleanup: (() => void) | undefined;
+  let interactionRegistration = Promise.resolve();
+  const activeInteractions = new Map<number, AbortController>();
+  async function interaction<T>(target: number, operation: string, args: unknown = {}): Promise<T> {
+    return native<T>('sdk_interaction', { id, attachment, target, operation, args });
+  }
   const subscriptions = new Set<UnlistenFn>();
   const channels = new Set<Channel<PtyOutput>>();
   async function request<T>(operation: string, fields: Record<string, unknown> = {}): Promise<T> {
@@ -69,7 +76,117 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       removeTag: (name: string) => request<SessionTag[]>('removeSessionTag', { name }),
       listTags: () => request<SessionTag[]>('sessionTags'),
     },
+    tabs: {
+      list: (args: { sessionId?: number } = {}) =>
+        interaction<{
+          tabs: { id: number; sessionId: number; kind: string; name: string; isOpen: boolean }[];
+        }>(0, 'list', args),
+      capabilities: (tabId: number) =>
+        interaction<import('./types').TabCapabilities>(tabId, 'capabilities'),
+      state: (tabId: number, args: Record<string, unknown> = {}) =>
+        interaction<{
+          tab: { id: number; sessionId: number; kind: string; name: string };
+          state: import('./types').TabState;
+          responseMs: number;
+        }>(tabId, 'state', args),
+      invoke: (tabId: number, action: string, args: Record<string, unknown> = {}) => {
+        if (['state', 'capabilities', 'list'].includes(action))
+          return Promise.reject(new SdkError('unsupported_operation', 'Reserved interaction name'));
+        return interaction<unknown>(tabId, action, args);
+      },
+    },
     tab: {
+      registerInteractions: (handlers: InteractionHandlers) => {
+        if (interactionCleanup) throw new SdkError('busy', 'Interactions already registered');
+        let active = true;
+        let unlisten: UnlistenFn | undefined;
+        const cleanup = () => {
+          if (!active) return;
+          active = false;
+          unlisten?.();
+          for (const controller of activeInteractions.values()) controller.abort();
+          activeInteractions.clear();
+          interactionCleanup = undefined;
+          interactionRegistration = interactionRegistration
+            .then(async () => {
+              await call('sdk_interaction_register', {
+                id,
+                attachment,
+                enabled: false,
+                hasState: false,
+                actions: [],
+              });
+            })
+            .catch(() => {});
+        };
+        interactionCleanup = cleanup;
+        interactionRegistration = interactionRegistration
+          .then(async () => {
+            await ready;
+            if (!active || disposed) return;
+            unlisten = await listen<{
+              requestId: number;
+              operation: string;
+              args: Record<string, unknown>;
+              cancel?: number;
+            }>(`tab-interaction-${id}-${attachment}`, (event) => {
+              const payload = event.payload;
+              if (payload.cancel !== undefined) {
+                activeInteractions.get(payload.cancel)?.abort();
+                activeInteractions.delete(payload.cancel);
+                return;
+              }
+              if (!active || disposed) return;
+              const controller = new AbortController();
+              activeInteractions.set(payload.requestId, controller);
+              const handler =
+                payload.operation === 'state'
+                  ? handlers.state
+                  : handlers.actions?.[payload.operation];
+              void (async () => {
+                let result: unknown = null;
+                let error: string | null = null;
+                try {
+                  if (!handler)
+                    throw new SdkError('unavailable', 'Interaction handler unavailable');
+                  result = await handler(payload.args, { signal: controller.signal });
+                  if (result === undefined) result = null;
+                  // Reject non-JSON provider values before native serialization can fail.
+                  JSON.stringify(result);
+                } catch (failure) {
+                  result = null;
+                  const mapped = sdkError(failure);
+                  error = `${mapped.code}: ${mapped.message}`;
+                }
+                if (!active || disposed || controller.signal.aborted) return;
+                activeInteractions.delete(payload.requestId);
+                await call('sdk_interaction_reply', {
+                  id,
+                  attachment,
+                  requestId: payload.requestId,
+                  result,
+                  error,
+                }).catch(() => {});
+              })();
+            });
+            if (!active || disposed) {
+              unlisten();
+              return;
+            }
+            await call('sdk_interaction_register', {
+              id,
+              attachment,
+              enabled: true,
+              hasState: !!handlers.state,
+              actions: Object.keys(handlers.actions ?? {}),
+            });
+          })
+          .catch((error) => {
+            cleanup();
+            console.error('Interaction registration failed', sdkError(error));
+          });
+        return cleanup;
+      },
       setTitle: (title: string | null) => {
         if (disposed) throw new SdkError('unavailable', 'Plugin attachment disposed');
         if (title !== null && (typeof title !== 'string' || title.length > 256))
@@ -243,6 +360,7 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       close: (runtimeId: number) => pty<void>('close', { runtimeId }),
     },
     dispose: async () => {
+      interactionCleanup?.();
       disposed = true;
       setTitle(null);
       for (const unsubscribe of [...subscriptions]) unsubscribe();

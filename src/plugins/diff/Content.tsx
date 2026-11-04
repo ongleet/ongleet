@@ -1,9 +1,10 @@
+import { ReviewStore } from './review-state';
 import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { parseDiff, Hunk, Decoration } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import './diff.css';
 import '../../components/file-tree.css';
-import { useSdk } from '../../sdk';
+import { useSdk, useTabInteractions, SdkError } from '../../sdk';
 import type { PluginContentProps } from '../types';
 import { updateDiffTag } from './status-tag';
 import { FileReview } from './FileReview';
@@ -133,6 +134,19 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   }, [sdk, tab.name, comparison?.files.length]);
   const [selected, setSelected] = useState('');
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
+  const reviews = useRef(new ReviewStore());
+  const [, renderReviews] = useState(0);
+  const comparisonIdentity = (value: Comparison) => JSON.stringify([value.root, value.config]);
+  const setReview = (
+    paths: string[],
+    field: 'viewed' | 'expanded',
+    value: boolean,
+    revision?: string,
+  ) => {
+    const result = reviews.current.set(paths, field, value, revision);
+    renderReviews((value) => value + 1);
+    return result;
+  };
   const [references, setReferences] = useState<string[]>([]);
   const [commits, setCommits] = useState<CommitOption[]>([]);
   const [commitError, setCommitError] = useState('');
@@ -179,6 +193,72 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const [error, setError] = useState('');
   const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
+  useTabInteractions({
+    state: (args) => {
+      const offset = (args.offset as number | undefined) ?? 0;
+      const limit = (args.limit as number | undefined) ?? 50;
+      const files: unknown[] = [];
+      let bytes = 0;
+      for (const file of (comparison?.files ?? []).slice(offset, offset + limit)) {
+        const value = {
+          path: file.path,
+          oldPath: file.oldPath,
+          status: file.status,
+          ...reviews.current.get(file.key),
+          patchAvailable: !!patches[file.key]?.text && !patches[file.key]?.error,
+        };
+        const size = new TextEncoder().encode(JSON.stringify(value)).length;
+        if (bytes + size > 48 * 1024) break;
+        bytes += size;
+        files.push(value);
+      }
+      const total = comparison?.files.length ?? 0;
+      return {
+        summary: comparison ? `${total} changed files` : 'Comparison unavailable',
+        data: {
+          comparison: comparison
+            ? {
+                root: comparison.root,
+                config: comparison.config,
+                base: comparison.base,
+                target: comparison.target,
+              }
+            : null,
+          revision: reviews.current.revision,
+          totalFiles: total,
+          changeCounts: Object.fromEntries(
+            ['A', 'M', 'D', 'R', 'T', 'C', 'U'].map((status) => [
+              status,
+              (comparison?.files ?? []).filter((file) => file.status[0] === status).length,
+            ]),
+          ),
+          files,
+          nextOffset: offset + files.length < total ? offset + files.length : null,
+          loading,
+          error: error.slice(0, 4096) || null,
+        },
+        observedAt: comparison ? new Date(comparison.time).toISOString() : null,
+        stale: loading || !!error || !comparison,
+      };
+    },
+    actions: {
+      'set-files-expanded': (args) => {
+        if (!comparison || loading || error)
+          throw new SdkError('unavailable', 'Comparison unavailable or refreshing');
+        return setReview(args.paths as string[], 'expanded', args.expanded as boolean);
+      },
+      'set-files-viewed': (args) => {
+        if (!comparison || loading || error)
+          throw new SdkError('unavailable', 'Comparison unavailable or refreshing');
+        return setReview(
+          args.paths as string[],
+          'viewed',
+          args.viewed as boolean,
+          args.revision as string,
+        );
+      },
+    },
+  });
   const [filter, setFilter] = useState('');
   const tree = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -305,6 +385,15 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           }
           // React retains keyed articles and memoized unchanged patches.
           // Commit together so refresh never collapses the existing scroll surface.
+          reviews.current.reconcile(
+            comparisonIdentity(next),
+            next.files.map((file) => ({
+              path: file.path,
+              key: file.key,
+              patch: nextPatches[file.key]?.text,
+              failed: !!nextPatches[file.key]?.error,
+            })),
+          );
           setComparison(next);
           setPatches(nextPatches);
           setSelected((previous) =>
@@ -429,6 +518,11 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                   }}
                 >
                   <FileReview
+                    {...reviews.current.get(file.key)}
+                    setExpanded={(value) => setReview([file.path], 'expanded', value)}
+                    setViewed={(value) =>
+                      setReview([file.path], 'viewed', value, reviews.current.revision)
+                    }
                     path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
                     status={labels[file.status[0]]}
                     statusCode={file.status[0]}

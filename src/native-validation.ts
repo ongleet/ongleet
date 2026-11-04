@@ -51,20 +51,67 @@ Object.assign(window, {
   },
 });
 
+const interactionModes = new Map<string, string>();
+const interactionCounts = { started: 0, aborted: 0 };
 const sdks = new Map<number, PluginSdk>();
 export function registerSdk(id: number, sdk: PluginSdk) {
   installPrFixture(sdk);
+  const register = sdk.tab.registerInteractions;
+  sdk.tab.registerInteractions = (handlers) => {
+    const wrap =
+      (
+        operation: string,
+        handler: import('./sdk').InteractionHandler,
+      ): import('./sdk').InteractionHandler =>
+      async (args, context) => {
+        const mode = interactionModes.get(`${id}:${operation}`);
+        if (mode === 'invalid') return { invalid: true };
+        if (mode === 'oversized') return 'x'.repeat(70000);
+      if (mode === 'nonJson') return BigInt(1);
+        if (mode === 'hold') {
+          interactionCounts.started++;
+          await new Promise<void>((resolve) =>
+            context.signal.addEventListener(
+              'abort',
+              () => {
+                interactionCounts.aborted++;
+                resolve();
+              },
+              { once: true },
+            ),
+          );
+          return null;
+        }
+        return handler(args, context);
+      };
+    return register({
+      state: handlers.state && wrap('state', handlers.state),
+      actions: Object.fromEntries(
+        Object.entries(handlers.actions ?? {}).map(([name, handler]) => [
+          name,
+          wrap(name, handler),
+        ]),
+      ),
+    });
+  };
   sdks.set(id, sdk);
   return () => {
     if (sdks.get(id) === sdk) sdks.delete(id);
   };
 }
 Object.assign(window, {
+  __interactionValidation: {
+    mode: (id: number, operation: string, mode: string) =>
+      interactionModes.set(`${id}:${operation}`, mode),
+    counts: () => ({ ...interactionCounts }),
+  },
   __sdkValidation: {
     ready: (id: number) => sdks.has(id),
     call: (
       id: number,
       service:
+        | 'tabs'
+        | 'tab'
         | 'session'
         | 'fs'
         | 'storage'

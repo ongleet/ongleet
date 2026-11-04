@@ -683,6 +683,15 @@ fn run() -> Result<(), String> {
             );
             Ok(())
         })
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                if let Some(state) = webview.try_state::<AppRegistry>() {
+                    if let Ok(mut registry) = state.0.lock() {
+                        registry.interactions.disconnect();
+                    }
+                }
+            }
+        })
         .on_window_event(|window, event| {
             diagnostics::record(format_args!("window event={event:?}"));
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -726,6 +735,9 @@ fn run() -> Result<(), String> {
             core::commands::sdk_attach,
             core::commands::sdk_detach,
             core::commands::sdk_request,
+            core::interactions::sdk_interaction,
+            core::interactions::sdk_interaction_register,
+            core::interactions::sdk_interaction_reply,
             core::commands::sdk_pty,
             core::commands::sdk_pty_connect,
             create_tab,

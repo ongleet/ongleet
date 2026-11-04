@@ -5,12 +5,32 @@ use tauri::{Emitter, State};
 
 #[derive(Serialize)]
 pub struct SdkError {
-    code: &'static str,
-    message: String,
+    pub code: &'static str,
+    pub message: String,
 }
 impl From<String> for SdkError {
     fn from(message: String) -> Self {
-        let code = if message.contains("revision_conflict")
+        let code = if let Some(code) = [
+            "revision_conflict",
+            "busy",
+            "cancelled",
+            "timeout",
+            "limit_exceeded",
+            "unavailable",
+            "capability_unavailable",
+            "operation_failed",
+            "unsupported_operation",
+            "invalid_arguments",
+        ]
+        .into_iter()
+        .find(|code| message.starts_with(&format!("{code}:")))
+        {
+            code
+        } else if message.starts_with("unsupported_operation") {
+            "unsupported_operation"
+        } else if message.starts_with("invalid_arguments") {
+            "invalid_arguments"
+        } else if message.contains("revision_conflict")
             || message.starts_with("File changed on disk")
         {
             "revision_conflict"
@@ -521,7 +541,8 @@ pub async fn sdk_request(
                     serde_json::to_value(namespace)
                 }
                 Request::Cancel => {
-                    guard.cancel_plugin_work(id)?;
+                    guard.file_watches.remove(&id);
+                    guard.cancel_plugin_jobs(&[id])?;
                     Ok(serde_json::Value::Null)
                 }
                 Request::Process { .. } | Request::OpenFile { .. } => unreachable!(),

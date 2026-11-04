@@ -1,4 +1,4 @@
-import type { PluginSdk, PtyOutput as Output, ProcessStatus } from '../../sdk';
+import { SdkError, type PluginSdk, type PtyOutput as Output, type ProcessStatus } from '../../sdk';
 import {
   FitAddon,
   Ghostty,
@@ -432,6 +432,56 @@ export class TerminalFrontend {
     } finally {
       this.pasting = false;
     }
+  }
+
+  async interactionState(lines = 100) {
+    if (!this.term || this.id === undefined)
+      throw new SdkError('unavailable', 'Terminal unavailable');
+    const term = this.term;
+    const id = this.id;
+    const status = await this.sdk.pty.status(id);
+    if (this.term !== term || this.id !== id)
+      throw new SdkError('unavailable', 'Terminal unavailable');
+    const buffer = term.buffer.active;
+    const rows: string[] = [];
+    let bytes = 0;
+    let encodedBytes = 0;
+    let truncated = false;
+    for (let row = buffer.length - 1; row >= Math.max(0, buffer.length - lines); row--) {
+      const text = buffer.getLine(row)?.translateToString(true) ?? '';
+      const size = new TextEncoder().encode(text).length + (rows.length ? 1 : 0);
+      const encodedSize = new TextEncoder().encode(JSON.stringify(text)).length + 1;
+      if (bytes + size > 48 * 1024 || encodedBytes + encodedSize > 48 * 1024) {
+        truncated = true;
+        break;
+      }
+      bytes += size;
+      encodedBytes += encodedSize;
+      rows.unshift(text);
+    }
+    return {
+      summary: `Terminal ${status.state}`,
+      data: {
+        lines: rows,
+        status,
+        cols: term.cols,
+        rows: term.rows,
+        screen: buffer.type,
+        replaying: this.replaying,
+        totalLines: buffer.length,
+        returnedLines: rows.length,
+        truncated: truncated || rows.length < buffer.length,
+      },
+      observedAt: new Date().toISOString(),
+      stale: this.replaying,
+    };
+  }
+
+  async sendText(text: string, enter = false) {
+    if (this.id === undefined || this.replaying || this.disposed)
+      throw new SdkError('unavailable', 'Terminal unavailable');
+    await this.sdk.pty.sendText(this.id, text, { enter });
+    return { acknowledged: true };
   }
 
   snapshot(): string {

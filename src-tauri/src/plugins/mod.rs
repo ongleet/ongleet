@@ -39,7 +39,10 @@ pub fn validate(kind: &str, version: u32, config: &serde_json::Value) -> Result<
     }
     Ok(())
 }
-fn validate_schema(value: &serde_json::Value, schema: &serde_json::Value) -> Result<(), String> {
+pub fn validate_schema(
+    value: &serde_json::Value,
+    schema: &serde_json::Value,
+) -> Result<(), String> {
     use serde_json::Value;
     let matches = |name: &str| match name {
         "object" => value.is_object(),
@@ -59,6 +62,28 @@ fn validate_schema(value: &serde_json::Value, schema: &serde_json::Value) -> Res
     };
     if !valid {
         return Err("Invalid configuration value type".into());
+    }
+    if let Some(required) = schema["required"].as_array() {
+        for key in required {
+            if value
+                .get(key.as_str().ok_or("Invalid required field")?)
+                .is_none()
+            {
+                return Err(format!("Missing required field: {key}"));
+            }
+        }
+    }
+    if let Some(n) = value.as_f64() {
+        if schema["minimum"].as_f64().is_some_and(|min| n < min)
+            || schema["maximum"].as_f64().is_some_and(|max| n > max)
+        {
+            return Err("Number outside allowed range".into());
+        }
+    }
+    if let Some(options) = schema["enum"].as_array() {
+        if !options.contains(value) {
+            return Err("Value outside allowed choices".into());
+        }
     }
     if let Some(object) = value.as_object() {
         for (key, child) in object {

@@ -69,5 +69,149 @@
   },
   "capabilities": ["pty", "desktop", "storage"],
   "runtime": "pty",
-  "entrypoint": "entrypoint.tsx"
+  "entrypoint": "entrypoint.tsx",
+  "interactions": {
+    "version": 1,
+    "state": {
+      "description": "Recent physical lines of the active Ghostty buffer, process status and dimensions. Alternate screen is not command history.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          }
+        },
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": ["running", "exited"]
+                  },
+                  "code": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["state"]
+              },
+              "cols": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "screen": {
+                "type": "string",
+                "enum": ["normal", "alternate"]
+              },
+              "totalLines": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "returnedLines": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "replaying": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "lines",
+              "status",
+              "cols",
+              "rows",
+              "screen",
+              "totalLines",
+              "returnedLines",
+              "truncated",
+              "replaying"
+            ]
+          },
+          "observedAt": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": ["summary", "data", "observedAt", "stale"]
+      },
+      "examples": [
+        {
+          "args": {}
+        }
+      ]
+    },
+    "actions": {
+      "send-text": {
+        "description": "Write literal UTF-8 and optional CR to this terminal. Acknowledges writes, not command completion. 8 KiB including CR.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxBytes": 8192
+            },
+            "enter": {
+              "type": "boolean"
+            }
+          },
+          "required": ["text"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "acknowledged": {
+              "type": "boolean"
+            }
+          },
+          "required": ["acknowledged"]
+        },
+        "examples": [
+          {
+            "args": {
+              "text": "hello",
+              "enter": false
+            },
+            "result": {
+              "acknowledged": true
+            }
+          }
+        ],
+        "readOnly": false
+      }
+    }
+  }
 }

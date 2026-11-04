@@ -59,3 +59,38 @@ export type HttpRequest = {
   signal?: AbortSignal;
 };
 export type HttpResponse = { status: number; headers: Record<string, string>; body: string };
+
+export type InteractionHandler = (
+  args: Record<string, unknown>,
+  context: { signal: AbortSignal },
+) => unknown | Promise<unknown>;
+export type InteractionHandlers = {
+  state?: InteractionHandler;
+  actions?: Record<string, InteractionHandler>;
+};
+export type TabState = {
+  summary: string;
+  data: unknown;
+  observedAt: string | null;
+  stale: boolean;
+};
+
+export type InteractionOperation = {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  examples: { args: unknown; result?: unknown }[];
+};
+export type InteractionDescriptor = {
+  version: 1;
+  state?: InteractionOperation;
+  actions: Record<string, InteractionOperation & { readOnly: boolean }>;
+};
+export type TabIdentity = { id: number; sessionId: number; kind: string; name: string };
+export type TabCapabilities = {
+  tab: TabIdentity;
+  interactions: InteractionDescriptor | null;
+  available: boolean;
+  stateAvailable: boolean;
+  availableActions: string[];
+};

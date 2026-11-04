@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSdk } from '../../sdk';
+import { useSdk, useTabInteractions } from '../../sdk';
 import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
 import { githubAuth } from './auth';
 import {
@@ -67,6 +67,32 @@ export function PullRequestContent({
   const [lastRefresh, setLastRefresh] = useState<string>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useTabInteractions({
+    state: () => ({
+      summary: data ? `${data.title.slice(0, 512)} (${data.state})` : 'PR unavailable',
+      data: {
+        loading: busy,
+        url: data?.url ?? null,
+        title: data?.title.slice(0, 4096) ?? null,
+        state: data?.state ?? null,
+        draft: data?.isDraft ?? null,
+        reviewDecision: data?.reviewDecision ?? null,
+        reviewCount: data?.reviews.length ?? 0,
+        reviewSummary: Object.fromEntries(
+          ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED', 'PENDING'].map((state) => [
+            state,
+            data?.reviews.filter((review) => review.state === state).length ?? 0,
+          ]),
+        ),
+        checkCount: data?.statusCheckRollup.length ?? 0,
+        pipeline: data ? pipelineStatus(data.statusCheckRollup) : null,
+        lastRefresh: lastRefresh ?? null,
+        refreshError: error.slice(0, 4096) || null,
+      },
+      observedAt: lastRefresh ?? null,
+      stale: !!error || busy || !data,
+    }),
+  });
   const [saving, setSaving] = useState(false);
   const configurationDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {

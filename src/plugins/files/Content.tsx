@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSdk, type Listing, type SortOrder } from '../../sdk';
+import { useSdk, useTabInteractions, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
 import { readDraft } from './editor-drafts';
 import { FileSidebar } from '../../components/FileSidebar';
@@ -25,6 +25,24 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
   const [path, setPath] = useState(configuredFolder ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useTabInteractions({
+    state: () => {
+      const editor = fileEditors.get(tab.id);
+      return {
+        summary: selectedPath ? `File ${selectedPath.slice(0, 512)}` : 'File browser',
+        data: {
+          folder: listing?.folder ?? configuredFolder ?? null,
+          selectedFile: selectedPath ?? null,
+          dirty: editor?.dirty ?? false,
+          conflict: editor?.conflict ?? false,
+          loading: busy || restoringEditor || !!editor?.busy,
+          error: (error || restoreError).slice(0, 4096) || null,
+        },
+        observedAt: new Date().toISOString(),
+        stale: busy || restoringEditor || !!error || !!restoreError,
+      };
+    },
+  });
   const [showHidden, setShowHidden] = useState(false);
   const [search, setSearch] = useState('');
   const [order, setOrder] = useState<SortOrder>('nameAscending');

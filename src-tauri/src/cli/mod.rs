@@ -95,6 +95,9 @@ fn parse_with_context(
                 | "archive"
                 | "configure"
                 | "input"
+                | "capabilities"
+                | "state"
+                | "invoke"
         ) | (
             "session",
             "rename"
@@ -123,6 +126,25 @@ fn parse_with_context(
         id
     } else {
         0
+    };
+    let action = if (resource, verb) == ("tab", "invoke") {
+        let value = args
+            .get(offset)
+            .ok_or_else(|| invalid("Missing action name"))?
+            .clone();
+        if ["state", "capabilities", "list"].contains(&value.as_str()) {
+            return Err(RpcError::new(
+                "unsupported_operation",
+                "Reserved interaction name",
+            ));
+        }
+        if value.starts_with("--") {
+            return Err(invalid("Missing action name"));
+        }
+        offset += 1;
+        Some(value)
+    } else {
+        None
     };
     let mut options = BTreeMap::new();
     let mut confirmed = false;
@@ -284,6 +306,24 @@ fn parse_with_context(
         ("archive", "purge") => Command::ArchivePurge { id, confirmed },
         ("archive", "prune") => Command::ArchivePrune { confirmed },
         ("session", "close" | "archive") => Command::SessionClose { id, confirmed },
+        ("tab", "capabilities" | "state" | "invoke") => {
+            let args = options
+                .remove("--args")
+                .map(|text| {
+                    serde_json::from_str(&text)
+                        .map_err(|e| invalid(format!("Invalid JSON arguments: {e}")))
+                })
+                .transpose()?
+                .unwrap_or_else(|| serde_json::json!({}));
+            if verb == "capabilities" && args != serde_json::json!({}) {
+                return Err(invalid("capabilities accepts no arguments"));
+            }
+            Command::TabInteraction {
+                id,
+                operation: action.unwrap_or_else(|| verb.into()),
+                args,
+            }
+        }
         ("tab", "types") => Command::TabTypes,
         ("tab", "actions") => Command::TabActions {
             session_id: positive(&take("--session")?)?,

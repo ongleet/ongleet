@@ -1,4 +1,4 @@
-import { useSdk } from '../../sdk';
+import { useSdk, useTabInteractions, SdkError } from '../../sdk';
 import { useEffect, useRef, useState } from 'react';
 import { TerminalFrontend, type ProcessStatus } from './frontend';
 import type { PluginTab } from '../types';
@@ -22,6 +22,18 @@ export function TerminalContent({
   const [status, setStatus] = useState<ProcessStatus | null>(null);
   const [starting, setStarting] = useState(true);
   const [slow, setSlow] = useState(false);
+  useTabInteractions({
+    state: (args) => {
+      if (!frontend.current) throw new SdkError('unavailable', 'Terminal unavailable');
+      return frontend.current.interactionState(args.lines as number | undefined);
+    },
+    actions: {
+      'send-text': (args) => {
+        if (!frontend.current) throw new SdkError('unavailable', 'Terminal unavailable');
+        return frontend.current.sendText(args.text as string, args.enter as boolean | undefined);
+      },
+    },
+  });
   const report: Report = (error) => setError(String(error));
 
   useEffect(() => {

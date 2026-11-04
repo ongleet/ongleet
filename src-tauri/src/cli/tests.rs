@@ -525,3 +525,43 @@ fn terminal_input_preserves_text_requires_explicit_enter_and_bounds_utf8() {
         assert!(parse(args(&values)).is_err());
     }
 }
+
+#[test]
+fn interaction_commands_keep_explicit_ids_actions_and_json_arguments() {
+    for (args, operation) in [
+        (vec!["tab", "capabilities", "42", "--json"], "capabilities"),
+        (
+            vec!["tab", "state", "42", "--args", "{\"lines\":100}"],
+            "state",
+        ),
+        (
+            vec![
+                "tab",
+                "invoke",
+                "42",
+                "send-text",
+                "--args",
+                "{\"text\":\"literal\"}",
+            ],
+            "send-text",
+        ),
+    ] {
+        let Invocation::Request(Command::TabInteraction {
+            id,
+            operation: actual,
+            ..
+        }) = parse(args.into_iter().map(String::from).collect()).unwrap()
+        else {
+            panic!("Wrong command")
+        };
+        assert_eq!(id, 42);
+        assert_eq!(actual, operation);
+    }
+    for args in [
+        vec!["tab", "invoke", "42"],
+        vec!["tab", "state", "42", "--args", "{"],
+        vec!["tab", "state", "0"],
+    ] {
+        assert!(parse(args.into_iter().map(String::from).collect()).is_err());
+    }
+}
