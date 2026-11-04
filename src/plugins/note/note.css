@@ -1,0 +1,27 @@
+.note-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.note-panel[hidden] {
+  display: none;
+}
+.note-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.note-toolbar span {
+  margin-right: auto;
+}
+.note-panel textarea {
+  flex: 1;
+  min-height: 120px;
+  width: 100%;
+  resize: none;
+  padding: 12px;
+  font-family: monospace;
+  line-height: 1.5;
+  tab-size: 2;
+}

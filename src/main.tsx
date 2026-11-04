@@ -563,6 +563,7 @@ function App() {
     markBusy(true);
     setError('');
     try {
+      if (['archive_tab', 'close_session', 'close_project'].includes(command)) await flushPlugins();
       await invoke<unknown>(command, args);
       await refresh();
       return true;

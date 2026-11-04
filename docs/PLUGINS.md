@@ -31,6 +31,32 @@ Schema 7 adds session/tab namespace JSON and transactionally migrates the legacy
 
 Run `mise exec -- npm run check:plugins`, the frontend build and Rust suite. Native validation mode also exposes an SDK probe bridge used by the mixed-plugin harness; production bundles omit it. See [native validation](VALIDATION.md) for isolated WebKitGTK commands and remaining manual acceptance.
 
+## Note
+
+Add a **Note** through **Custom tab…** or an action with `kind: note` and
+`config: {}`. Each tab contains one editable Markdown document for session TODOs
+or agent memory, saved automatically to the local SQLite plugin namespace.
+No Markdown file is created in the project. Notes survive tab closure, application
+restart and session archive/restore; permanently deleting the archive removes
+them. The existing 30-day archive retention policy applies.
+
+The editor displays save failures and retains pending text for retry. **Discard
+edits and reload** explicitly abandons pending edits and loads the saved version.
+Notes are limited to 24 KiB UTF-8 and 48 KiB encoded JSON. State includes the
+current text, persisted revision, loading/saving status, dirty flag and errors.
+Read state and wait until it is not stale before replacing text:
+
+```bash
+ongleet tab state 42 --json
+ongleet tab invoke 42 set-text --args '{"revision":1,"text":"# TODO\n\n- [ ] Review changes\n"}' --json
+```
+
+`set-text` replaces the whole document and acknowledges persistence with its new
+revision. It rejects a stale revision or pending UI edits. Hidden open tabs remain
+callable; closed or archived tabs must be reopened first. Actions follow the
+standard cancellation and ambiguous-timeout contract; never retry automatically.
+Run `mise exec -- npm run check:note` for autosave and concurrency checks.
+
 ## Diff
 
 The bundled **Diff** tab requires `git` on the application's PATH. Add it through

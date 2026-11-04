@@ -20,6 +20,56 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn note_text_survives_session_archive_and_restart_until_purged() {
+    let fixture = Fixture::new("note");
+    let mut registry = fixture.open();
+    registry.create("Notes".into(), "/tmp".into()).unwrap();
+    let session = registry.sessions[0].id;
+    registry
+        .create_plugin_tab(
+            session,
+            "Note".into(),
+            "note".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let tab = registry.next_tab_id;
+    registry
+        .replace_plugin_data(
+            session,
+            Some(tab),
+            "note",
+            0,
+            1,
+            serde_json::json!({"text":"# Memory\n- [ ] Continue tomorrow"}),
+        )
+        .unwrap();
+    registry.close(session, false).unwrap();
+    let archive = registry.archives.last().unwrap().id;
+    drop(registry);
+    let mut registry = fixture.open();
+    registry.restore_archive(archive).unwrap();
+    let restored = registry.sessions[0]
+        .tabs
+        .iter()
+        .find(|t| t.id == tab)
+        .unwrap();
+    assert_eq!(
+        restored.plugin_data["note"].value["text"],
+        "# Memory\n- [ ] Continue tomorrow"
+    );
+    assert_eq!(restored.plugin_data["note"].revision, 1);
+    registry.close(session, false).unwrap();
+    let archive = registry.archives.last().unwrap().id;
+    registry.purge_archive(archive, true).unwrap();
+    drop(registry);
+    let registry = fixture.open();
+    assert!(registry.sessions.is_empty());
+    assert!(registry.archives.is_empty());
+}
+
+#[test]
 fn archiving_restoring_and_purging_preserves_files_and_plugin_state_across_restarts() {
     let fixture = Fixture::new("restore");
     let work = fixture.0.join("work");

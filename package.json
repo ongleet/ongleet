@@ -20,6 +20,7 @@
     "check:editor-merge": "node scripts/check-editor-merge.mjs",
     "check:pr-status": "node scripts/check-pr-status.mjs",
     "check:plugins": "node scripts/check-plugin-boundaries.mjs",
+    "check:note": "node scripts/check-note.mjs",
     "package:deb": "tauri build --bundles deb",
     "check:branding-storage": "node scripts/check-branding-storage.mjs",
     "check:diff": "node scripts/check-diff.mjs && node scripts/check-diff-syntax.mjs && node scripts/check-diff-comments.mjs",

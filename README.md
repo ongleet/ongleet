@@ -121,6 +121,13 @@ Use the arrow keys, Home, and End while focused on the tab bar to select tabs. D
 
 ## Built-in tab plugins
 
+**Note** provides an autosaved Markdown editor for session TODOs and agent memory.
+Open it through **Custom tab…** with type **Note**. Each Note tab is stored locally
+in SQLite and survives restart and session archive/restore. Permanent deletion
+removes its contents; the normal 30-day archive retention applies. Agents can read
+its text and revision with `tab state` and replace it with the revision-checked
+`set-text` action. See [Note interactions](docs/PLUGINS.md#note) for examples.
+
 Tabs use trusted plugins bundled into the application. Adding a plugin requires rebuilding Ongleet; there is no runtime installer or public SDK. The application owns navigation, stable IDs, ordering, selection and openings. Plugins own their configuration, content and resources. Terminal tabs retain the existing PTY, containment, replay, history and Codex behavior. Process status and restart eligibility apply only to terminals.
 
 New project configurations include **Files** and **Pull request** by default. Existing project files keep their custom actions; add these entries through Edit project → Actions when absent, choose the action type and save. The same configuration can be added to the project's YAML `actions` list:

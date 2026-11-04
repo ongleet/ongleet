@@ -1,0 +1,120 @@
+{
+  "id": "note",
+  "label": "Note",
+  "configVersion": 1,
+  "sdkVersion": 1,
+  "entrypoint": "entrypoint.tsx",
+  "description": "Local Markdown notes for session TODOs and agent memory. Autosaved with this tab; retained in session archives.",
+  "capabilities": ["storage"],
+  "defaults": {},
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
+  },
+  "examples": [{}],
+  "interactions": {
+    "version": 1,
+    "state": {
+      "description": "Current Markdown text, persisted revision and save status. Read again before set-text; stale means loading or unsaved edits.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "text": {
+                "type": "string",
+                "maxBytes": 24576
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "dirty": {
+                "type": "boolean"
+              },
+              "saving": {
+                "type": "boolean"
+              },
+              "loading": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["text", "revision", "dirty", "saving", "loading", "error"]
+          },
+          "observedAt": {
+            "type": ["string", "null"]
+          },
+          "stale": {
+            "type": "boolean"
+          }
+        },
+        "required": ["summary", "data", "observedAt", "stale"]
+      },
+      "examples": [
+        {
+          "args": {}
+        }
+      ]
+    },
+    "actions": {
+      "set-text": {
+        "description": "Replace the entire Markdown note and persist it. Requires the revision from state; rejects unsaved edits, stale revisions, loading and failed saves. At most 24 KiB UTF-8.",
+        "readOnly": false,
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": {
+              "type": "string",
+              "maxBytes": 24576
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["text", "revision"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": ["revision"]
+        },
+        "examples": [
+          {
+            "args": {
+              "text": "# TODO\n\n- [ ] Review changes\n",
+              "revision": 0
+            },
+            "result": {
+              "revision": 1
+            }
+          }
+        ]
+      }
+    }
+  }
+}

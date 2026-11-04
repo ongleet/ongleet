@@ -28,3 +28,7 @@ actions:
     name: Diff
     kind: diff
     config: {}
+  - id: note
+    name: Note
+    kind: note
+    config: {}
