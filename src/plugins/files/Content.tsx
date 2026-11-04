@@ -8,7 +8,7 @@ import { FileBranch } from './FileBranch';
 import { FileDetails, editorLimitation, type UnsupportedFile } from './FileDetails';
 import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
-export function FilesContent({ tab, visible }: PluginContentProps) {
+export function FilesContent({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
   const config = tab.config as { folder?: string; editorFile?: string | null } | null;
   const configuredFolder = config?.folder;
@@ -393,6 +393,7 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
             <TextEditor
               key={editing.path}
               id={tab.id}
+              sessionId={session.id}
               document={editing}
               visible={visible}
               back={leaveEditor}

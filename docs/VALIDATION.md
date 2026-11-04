@@ -1134,3 +1134,91 @@ unchanged explorer folder, dirty-state reporting and unsaved draft restoration.
 Cleanup records zero survivors. Plugin boundaries, production frontend build and
 seven editor-merge checks pass. Wayland acceptance for this action remains untested.
 Reproduce with the discoverable-interactions command above.
+
+## Diff discussions — 2026-11-04
+
+Implemented persistent file/line threads, User/Agent origin labels, replies,
+thread deletion, original code anchors, orphan recovery, independent comment
+pagination, and revision-bound creation. UI and tab interactions use the same
+store. Sends validate current same-session `send-text` availability and acknowledge
+only terminal writes, without automatic retries.
+
+Validation passed:
+
+- `mise exec -- npm run build` (plugin boundaries, TypeScript, production bundle).
+- `mise exec -- npm run check:diff` (real Git, syntax, discussion persistence,
+  old/new anchors, shifted lines, rename, missing files, comparison switches,
+  ambiguous context, failed patches, hunk boundaries, reply order, invalid IDs,
+  UTF-8 bounds, storage failure, send target filtering and ambiguous send failure
+  without retries).
+- `mise exec -- node scripts/check-tab-interactions.mjs`.
+- Offline `cargo build` with `tauri/custom-protocol`.
+- Private Xvfb/WebKitGTK discussion acceptance:
+  `/tmp/ongleet-diff-native-ozh49y78/report.json`, nine checks, zero survivors.
+  The normal bundled application renders inline API-created threads, exposes UI
+  replies through state, reports storage failure without mutation, persists
+  reload/navigation/tab closure, shows orphan discussions after code removal,
+  supports hidden-tab replies, and handles UI file creation/thread deletion.
+  A raw Python PTY received the exact generated message plus CR. Confirmed CLI
+  session closure, GUI archive and startup stale-session cleanup remove records.
+- Existing native interaction regression:
+  `/tmp/ongleet-diff-native-tc5wartc/report.json`, ten checks, zero survivors.
+  This suite requires `npm run build -- --mode native-validation` followed by
+  the offline custom-protocol GUI build. It covers CLI/SDK hidden-tab access,
+  Files safeguards, terminal bounds, saturation, ambiguous action errors,
+  detach/reload and closed-target behavior. The normal bundle intentionally
+  lacks its SDK validation bridge; an initial run stopped waiting for that bridge.
+
+Reproduce discussion acceptance after building the normal bundle and GUI:
+
+```bash
+mise exec -- python3 scripts/check-diff-native.py \
+  --application src-tauri/target/debug/ongleet-gui \
+  --driver /usr/bin/WebKitWebDriver --comments-only
+```
+
+Discussion-specific Wayland, physical keyboard/focus, and live agent processing
+remain untested. Ambiguous delivery without retries has shared send-path coverage
+and general native interaction failure coverage; an actual comment-send timeout
+was not injected into the PTY test. Closing the application preserves records by
+design; full process Quit/restart persistence was not separately exercised here.
+
+## Send selected code — 2026-11-04
+
+Files and Diff provide **Send selection…**, a snapshot preview, and an optional
+comment/question. One eligible same-session tab receives a direct named send
+button; multiple recipients require an explicit choice. Sends revalidate current
+`send-text` availability and submit with Enter. Selected text and the question
+are preserved in full or rejected above the 8 KiB terminal limit; only nearby
+context is shortened. Failed sends retain the preview/question and are not
+retried. Files captures the current CodeMirror buffer, revision, path and range,
+including an explicit unsaved-buffer label. Diff captures selected code cells
+with file/old/new line locations and comparison revisions, excluding gutters,
+controls and discussion text. Empty and cross-file selections are rejected.
+
+Passed `npm run build`, `npm run check:selection-send`, `npm run check:diff`,
+`node scripts/check-tab-interactions.mjs`, and the offline custom-protocol GUI
+build through `mise exec --`. Shared sender tests verify exact payload formatting,
+optional questions, unsaved provenance, Unicode/context bounds, recipient scope,
+availability changes and ambiguous failures without retries.
+
+Native production-bundle evidence:
+`/tmp/ongleet-diff-native-thq9n1ru/report.json`, six checks, zero cleanup survivors.
+Private Xvfb/WebKitGTK and raw PTYs verify empty/cross-file rejection, exact partial
+Diff selection and new-side attribution, nearby diff context and question,
+multiple-recipient choice, sole-recipient direct addressing, and the exact unsaved
+editor selection with path/range/revision/context. Sending leaves disk contents
+and the editor draft unchanged. The inserted/deleted Diff gutters now expose
+comment/selection metadata only on the side that has a line.
+
+Reproduce after the normal frontend and custom-protocol GUI builds:
+
+```bash
+mise exec -- python3 scripts/check-diff-native.py \
+  --application src-tauri/target/debug/ongleet-gui \
+  --driver /usr/bin/WebKitWebDriver --selection-only
+```
+
+Wayland, physical keyboard/focus navigation and live agent interpretation remain
+untested for this flow. PTY acknowledgment establishes delivery, not agent
+processing. No terminal input or lifecycle implementation changed.

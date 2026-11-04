@@ -35,7 +35,7 @@
     "folder": null,
     "editorFile": null
   },
-  "capabilities": ["fs", "desktop", "storage"],
+  "capabilities": ["fs", "desktop", "storage", "tabs"],
   "runtime": null,
   "contextDefaults": {
     "folder": "session.directory"

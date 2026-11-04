@@ -1,3 +1,4 @@
+import { SelectionSend } from '../../components/SelectionSend';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, SdkError, type TextDocument } from '../../sdk';
 export type { TextDocument } from '../../sdk';
@@ -26,11 +27,13 @@ import { editorAppearance, fileLanguage } from './editor-syntax';
 
 export function TextEditor({
   id,
+  sessionId,
   document,
   visible,
   back,
 }: {
   id: number;
+  sessionId: number;
   document: TextDocument;
   visible: boolean;
   back: () => Promise<void>;
@@ -472,6 +475,34 @@ export function TextEditor({
           {document.path}
           {dirty ? ' •' : ''}
         </span>
+        <SelectionSend
+          sessionId={sessionId}
+          tabId={id}
+          visible={visible}
+          capture={() => {
+            const editor = view.current;
+            if (!editor || editor.state.selection.main.empty)
+              throw new Error('Select some text in the editor first.');
+            const { from, to } = editor.state.selection.main;
+            const start = editor.state.doc.lineAt(from),
+              end = editor.state.doc.lineAt(to);
+            return {
+              source: 'Files',
+              tabId: id,
+              path: baseline.current.path,
+              location: `lines ${start.number}:${from - start.from + 1}–${end.number}:${to - end.from + 1} (end exclusive)`,
+              text: editor.state.sliceDoc(from, to),
+              context: editor.state
+                .sliceDoc(
+                  editor.state.doc.line(Math.max(1, start.number - 2)).from,
+                  editor.state.doc.line(Math.min(editor.state.doc.lines, end.number + 2)).to,
+                )
+                .slice(0, 8192),
+              revision: baseline.current.revision,
+              unsaved: editor.state.doc.toString() !== baseline.current.text,
+            };
+          }}
+        />
         <button ref={menuTrigger} popoverTarget={menuId} aria-haspopup="menu">
           Actions ▾
         </button>

@@ -1,12 +1,12 @@
 {
   "id": "diff",
   "label": "Diff",
-  "description": "Read-only Git changes with unified patches.",
+  "description": "Git changes with unified patches and local discussion threads.",
   "configVersion": 1,
   "sdkVersion": 1,
   "entrypoint": "entrypoint.tsx",
   "runtime": null,
-  "capabilities": ["process", "storage"],
+  "capabilities": ["process", "storage", "tabs"],
   "defaults": {
     "folder": null,
     "mode": "branch",
@@ -68,7 +68,7 @@
   "interactions": {
     "version": 1,
     "state": {
-      "description": "Existing comparison and bounded file metadata, without patches or Git refresh.",
+      "description": "Existing comparison, bounded file metadata, and independently paginated discussion entries, without Git refresh.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -83,6 +83,15 @@
             "minimum": 1,
             "maximum": 200,
             "default": 50
+          },
+          "commentOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "commentLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
           }
         },
         "required": []
@@ -167,6 +176,113 @@
                   "type": "integer",
                   "minimum": 0
                 }
+              },
+              "comments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "original": {
+                      "type": "object",
+                      "properties": {
+                        "root": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": ["old", "new"]
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "context": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "targetOffset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 2
+                        }
+                      },
+                      "required": ["root", "path", "context"],
+                      "additionalProperties": false
+                    },
+                    "location": {
+                      "type": "object",
+                      "properties": {
+                        "root": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        },
+                        "side": {
+                          "type": "string",
+                          "enum": ["old", "new"]
+                        },
+                        "line": {
+                          "type": "integer"
+                        },
+                        "context": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "targetOffset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 2
+                        }
+                      },
+                      "required": ["root", "path", "context"],
+                      "additionalProperties": false
+                    },
+                    "orphan": {
+                      "type": "boolean"
+                    },
+                    "comment": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["User", "Agent"]
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["id", "text", "origin", "at"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["threadId", "original", "location", "orphan", "comment"],
+                  "additionalProperties": false
+                }
+              },
+              "totalComments": {
+                "type": "integer"
+              },
+              "totalThreads": {
+                "type": "integer"
+              },
+              "nextCommentOffset": {
+                "type": ["integer", "null"]
               }
             },
             "required": [
@@ -282,6 +398,138 @@
             }
           }
         ],
+        "readOnly": false
+      },
+      "add-comment": {
+        "description": "add comment. Origin labels are not verified identity.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "side": {
+              "type": "string",
+              "enum": ["old", "new"]
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "text": {
+              "type": "string",
+              "maxBytes": 4096
+            }
+          },
+          "required": ["revision", "path", "text"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string"
+            },
+            "commentId": {
+              "type": "string"
+            }
+          },
+          "required": ["threadId", "commentId"],
+          "additionalProperties": false
+        },
+        "examples": [],
+        "readOnly": false
+      },
+      "reply-comment": {
+        "description": "reply comment. Origin labels are not verified identity.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "threadId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string",
+              "maxBytes": 4096
+            }
+          },
+          "required": ["threadId", "text"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string"
+            },
+            "commentId": {
+              "type": "string"
+            }
+          },
+          "required": ["threadId", "commentId"],
+          "additionalProperties": false
+        },
+        "examples": [],
+        "readOnly": false
+      },
+      "delete-comment-thread": {
+        "description": "delete comment thread. Origin labels are not verified identity.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "threadId": {
+              "type": "string"
+            }
+          },
+          "required": ["threadId"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "deleted": {
+              "type": "boolean"
+            }
+          },
+          "required": ["deleted"],
+          "additionalProperties": false
+        },
+        "examples": [],
+        "readOnly": false
+      },
+      "send-comment": {
+        "description": "send comment. Origin labels are not verified identity.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "threadId": {
+              "type": "string"
+            },
+            "commentId": {
+              "type": "string"
+            },
+            "targetTabId": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": ["threadId", "commentId", "targetTabId"]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "acknowledged": {
+              "type": "boolean"
+            }
+          },
+          "required": ["acknowledged"],
+          "additionalProperties": false
+        },
+        "examples": [],
         "readOnly": false
       }
     }

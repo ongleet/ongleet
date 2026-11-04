@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 export function FileReview({
+  comment,
   path,
   status,
   statusCode,
@@ -12,6 +13,7 @@ export function FileReview({
   setExpanded,
   setViewed,
 }: {
+  comment: () => void;
   path: string;
   status: string;
   statusCode: string;
@@ -41,6 +43,7 @@ export function FileReview({
           </span>{' '}
           {path}
         </span>
+        <button onClick={comment}>Comment</button>
         <label className="diff-viewed">
           <input
             type="checkbox"

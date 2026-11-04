@@ -1,6 +1,10 @@
+import { SelectionSend } from '../../components/SelectionSend';
+import { captureDiffSelection } from './selection';
+import { CommentStore, commentTargets, deliverComment, type Location } from './comments';
+import { Composer, Discussion } from './Comments';
 import { ReviewStore } from './review-state';
 import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { parseDiff, Hunk, Decoration } from 'react-diff-view';
+import { parseDiff, Hunk, Decoration, getChangeKey } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import './diff.css';
 import '../../components/file-tree.css';
@@ -21,7 +25,12 @@ const Viewer = memo(
     patch,
     expand,
     loading,
+    comment,
+    threads,
   }: {
+    discussionRevision: string;
+    threads: { side: 'old' | 'new'; line: number; node: React.ReactNode }[];
+    comment: (side: 'old' | 'new', line: number) => void;
     patch: string;
     expand: () => void;
     loading: boolean;
@@ -47,6 +56,60 @@ const Viewer = memo(
               <HighlightedDiff
                 key={i}
                 path={file.type === 'delete' ? file.oldPath : file.newPath}
+                widgets={Object.fromEntries(
+                  file.hunks.flatMap((hunk) =>
+                    hunk.changes.flatMap((change) => {
+                      const matching = threads.filter((thread) =>
+                        change.type === 'normal'
+                          ? (thread.side === 'old'
+                              ? change.oldLineNumber
+                              : change.newLineNumber) === thread.line
+                          : (thread.side === 'old'
+                              ? change.type === 'delete'
+                              : change.type === 'insert') && change.lineNumber === thread.line,
+                      );
+                      return matching.length
+                        ? [
+                            [
+                              getChangeKey(change),
+                              <>
+                                {matching.map((thread, i) => (
+                                  <Fragment key={i}>{thread.node}</Fragment>
+                                ))}
+                              </>,
+                            ],
+                          ]
+                        : [];
+                    }),
+                  ),
+                )}
+                renderGutter={({ change, side, renderDefault }) => {
+                  if (
+                    (change.type === 'insert' && side === 'old') ||
+                    (change.type === 'delete' && side === 'new')
+                  )
+                    return renderDefault();
+                  const line =
+                    change.type === 'normal'
+                      ? side === 'old'
+                        ? change.oldLineNumber
+                        : change.newLineNumber
+                      : change.lineNumber;
+                  return (
+                    <>
+                      {renderDefault()}{' '}
+                      <button
+                        className="diff-line-comment"
+                        data-comment-side={side}
+                        data-comment-line={line}
+                        aria-label={`Comment on ${side} line ${line}`}
+                        onClick={() => comment(side, line)}
+                      >
+                        Comment
+                      </button>
+                    </>
+                  );
+                }}
                 viewType="unified"
                 diffType={file.type}
                 hunks={file.hunks}
@@ -101,11 +164,49 @@ const Viewer = memo(
       return <p role="alert">Cannot render patch: {String(error)}</p>;
     }
   },
-  (previous, next) => previous.patch === next.patch && previous.loading === next.loading,
+  (previous, next) =>
+    previous.patch === next.patch &&
+    previous.loading === next.loading &&
+    previous.discussionRevision === next.discussionRevision,
 );
 
-export function DiffContent({ tab, visible }: PluginContentProps) {
+export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
+  const comments = useMemo(() => new CommentStore(session.id, tab.id), [session.id, tab.id]);
+  const [commentVersion, renderComments] = useState(0);
+  const [commentError, setCommentError] = useState('');
+  const [compose, setCompose] = useState<Location>();
+  const composeRevision = useRef('');
+  const changeComments = <T,>(operation: () => T): T => {
+    try {
+      const value = operation();
+      renderComments((v) => v + 1);
+      setCommentError('');
+      return value;
+    } catch (error) {
+      setCommentError(String(error));
+      throw error;
+    }
+  };
+  const targets = () => commentTargets(sdk.tabs, session.id, tab.id);
+  const sendComment = (threadId: string, commentId: string, targetTabId: number) =>
+    deliverComment(sdk.tabs, session.id, tab.id, comments.get(threadId), commentId, targetTabId);
+  const discussion = (thread: import('./comments').Thread) => (
+    <Discussion
+      key={thread.id}
+      thread={thread}
+      targets={targets}
+      send={(commentId, target) => sendComment(thread.id, commentId, target)}
+      reply={(text) => {
+        changeComments(() => comments.reply(thread.id, text, 'User'));
+      }}
+      remove={() => {
+        try {
+          changeComments(() => comments.delete(thread.id));
+        } catch {}
+      }}
+    />
+  );
   const scopedGit = (current: () => boolean) =>
     new GitComparison((request) => {
       if (!current()) throw new Error('Comparison cancelled.');
@@ -136,7 +237,8 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
   const reviews = useRef(new ReviewStore());
   const [, renderReviews] = useState(0);
-  const comparisonIdentity = (value: Comparison) => JSON.stringify([value.root, value.config]);
+  const comparisonIdentity = (value: Comparison) =>
+    JSON.stringify([value.root, value.config, value.base, value.target]);
   const setReview = (
     paths: string[],
     field: 'viewed' | 'expanded',
@@ -208,7 +310,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           patchAvailable: !!patches[file.key]?.text && !patches[file.key]?.error,
         };
         const size = new TextEncoder().encode(JSON.stringify(value)).length;
-        if (bytes + size > 48 * 1024) break;
+        if (bytes + size > 16 * 1024) break;
         bytes += size;
         files.push(value);
       }
@@ -225,6 +327,10 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
               }
             : null,
           revision: reviews.current.revision,
+          ...comments.page(
+            (args.commentOffset as number) ?? 0,
+            (args.commentLimit as number) ?? 20,
+          ),
           totalFiles: total,
           changeCounts: Object.fromEntries(
             ['A', 'M', 'D', 'R', 'T', 'C', 'U'].map((status) => [
@@ -242,6 +348,32 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
       };
     },
     actions: {
+      'add-comment': (args) => {
+        if (!comparison || loading || error)
+          throw new SdkError('unavailable', 'Comparison unavailable or refreshing');
+        if (args.revision !== reviews.current.revision)
+          throw new SdkError('revision_conflict', 'Comparison changed; read state again');
+        const file = comparison.files.find((f) => f.path === args.path);
+        if (!file) throw new SdkError('invalid_arguments', 'Unknown file');
+        return changeComments(() =>
+          comments.add(
+            comments.anchor(
+              comparison.root,
+              { ...file, patch: patches[file.key]?.text, failed: !!patches[file.key]?.error },
+              args.side as 'old' | 'new' | undefined,
+              args.line as number | undefined,
+            ),
+            args.text as string,
+            'Agent',
+          ),
+        );
+      },
+      'reply-comment': (args) =>
+        changeComments(() => comments.reply(args.threadId as string, args.text as string, 'Agent')),
+      'delete-comment-thread': (args) =>
+        changeComments(() => comments.delete(args.threadId as string)),
+      'send-comment': (args) =>
+        sendComment(args.threadId as string, args.commentId as string, args.targetTabId as number),
       'set-files-expanded': (args) => {
         if (!comparison || loading || error)
           throw new SdkError('unavailable', 'Comparison unavailable or refreshing');
@@ -394,6 +526,18 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
               failed: !!nextPatches[file.key]?.error,
             })),
           );
+          try {
+            comments.reconcile(
+              next.root,
+              next.files.map((file) => ({
+                ...file,
+                patch: nextPatches[file.key]?.text,
+                failed: !!nextPatches[file.key]?.error,
+              })),
+            );
+          } catch (error) {
+            setCommentError(String(error));
+          }
           setComparison(next);
           setPatches(nextPatches);
           setSelected((previous) =>
@@ -465,6 +609,24 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           commits={commits}
           commitError={commitError}
         />
+        <SelectionSend
+          sessionId={session.id}
+          tabId={tab.id}
+          visible={visible}
+          capture={() => {
+            if (!viewer.current || !comparison) throw new Error('Comparison unavailable.');
+            return captureDiffSelection(
+              viewer.current,
+              tab.id,
+              comparison.root,
+              JSON.stringify({
+                base: comparison.base,
+                target: comparison.target ?? 'working directory',
+                mode: comparison.config.mode,
+              }),
+            );
+          }}
+        />
         <button type="submit">Compare</button>
         <button type="button" className="diff-refresh" onClick={refresh}>
           <span className="diff-spinner-slot">
@@ -475,11 +637,39 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
           Refresh
         </button>
       </form>
+      {(commentError || comments.error) && <p role="alert">{commentError || comments.error}</p>}
+      {compose && (
+        <div className="diff-discussion">
+          <p>
+            {compose.path} · {compose.side ?? 'file'} {compose.line ?? ''}
+          </p>
+          <Composer
+            submit={(text) => {
+              changeComments(() => {
+                if (loading || error || composeRevision.current !== reviews.current.revision)
+                  throw new SdkError(
+                    'revision_conflict',
+                    'Comparison changed; reopen the comment control',
+                  );
+                return comments.add(compose, text, 'User');
+              });
+              setCompose(undefined);
+            }}
+          />
+          <button onClick={() => setCompose(undefined)}>Cancel</button>
+        </div>
+      )}
       {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
       {error && (
         <p role="alert">
           {error} Check the folder, Git installation and revision expressions, then Compare again.
         </p>
+      )}
+      {!comparison && comments.threads.length > 0 && (
+        <section>
+          <h3>Saved comments · comparison unavailable</h3>
+          {comments.threads.map(discussion)}
+        </section>
       )}
       {comparison && (
         <div className="diff-layout">
@@ -505,6 +695,7 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
               {comparison.files.map((file) => (
                 <article
                   className="diff-file"
+                  data-diff-path={file.path}
                   key={JSON.stringify([
                     comparison.root,
                     comparison.config.mode,
@@ -523,6 +714,20 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                     setViewed={(value) =>
                       setReview([file.path], 'viewed', value, reviews.current.revision)
                     }
+                    comment={() => {
+                      try {
+                        composeRevision.current = reviews.current.revision;
+                        setCompose(
+                          comments.anchor(comparison.root, {
+                            ...file,
+                            patch: patches[file.key]?.text,
+                            failed: !!patches[file.key]?.error,
+                          }),
+                        );
+                      } catch (error) {
+                        setCommentError(String(error));
+                      }
+                    }}
                     path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
                     status={labels[file.status[0]]}
                     statusCode={file.status[0]}
@@ -533,8 +738,33 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                       <p role="alert">{patches[file.key].error}</p>
                     ) : patches[file.key]?.text !== undefined ? (
                       <Viewer
+                        discussionRevision={`${comparison.root}:${file.path}:${commentVersion}`}
+                        threads={comments.threads
+                          .filter(
+                            (t) => !t.orphan && t.location.path === file.path && t.location.side,
+                          )
+                          .map((t) => ({
+                            side: t.location.side!,
+                            line: t.location.line!,
+                            node: discussion(t),
+                          }))}
                         patch={patches[file.key].text!}
                         loading={loading}
+                        comment={(side, line) => {
+                          try {
+                            composeRevision.current = reviews.current.revision;
+                            setCompose(
+                              comments.anchor(
+                                comparison.root,
+                                { ...file, patch: patches[file.key]?.text },
+                                side,
+                                line,
+                              ),
+                            );
+                          } catch (error) {
+                            setCommentError(String(error));
+                          }
+                        }}
                         expand={() => {
                           const key = contextKey(comparison.config, file);
                           contextLines.current[key] = (contextLines.current[key] ?? 3) + 20;
@@ -544,9 +774,18 @@ export function DiffContent({ tab, visible }: PluginContentProps) {
                     ) : (
                       <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
                     )}
+                    {comments.threads
+                      .filter((t) => !t.orphan && !t.location.side && t.location.path === file.path)
+                      .map(discussion)}
                   </FileReview>
                 </article>
               ))}
+              {comments.threads.some((t) => t.orphan) && (
+                <section>
+                  <h3>Orphan comments</h3>
+                  {comments.threads.filter((t) => t.orphan).map(discussion)}
+                </section>
+              )}
               {!comparison.files.length && <p>No changes.</p>}
             </div>
           </div>

@@ -323,3 +323,26 @@
   width: 16px;
   height: 16px;
 }
+
+.diff-discussion {
+  padding: 12px;
+  margin: 8px;
+  border: 1px solid var(--border);
+}
+.diff-comment-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-comment-composer {
+  display: flex;
+  gap: 8px;
+  align-items: start;
+}
+.diff-comment-composer textarea {
+  min-height: 60px;
+  flex: 1;
+}
+.diff-line-comment {
+  font-size: 9px;
+  padding: 0 2px;
+}

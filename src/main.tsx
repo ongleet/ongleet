@@ -1,3 +1,4 @@
+import { reconcileCommentSessions } from './diff-comment-cleanup';
 import { appearance, applyAppearance } from './appearance';
 import { AppearanceDialog } from './AppearanceDialog';
 import './branding-storage';
@@ -452,6 +453,11 @@ function App() {
     const sequence = ++refreshSequence.current;
     const snapshot = await invoke<SessionSnapshot>('sessions');
     if (sequence === refreshSequence.current) {
+      try {
+        reconcileCommentSessions(snapshot.sessions.map((session) => session.id));
+      } catch (error) {
+        report(`Could not clean up Diff comments: ${String(error)}`);
+      }
       setState(snapshot);
       const openIds = new Set(
         snapshot.sessions.flatMap((session) =>

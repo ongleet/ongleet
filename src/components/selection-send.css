@@ -1,0 +1,32 @@
+.selection-send {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.selection-send > [role] {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.selection-send dialog {
+  width: min(650px, 85vw);
+  max-height: 85vh;
+  overflow: auto;
+}
+.selection-send dialog form,
+.selection-send dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.selection-send textarea {
+  min-height: 80px;
+}
+.selection-preview {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  background: var(--editor);
+}

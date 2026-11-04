@@ -239,3 +239,30 @@ invalid. The action never creates files, writes file contents, launches external
 applications, selects tabs or changes the explorer folder. Hidden Files tabs
 remain callable. The standard interaction cancellation/ambiguous timeout contract
 also applies to this action.
+
+Diff discussions are plain text and belong to one Diff tab. User/Agent labels
+indicate origin, not verified identity. Read comments independently of file
+pagination; `comments` contains individual entries with thread IDs, original and
+current locations, and orphan status. Follow `nextCommentOffset` until null.
+Creation requires a fresh comparison revision and a loaded patch; supply both
+`side` (`old` or `new`) and `line` for a line thread, or neither for a file thread.
+Replies work on orphan threads too.
+
+```bash
+ongleet tab state 42 --args '{"commentOffset":0,"commentLimit":20}' --json
+ongleet tab invoke 42 add-comment --args '{"revision":"REVISION_FROM_STATE","path":"src/main.tsx","side":"new","line":12,"text":"Why is this needed?"}' --json
+ongleet tab invoke 42 reply-comment --args '{"threadId":"THREAD_ID","text":"This preserves the selected tab."}' --json
+```
+
+The UI's **Send to…** lists open, available tabs in the same session that support
+`send-text`. `send-comment` accepts `threadId`, `commentId`, and `targetTabId`;
+it submits a bounded discussion and reply instructions with Enter. Acknowledgment
+means the terminal write succeeded, not that an agent processed it. Failed sends
+may have delivered input; they are never retried automatically.
+
+Comments are limited to 4 KiB each and 1 MiB per Diff tab. LocalStorage records
+survive navigation, reload, application exit, and individual tab closure. Session
+closure/archive clears records, including CLI changes; startup removes stale
+session records. Storage failures appear in the UI. A changed comparison retains
+original anchors and code context; only unambiguous context matches reattach line
+threads. Unmatched discussions appear under **Orphan comments**.

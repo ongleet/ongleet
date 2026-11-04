@@ -48,6 +48,7 @@ def run(args):
     actions.parent.mkdir(parents=True)
     actions.write_text(json.dumps({'actions': [
         {'id': 'shell', 'name': 'Shell', 'kind': 'terminal', 'config': {'executable': '/bin/sleep', 'args': ['600']}},
+        {'id': 'comment-recipient', 'name': 'Comment recipient', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', '-c', "import os,tty\nfrom pathlib import Path\ntty.setraw(0)\nPath('recipient-ready').touch()\ndata=b''\nwhile b'\\r' not in data: data+=os.read(0,8192)\nPath('recipient-input').write_bytes(data)"]}},
         {'id': 'diff', 'name': 'Diff', 'kind': 'diff', 'config': {}},
         {'id': 'sdk', 'name': 'SDK', 'kind': 'sdk-example', 'config': {}},
         {'id': 'files', 'name': 'Files', 'kind': 'files', 'config': {}},
@@ -166,6 +167,18 @@ def run(args):
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
+            if args.selection_only:
+                spec = importlib.util.spec_from_file_location('selection', Path(__file__).with_name('selection-send-native.py'))
+                selection = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(selection)
+                selection.check(client, native, directory, env, session, tab, mark, Path(args.cli).resolve())
+                return
+            if args.comments_only:
+                spec = importlib.util.spec_from_file_location('comments', Path(__file__).with_name('diff-comments-native.py'))
+                comments = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(comments)
+                comments.check(client, native, directory, env, session, tab, mark, Path(args.cli).resolve())
+                return
             if args.interactions_only:
                 spec = importlib.util.spec_from_file_location('interactions', Path(__file__).with_name('tab-interactions-native.py'))
                 interactions = importlib.util.module_from_spec(spec)
@@ -462,6 +475,8 @@ def run(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['application','driver']: parser.add_argument('--'+name,required=True)
+    parser.add_argument('--selection-only', action='store_true')
+    parser.add_argument('--comments-only', action='store_true')
     parser.add_argument('--syntax-only', action='store_true')
     parser.add_argument('--interactions-only', action='store_true')
     parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
