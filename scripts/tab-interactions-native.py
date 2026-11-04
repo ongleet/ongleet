@@ -78,6 +78,36 @@ def check(client, native, directory, env, session, diff, mark, cli):
     client.click(f"//section[@id='tab-panel-{files}']//button[contains(.,'hello.txt')]", 'xpath')
     native.wait_for(lambda: state(files)['data']['selectedFile'] == str(directory/'repository/hello.txt'), 'Files selected path')
     assert 'text' not in state(files)['data']
+    opened = str(directory/'repository/hello.txt')
+    other_file = directory/'repository/action-target.txt'
+    other_file.write_text('Action target contents\n')
+    binary = directory/'repository/action-binary.dat'
+    binary.write_bytes(b'\0binary')
+    assert 'open-path' in command('tab', 'capabilities', files)['availableActions']
+    invoke(files, 'open-path', {}, error='invalid_arguments')
+    invoke(files, 'open-path', {'path': 'relative.txt'}, error='invalid_arguments')
+    invoke(files, 'open-path', {'path': str(directory/'missing')}, error='operation_failed')
+    invoke(files, 'open-path', {'path': str(directory/'repository')}, error='operation_failed')
+    assert state(files)['data']['selectedFile'] == opened
+    client.click('.cm-content')
+    client.keys(' unsaved action draft')
+    native.wait_for(lambda: state(files)['data']['dirty'], 'dirty state before action')
+    client.click('.editor-toolbar button[popovertarget]')
+    client.click("//button[@role='menuitem'][normalize-space()='Close file']", 'xpath')
+    native.wait_for(lambda: client.js("return !!document.querySelector('dialog[open]')"), 'editor confirmation')
+    invoke(files, 'open-path', {'path': str(other_file)}, error='busy')
+    assert state(files)['data']['selectedFile'] == opened
+    client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
+    assert invoke(files, 'open-path', {'path': str(other_file)}) == {'path': str(other_file), 'view': 'editor'}
+    native.wait_for(lambda: state(files)['data']['selectedFile'] == str(other_file), 'CLI file action updates state')
+    native.wait_for(lambda: client.js("return document.querySelector('.cm-content')?.innerText.includes('Action target contents')"), 'CLI file action updates editor')
+    assert invoke(files, 'open-path', {'path': str(binary)}) == {'path': str(binary), 'view': 'details'}
+    native.wait_for(lambda: client.js("return !!document.querySelector('.file-details')"), 'binary opens details')
+    assert invoke(files, 'open-path', {'path': opened}) == {'path': opened, 'view': 'editor'}
+    native.wait_for(lambda: state(files)['data']['dirty'], 'draft restored by action')
+    assert client.js("return document.querySelector('.cm-content').innerText.includes('unsaved action draft')")
+    assert state(files)['data']['folder'] == str(directory/'repository')
+    mark('Files open-path validates paths, propagates failures, respects editor confirmation, shows binary details and restores unsaved drafts')
     result = command('tab', 'create', '--session', other, '--action', 'pr')
     pr = next(s for s in result['sessions'] if s['id'] == other)['selectedTabId']
     native.wait_for(lambda: command('tab', 'capabilities', pr)['stateAvailable'], 'PR provider')
@@ -85,6 +115,9 @@ def check(client, native, directory, env, session, diff, mark, cli):
     assert pr_state['data']['url'] is None and pr_state['data']['reviewCount'] == 0 and pr_state['stale']
     assert 'reviews' not in pr_state['data'] and 'token' not in pr_state['data']
     command('tab', 'invoke', pr, 'send-text', error='unsupported_operation')
+    assert sdk(caller, 'invoke', files, 'open-path', {'path': str(other_file)}) == {'path': str(other_file), 'view': 'editor'}
+    native.wait_for(lambda: state(files)['data']['selectedFile'] == str(other_file), 'SDK opens file in hidden tab')
+    assert client.js("return document.querySelector(arguments[0]).hidden", f'#tab-panel-{files}')
     mark('Files folder/selection/editor status and unavailable PR summary serialize without file contents or review bodies')
     result = command('tab', 'create', '--session', other, '--action', 'probe')
     terminal = next(s for s in result['sessions'] if s['id'] == other)['selectedTabId']

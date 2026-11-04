@@ -94,10 +94,66 @@
       },
       "examples": [
         {
-          "args": {}
+          "args": {},
+          "result": {
+            "summary": "File /tmp/example.txt",
+            "data": {
+              "folder": "/tmp",
+              "selectedFile": "/tmp/example.txt",
+              "dirty": false,
+              "conflict": false,
+              "loading": false,
+              "error": null
+            },
+            "observedAt": "2026-11-04T12:00:00.000Z",
+            "stale": false
+          }
         }
       ]
     },
-    "actions": {}
+    "actions": {
+      "open-path": {
+        "description": "Open an existing absolute file path in this tab without selecting the tab or changing the explorer folder. Reuses UI draft-preserving file switching; busy editors or unpreserved edits reject the action. Unsupported text shows file details without launching an external application. Does not create files.",
+        "readOnly": false,
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": {
+              "type": "string",
+              "absolutePath": true,
+              "maxBytes": 8192,
+              "description": "Absolute path to an existing regular file."
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "view"],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "view": {
+              "type": "string",
+              "enum": ["editor", "details"]
+            }
+          }
+        },
+        "examples": [
+          {
+            "args": {
+              "path": "/tmp/example.txt"
+            },
+            "result": {
+              "path": "/tmp/example.txt",
+              "view": "editor"
+            }
+          }
+        ]
+      }
+    }
   }
 }

@@ -211,3 +211,31 @@ is checked before any update. Changed patches clear their viewed/expanded state.
 PR state returns summary counts and status from the last refresh; Files returns
 folder, selected path and editor status. State reads trigger no Git/network
 refresh and return no file contents, credentials or review bodies.
+
+### Files open-path action
+
+Files state exposes the currently open file as `state.data.selectedFile` (an
+absolute path, or `null`), alongside folder, dirty, conflict and loading status.
+Use `open-path` to open an existing absolute file path in that Files tab:
+
+```bash
+ongleet tab state 42 --json
+ongleet tab invoke 42 open-path --args '{"path":"/tmp/example.txt"}' --json
+```
+
+```ts
+await sdk.tabs.invoke(42, 'open-path', { path: '/tmp/example.txt' });
+const { state } = await sdk.tabs.state(42);
+console.log(state.data); // includes selectedFile, without file contents
+```
+
+The action returns `{ path, view: "editor" | "details" }`. It shares the UI's
+file-opening flow: unsupported text displays file details, and saved local drafts
+restore when reopening a file. Switching preserves unsaved drafts; an editor
+that is saving, awaiting confirmation, or unable to preserve edits returns `busy`.
+Opening/restoration already in progress also returns `busy`. Missing, inaccessible
+or directory paths fail without replacing the current file. Relative paths are
+invalid. The action never creates files, writes file contents, launches external
+applications, selects tabs or changes the explorer folder. Hidden Files tabs
+remain callable. The standard interaction cancellation/ambiguous timeout contract
+also applies to this action.

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSdk, useTabInteractions, type Listing, type SortOrder } from '../../sdk';
+import { useSdk, useTabInteractions, SdkError, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
 import { readDraft } from './editor-drafts';
 import { FileSidebar } from '../../components/FileSidebar';
@@ -41,6 +41,9 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
         observedAt: new Date().toISOString(),
         stale: busy || restoringEditor || !!error || !!restoreError,
       };
+    },
+    actions: {
+      'open-path': (args, { signal }) => openFile(args.path as string, signal),
     },
   });
   const [showHidden, setShowHidden] = useState(false);
@@ -190,19 +193,21 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
     observer.observe(loadMore.current);
     return () => observer.disconnect();
   }, [visible, busy, error, listing, order, showHidden, search, editing, restoringEditor]);
-  async function openFile(path: string) {
-    if (opening.current) return;
+  async function openFile(path: string, signal?: AbortSignal) {
+    const checkCancelled = () => {
+      if (signal?.aborted) throw new SdkError('cancelled', 'Opening file cancelled');
+    };
+    checkCancelled();
+    if (opening.current || restoringEditor)
+      throw new SdkError('busy', 'A file is already opening or restoring');
+    if (selectedPath === path) return { path, view: editing ? 'editor' : 'details' };
+    const checkEditor = () => {
+      const current = fileEditors.get(tab.id);
+      if (current && (current.busy || !current.canSwitch()))
+        throw new SdkError('busy', 'Save or close the current file before opening another file.');
+    };
+    checkEditor();
     opening.current = true;
-    if (selectedPath === path) {
-      opening.current = false;
-      return;
-    }
-    const current = fileEditors.get(tab.id);
-    if (current && (current.busy || !current.canSwitch())) {
-      setError('Save or close the current file before opening another file.');
-      opening.current = false;
-      return;
-    }
     setBusy(true);
     setError('');
     try {
@@ -215,16 +220,14 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
         if (!limitation) throw error;
         reason = limitation;
       }
-      const latest = fileEditors.get(tab.id);
-      if (latest && (latest.busy || !latest.canSwitch())) {
-        throw new Error('Save or close the current file before opening another file.');
-      }
+      checkCancelled();
+      checkEditor();
       await sdk.storage.configure({ editorFile: document?.path ?? path });
+      checkCancelled();
       setRestoreError('');
       setEditing(document ?? undefined);
       setDetails(document ? undefined : { path, reason });
-    } catch (error) {
-      setError(String(error));
+      return { path: document?.path ?? path, view: document ? 'editor' : 'details' };
     } finally {
       setBusy(false);
       opening.current = false;
@@ -345,7 +348,13 @@ export function FilesContent({ tab, visible }: PluginContentProps) {
                     key={entry.path}
                     entry={entry}
                     selected={selectedPath}
-                    openFile={openFile}
+                    openFile={async (path) => {
+                      try {
+                        await openFile(path);
+                      } catch (error) {
+                        setError(String(error));
+                      }
+                    }}
                     showHidden={showHidden}
                     order={order}
                     search={search}

@@ -1122,3 +1122,15 @@ mise exec -- /usr/bin/python3 scripts/check-diff-native.py --interactions-only \
 mise exec -- node scripts/check-tab-interactions.mjs
 mise exec -- npm run build
 ```
+
+### Files open-path acceptance (2026-11-04)
+
+Private Xvfb/WebKitGTK report
+`/tmp/ongleet-diff-native-ld39o4eu/report.json` passes the interaction suite,
+including Files `open-path` through CLI and SDK in a hidden tab. Checks cover
+manifest discovery, missing/relative/directory paths, unchanged selection on
+failure, editor-confirmation rejection, editor and binary-details UI updates,
+unchanged explorer folder, dirty-state reporting and unsaved draft restoration.
+Cleanup records zero survivors. Plugin boundaries, production frontend build and
+seven editor-merge checks pass. Wayland acceptance for this action remains untested.
+Reproduce with the discoverable-interactions command above.
