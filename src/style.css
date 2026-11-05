@@ -13,7 +13,8 @@ body {
   margin: 0;
 }
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
@@ -31,10 +32,12 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
-input {
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'])),
+:where(select:not([multiple])) {
   min-width: 0;
   width: 100%;
-  padding: 8px 10px;
+  height: 36px;
+  padding: 0 10px;
   background: var(--editor);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -363,16 +366,6 @@ input {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-select {
-  min-width: 0;
-  width: 100%;
-  font: inherit;
-  color: inherit;
-  padding: 8px;
-  background: var(--editor);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
 h1 {
   font-size: 19px;
   margin: 0 0 5px;
@@ -558,21 +551,66 @@ dialog p {
   gap: 16px;
 }
 
-dialog[aria-label='Project editor'] {
-  width: min(720px, calc(100vw - 40px));
+dialog.project-editor {
+  width: min(1120px, calc(100vw - 40px));
   max-height: calc(100dvh - 40px);
+  overflow: hidden;
+}
+dialog.project-editor[open] {
+  display: flex;
+  flex-direction: column;
+}
+.project-editor > * {
+  flex-shrink: 0;
+}
+.project-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.project-editor-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+.project-editor > [role='tabpanel'] {
+  flex-shrink: 1;
+  min-height: 0;
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .settings-tabs {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   margin: 16px 0;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
 }
-.settings-tabs [aria-selected='true'] {
-  background: var(--selected3);
-  border-color: var(--accent);
+.settings-tabs [role='tab'] {
+  margin-bottom: -1px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--muted3);
+}
+.settings-tabs [role='tab']:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.settings-tabs [role='tab'][aria-selected='true'] {
+  background: var(--surface2);
+  border-color: var(--border);
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
 }
 .action-form,
 .action-yaml {
@@ -581,12 +619,26 @@ dialog[aria-label='Project editor'] {
 }
 .action-form fieldset {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 12px;
   min-width: 0;
   margin: 0;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+.action-grid {
+  display: grid;
+  gap: 16px;
+}
+.action-form fieldset > label {
+  min-width: 0;
+}
+.action-form fieldset > :not(label) {
+  grid-column: 1 / -1;
+}
+.project-editor > .muted {
+  overflow-wrap: anywhere;
 }
 .action-form legend {
   padding: 0 6px;
@@ -613,8 +665,8 @@ dialog[aria-label='Project editor'] {
 .settings-footer {
   margin-top: 16px;
 }
-dialog[aria-label='Project editor'] > .error,
-dialog[aria-label='Project editor'] > [role='status'] {
+dialog.project-editor > .error,
+dialog.project-editor > [role='status'] {
   margin-top: 12px;
 }
 

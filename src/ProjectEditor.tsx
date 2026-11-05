@@ -186,13 +186,28 @@ export function ProjectEditor({
   return (
     <dialog
       ref={dialog}
+      className="project-editor"
       aria-label={defaults ? 'Default actions' : 'Project editor'}
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
-      <h2>{defaults ? 'Default actions' : project ? 'Edit project' : 'New project'}</h2>
+      <div className="project-editor-header">
+        <h2>{defaults ? 'Default actions' : project ? 'Edit project' : 'New project'}</h2>
+        <button
+          type="button"
+          className="project-editor-close"
+          aria-label="Close settings"
+          title="Close settings"
+          disabled={busy}
+          onClick={close}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </button>
+      </div>
       {defaults && (
         <p className="muted">
           Copied to projects when their actions are first initialized. Existing project settings
@@ -390,88 +405,90 @@ export function ProjectEditor({
             Add variable
           </button>
         </section>
-        {draft.map((action, index) => (
-          <fieldset key={action.id} disabled={busy}>
-            <legend>
-              {index + 1}. {action.name || 'New action'}
-            </legend>
-            <label>
-              Name
-              <input
-                aria-label="Action name"
-                value={action.name}
-                onChange={(event) => patch(action.id, { name: event.target.value })}
-              />
-            </label>
-            <label>
-              Action type
-              <select
-                aria-label="Action type"
-                value={action.kind}
-                onChange={(event) =>
-                  patch(action.id, {
-                    kind: event.target.value,
-                    configVersion: 1,
-                    pluginConfig: actionEditor(event.target.value)!.toDraft(
-                      event.target.value === 'terminal' || event.target.value === 'command'
-                        ? { executable: 'bash' }
-                        : {},
-                    ),
-                  })
-                }
-              >
-                {plugins.map((plugin) => (
-                  <option key={plugin.id} value={plugin.id}>
-                    {plugin.label} tab
-                  </option>
-                ))}
-                <option value="command">External command</option>
-              </select>
-            </label>
-            {action.kind === 'command' && (
-              <p className="muted">
-                Runs independently of session tabs. Arguments and directory support{' '}
-                {'{{session.path}}'}, {'{{session.name}}'} and {'{{project.path}}'}. Output is
-                discarded. Use SESSION_PATH and PROJECT_PATH environment variables in shell-command
-                mode.
-              </p>
-            )}
-            {(() => {
-              const Editor = actionEditor(action.kind)?.ConfigurationEditor;
-              return Editor ? (
-                <Editor
-                  value={action.pluginConfig}
-                  onChange={(pluginConfig) => patch(action.id, { pluginConfig })}
+        <div className="action-grid">
+          {draft.map((action, index) => (
+            <fieldset key={action.id} disabled={busy}>
+              <legend>
+                {index + 1}. {action.name || 'New action'}
+              </legend>
+              <label>
+                Name
+                <input
+                  aria-label="Action name"
+                  value={action.name}
+                  onChange={(event) => patch(action.id, { name: event.target.value })}
                 />
-              ) : (
-                <p>Plugin unavailable: {action.kind}</p>
-              );
-            })()}
-            <div className="action-controls">
-              <button type="button" disabled={index === 0} onClick={() => move(index, -1)}>
-                Move earlier
-              </button>
-              <button
-                type="button"
-                disabled={index === draft.length - 1}
-                onClick={() => move(index, 1)}
-              >
-                Move later
-              </button>
-              <button
-                type="button"
-                disabled={draft.length <= 1}
-                onClick={() => {
-                  setDraft((current) => current.filter((item) => item.id !== action.id));
-                  setDirty(true);
-                  setNotice('');
-                }}
-              >
-                Remove action
-              </button>
-            </div>
-          </fieldset>
-        ))}
+              </label>
+              <label>
+                Action type
+                <select
+                  aria-label="Action type"
+                  value={action.kind}
+                  onChange={(event) =>
+                    patch(action.id, {
+                      kind: event.target.value,
+                      configVersion: 1,
+                      pluginConfig: actionEditor(event.target.value)!.toDraft(
+                        event.target.value === 'terminal' || event.target.value === 'command'
+                          ? { executable: 'bash' }
+                          : {},
+                      ),
+                    })
+                  }
+                >
+                  {plugins.map((plugin) => (
+                    <option key={plugin.id} value={plugin.id}>
+                      {plugin.label} tab
+                    </option>
+                  ))}
+                  <option value="command">External command</option>
+                </select>
+              </label>
+              {action.kind === 'command' && (
+                <p className="muted">
+                  Runs independently of session tabs. Arguments and directory support{' '}
+                  {'{{session.path}}'}, {'{{session.name}}'} and {'{{project.path}}'}. Output is
+                  discarded. Use SESSION_PATH and PROJECT_PATH environment variables in
+                  shell-command mode.
+                </p>
+              )}
+              {(() => {
+                const Editor = actionEditor(action.kind)?.ConfigurationEditor;
+                return Editor ? (
+                  <Editor
+                    value={action.pluginConfig}
+                    onChange={(pluginConfig) => patch(action.id, { pluginConfig })}
+                  />
+                ) : (
+                  <p>Plugin unavailable: {action.kind}</p>
+                );
+              })()}
+              <div className="action-controls">
+                <button type="button" disabled={index === 0} onClick={() => move(index, -1)}>
+                  Move earlier
+                </button>
+                <button
+                  type="button"
+                  disabled={index === draft.length - 1}
+                  onClick={() => move(index, 1)}
+                >
+                  Move later
+                </button>
+                <button
+                  type="button"
+                  disabled={draft.length <= 1}
+                  onClick={() => {
+                    setDraft((current) => current.filter((item) => item.id !== action.id));
+                    setDirty(true);
+                    setNotice('');
+                  }}
+                >
+                  Remove action
+                </button>
+              </div>
+            </fieldset>
+          ))}
+        </div>
         <button
           type="button"
           disabled={busy || draft.length >= 100}
