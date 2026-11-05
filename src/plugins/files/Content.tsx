@@ -6,6 +6,7 @@ import { readDraft } from './editor-drafts';
 import { FileSidebar } from '../../components/FileSidebar';
 import '../../components/file-tree.css';
 import { FileBranch } from './FileBranch';
+import { FileSearch } from './FileSearch';
 import { FileDetails, editorLimitation, type UnsupportedFile } from './FileDetails';
 import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
@@ -71,7 +72,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
         offset,
         order: sortOrder,
         showHidden: includeHidden,
-        query: search,
+        query: '',
       });
       if (request === generation.current) {
         if (offset === 0) await sdk.storage.configure({ folder: result.folder });
@@ -109,7 +110,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
       window.clearTimeout(timer);
       ++generation.current;
     };
-  }, [tab.id, configuredFolder, search]);
+  }, [tab.id, configuredFolder]);
   useEffect(() => {
     const file = config?.editorFile;
     if (!file) return;
@@ -176,6 +177,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
   useEffect(() => {
     if (
       !visible ||
+      !!search ||
       restoringEditor ||
       busy ||
       error ||
@@ -308,10 +310,10 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
               <Input
                 className="files-search"
                 type="search"
-                aria-label="Search filenames in current folder"
-                placeholder="Search files…"
+                aria-label="Search filenames and paths in all subfolders"
+                placeholder="Search all files by name or path…"
                 disabled={restoringEditor || opening.current}
-                maxLength={1024}
+                maxLength={256}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={(event) => {
@@ -342,31 +344,42 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                   {error}
                 </p>
               )}
-              <ul className="file-list" aria-label="Folder contents" aria-busy={busy}>
-                {listing?.entries.map((entry) => (
-                  <FileBranch
-                    key={entry.path}
-                    entry={entry}
-                    selected={selectedPath}
-                    openFile={async (path) => {
-                      try {
-                        await openFile(path);
-                      } catch (error) {
-                        setError(String(error));
-                      }
-                    }}
-                    showHidden={showHidden}
-                    order={order}
-                    search={search}
-                    refresh={listing}
-                    disabled={restoringEditor}
-                  />
-                ))}
-              </ul>
-              {listing && !busy && listing.entries.length === 0 && (
-                <p className="muted file-list-empty">
-                  {search ? 'No matching files.' : 'No entries in this folder.'}
-                </p>
+              {listing && (
+                <FileSearch
+                  refresh={listing}
+                  folder={listing.folder}
+                  query={search}
+                  showHidden={showHidden}
+                  selected={selectedPath}
+                  disabled={restoringEditor || busy}
+                  openFile={openFile}
+                />
+              )}
+              {!search && (
+                <ul className="file-list" aria-label="Folder contents" aria-busy={busy}>
+                  {listing?.entries.map((entry) => (
+                    <FileBranch
+                      key={entry.path}
+                      entry={entry}
+                      selected={selectedPath}
+                      openFile={async (path) => {
+                        try {
+                          await openFile(path);
+                        } catch (error) {
+                          setError(String(error));
+                        }
+                      }}
+                      showHidden={showHidden}
+                      order={order}
+                      search={search}
+                      refresh={listing}
+                      disabled={restoringEditor}
+                    />
+                  ))}
+                </ul>
+              )}
+              {!search && listing && !busy && listing.entries.length === 0 && (
+                <p className="muted file-list-empty">No entries in this folder.</p>
               )}
               <div ref={loadMore} className="files-load-more">
                 {busy && <p role="status">Loading files…</p>}

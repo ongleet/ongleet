@@ -12,6 +12,7 @@ import {
   type HttpResponse,
   type Attachment,
   type Listing,
+  type FileSearch,
   type Namespace,
   type ProcessRequest,
   type ProcessResult,
@@ -196,6 +197,8 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       },
     },
     fs: {
+      searchFiles: (options: { folder: string; query: string; showHidden: boolean }) =>
+        request<FileSearch>('searchFiles', options),
       list: (options: {
         folder: string;
         offset: number;

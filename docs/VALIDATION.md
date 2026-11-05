@@ -41,6 +41,8 @@ current evidence above supersedes older pending or failing claims.
 - Mixed-plugin Quit timeout/cleanup, sustained resource bounds and sudden power
   loss. Builds do not prove memory stability or clean shutdown.
 - Clean-system Ubuntu installation, upgrade behavior, WASM provenance and notices.
+- Native acceptance for recursive Files filename/path search, including rapid
+  query changes, hidden files, draft-safe result opening and partial-result messages.
 - Native acceptance after event-driven PTY waits, history throttling and Diff
   wrapping. Current builds do not validate already-running executables.
 

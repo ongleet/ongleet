@@ -63,6 +63,12 @@ pub enum Request {
         show_hidden: bool,
         query: String,
     },
+    SearchFiles {
+        folder: String,
+        query: String,
+        #[serde(rename = "showHidden")]
+        show_hidden: bool,
+    },
     OpenFile {
         path: String,
     },
@@ -170,6 +176,7 @@ pub async fn sdk_request(
 ) -> Result<serde_json::Value, SdkError> {
     let operation = match &request {
         Request::List { .. } => "list",
+        Request::SearchFiles { .. } => "searchFiles",
         Request::OpenFile { .. } => "openFile",
         Request::WatchText { .. } => "watchText",
         Request::UnwatchText { .. } => "unwatchText",
@@ -201,6 +208,7 @@ pub async fn sdk_request(
         let tab = guard.open_plugin_tab(id).map_err(SdkError::from)?;
         let capability = match &request {
             Request::List { .. }
+            | Request::SearchFiles { .. }
             | Request::ReadText { .. }
             | Request::SaveText { .. }
             | Request::WatchText { .. }
@@ -316,7 +324,10 @@ pub async fn sdk_request(
             | Request::RemoveSessionTag { .. }
     );
     // Register jobs before releasing ownership; close/detach can then cancel them.
-    let job = if matches!(&request, Request::Process { .. }) {
+    let job = if matches!(
+        &request,
+        Request::Process { .. } | Request::SearchFiles { .. }
+    ) {
         let mut guard = registry.lock().map_err(|e| SdkError::from(e.to_string()))?;
         if guard.sdk_attachments.get(&id) != Some(&attachment) || guard.open_plugin_tab(id).is_err()
         {
@@ -337,9 +348,22 @@ pub async fn sdk_request(
     let watch_app = app.clone();
     let result =
         tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
-            if let Request::Process { request } = request {
+            if job.is_some() {
                 let job = job.unwrap();
-                let result = super::process::execute(request, job.cancel.clone());
+                let result = match request {
+                    Request::Process { request } => {
+                        super::process::execute(request, job.cancel.clone()).and_then(|result| {
+                            serde_json::to_value(result).map_err(|e| e.to_string())
+                        })
+                    }
+                    Request::SearchFiles {
+                        folder,
+                        query,
+                        show_hidden,
+                    } => super::fs::search::search(&folder, &query, show_hidden, &job.cancel)
+                        .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string())),
+                    _ => unreachable!(),
+                };
                 job.finished
                     .store(true, std::sync::atomic::Ordering::Release);
                 if let Ok(mut guard) = registry.lock() {
@@ -351,7 +375,7 @@ pub async fn sdk_request(
                         guard.plugin_jobs.remove(&id);
                     }
                 }
-                return serde_json::to_value(result?).map_err(|e| e.to_string());
+                return result;
             }
             // Keep metadata operations atomic with attachment and tab validation.
             let mut guard = registry.lock().map_err(|e| e.to_string())?;
@@ -360,7 +384,8 @@ pub async fn sdk_request(
             }
             guard.open_plugin_tab(id)?;
             let json = match request {
-                Request::EnvironmentGet { .. }
+                Request::SearchFiles { .. }
+                | Request::EnvironmentGet { .. }
                 | Request::CredentialGet { .. }
                 | Request::CredentialSet { .. }
                 | Request::CredentialDelete { .. }

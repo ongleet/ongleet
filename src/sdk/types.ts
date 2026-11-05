@@ -94,3 +94,9 @@ export type TabCapabilities = {
   stateAvailable: boolean;
   availableActions: string[];
 };
+
+export type FileSearch = {
+  matches: { path: string; relativePath: string }[];
+  truncated: boolean;
+  skipped: number;
+};
