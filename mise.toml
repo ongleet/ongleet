@@ -5,3 +5,13 @@ rust = "stable"
 
 [env]
 CODEX_HOME="${HOME}/.codex-pro/"
+
+[tasks.dev]
+description = "Run the development app with isolated, persistent preview data"
+run = '''
+env \
+  XDG_DATA_HOME="${HOME}/.local/share/ongleet-dev" \
+  XDG_CONFIG_HOME="${HOME}/.config/ongleet-dev" \
+  XDG_CACHE_HOME="${HOME}/.cache/ongleet-dev" \
+  npm run tauri -- dev
+'''

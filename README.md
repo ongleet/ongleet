@@ -136,8 +136,14 @@ Install the toolchains with [mise](https://mise.jdx.dev/) and run from source:
 mise install
 mise exec -- npm install
 mise exec -- npm run check:host
-mise exec -- npm run tauri -- dev
+mise run dev
 ```
+
+`mise run dev` keeps persistent preview data, configuration and cache under
+`~/.local/share/ongleet-dev`, `~/.config/ongleet-dev` and `~/.cache/ongleet-dev`.
+It can run alongside the installed app with separate sessions and settings.
+Project files, Codex configuration and desktop credentials remain shared.
+Development instances still share Vite port 1420.
 
 Create a project pointing to an existing directory, then add a session. Each new
 session launches its first configured terminal action. Use the tab menu to add
@@ -157,8 +163,8 @@ sudo apt install ./src-tauri/target/release/bundle/deb/Ongleet_0.1.0_amd64.deb
 
 Use the filename emitted by the build. Launch **Ongleet** from the desktop menu or
 run `ongleet-gui`; the package also installs `ongleet` and `ong-codex` on PATH.
-Quit an existing development instance before testing the package: both use the
-same saved data. Packages depend on the build host's system libraries; see
+The package uses regular application data, separate from `mise run dev`.
+Packages depend on the build host's system libraries; see
 [packaging details](docs/USAGE.md#install-a-local-ubuntu-package).
 
 ## Go further
