@@ -15,15 +15,11 @@
 .note-toolbar span {
   margin-right: auto;
 }
-.note-panel textarea {
+.note-markdown-editor {
+  overflow: hidden;
   flex: 1;
   min-height: 120px;
   width: 100%;
-  resize: none;
-  padding: 12px;
-  font-family: monospace;
-  line-height: 1.5;
-  tab-size: 2;
   color: var(--text);
   background: var(--editor);
   border: 1px solid var(--border);

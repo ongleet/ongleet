@@ -18,6 +18,7 @@ export class NoteModel {
   error = '';
   observedAt: string | null = null;
   private pending: Promise<void> | null = null;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
   constructor(
     private storage: Storage,
     private changed: () => void,
@@ -47,6 +48,7 @@ export class NoteModel {
   async load(discard = false) {
     if ((!discard && this.dirty) || this.pending)
       throw new SdkError('busy', 'Save pending edits first.');
+    this.cancelScheduledSave();
     this.loading = true;
     this.changed();
     let migrate = false;
@@ -144,11 +146,25 @@ export class NoteModel {
     return id;
   }
 
+  scheduleSave() {
+    this.cancelScheduledSave();
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      void this.save().catch(() => {});
+    }, 500);
+  }
+
+  private cancelScheduledSave() {
+    if (this.saveTimer !== null) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+  }
+
   save(): Promise<void> {
+    this.cancelScheduledSave();
     if (this.pending) return this.pending;
     const work = Promise.resolve().then(async () => {
       try {
-        while (this.dirty) {
+        while (this.dirty && this.saveTimer === null) {
           const snapshot = this.book;
           const result = await this.storage.replace(this.revision, snapshot);
           this.saved = JSON.stringify(snapshot);

@@ -13,7 +13,7 @@ export const editorSyntaxHighlighting = (theme: ThemePreset) =>
   syntaxHighlighting(
     HighlightStyle.define([
       { tag: tags.keyword, color: theme.syntax.keyword },
-      { tag: [tags.string, tags.regexp], color: theme.syntax.string },
+      { tag: [tags.string, tags.regexp, tags.monospace], color: theme.syntax.string },
       { tag: [tags.number, tags.bool, tags.null], color: theme.syntax.number },
       { tag: tags.comment, color: theme.syntax.comment, fontStyle: 'italic' },
       {

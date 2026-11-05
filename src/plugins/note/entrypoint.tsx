@@ -1,8 +1,9 @@
-import { Button, Input, TabPanel, Textarea } from '../../components/Controls';
+import { Button, Input, TabPanel } from '../../components/Controls';
 import { useEffect, useState } from 'react';
 import { useSdk, useTabInteractions } from '../../sdk';
 import type { PluginContentProps } from '../types';
 import { NoteModel } from './model';
+import { MarkdownEditor } from './MarkdownEditor';
 import './note.css';
 
 const models = new Set<NoteModel>();
@@ -26,6 +27,7 @@ function Content({ tab, visible }: PluginContentProps) {
     void note.load().catch(() => {});
     return () => {
       models.delete(note);
+      void note.save().catch(() => {});
     };
   }, [note]);
   useTabInteractions({
@@ -73,7 +75,7 @@ function Content({ tab, visible }: PluginContentProps) {
     try {
       change();
       setInputError('');
-      void note.save().catch(() => {});
+      note.scheduleSave();
     } catch (error) {
       setInputError(String(error));
     }
@@ -117,12 +119,6 @@ function Content({ tab, visible }: PluginContentProps) {
           <div className="note-toolbar">
             <span>Markdown · saved automatically</span>
             <Button
-              disabled={note.loading || note.saving || !note.dirty}
-              onClick={() => void note.save().catch(() => {})}
-            >
-              Retry save
-            </Button>
-            <Button
               disabled={note.loading || note.saving}
               onClick={() => void note.load(true).catch(() => {})}
             >
@@ -137,13 +133,12 @@ function Content({ tab, visible }: PluginContentProps) {
               rename={(name) => update(() => note.rename(name))}
             />
           )}
-          <Textarea
-            aria-label="Markdown note"
-            spellCheck={false}
+          <MarkdownEditor
+            key={note.selectedNoteId}
+            text={note.text}
             disabled={note.loading || !note.notes.length}
-            value={note.text}
-            placeholder={'# Session notes\n\n- [ ] Next task'}
-            onChange={(event) => update(() => note.edit(event.target.value))}
+            visible={visible}
+            onChange={(text) => update(() => note.edit(text))}
           />
         </div>
       </div>

@@ -29,15 +29,16 @@ def check(client, native, directory, env, session, mark, cli):
     first_id = first['selectedNoteId']
     assert first['text'] == ''
     assert client.js("return !!document.querySelector('.note-sidebar button[aria-current=true]')")
-    # Exercise the actual React input handler without claiming physical keyboard acceptance.
-    client.js("const el=document.querySelector('.note-editor textarea');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('input',{bubbles:true}));", '# Session TODO\n- [ ] Review')
+    # Exercise the CodeMirror input path through the native driver.
+    client.click('.note-markdown-editor .cm-content')
+    client.keys('# Session TODO\n- [ ] Review')
     native.wait_for(lambda: (data if (data := ready()) and data['text'] == '# Session TODO\n- [ ] Review' else None), 'UI autosave')
     client.click("//button[normalize-space()='Add note']", 'xpath')
     second = native.wait_for(lambda: (data if (data := ready()) and len(data['notes']) == 2 else None), 'second note')
     second_id = second['selectedNoteId']
     assert second_id != first_id and second['text'] == ''
     client.js("const el=document.querySelector('.note-name input');el.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'Agent memory');el.dispatchEvent(new Event('input',{bubbles:true}));")
-    client.click('.note-editor textarea')
+    client.click('.note-markdown-editor .cm-content')
     native.wait_for(lambda: (data if (data := ready()) and data['notes'][1]['name'] == 'Agent memory' else None), 'UI rename')
     data = ready()
     result = invoke('set-text', {'noteId': second_id, 'revision': data['revision'], 'text': 'Remember this decision'})

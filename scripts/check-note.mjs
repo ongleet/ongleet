@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 const moduleUrl = (source) =>
@@ -134,6 +135,38 @@ const migratedId = migrated.selectedNoteId;
 await migrated.load();
 assert.equal(migrated.selectedNoteId, migratedId);
 assert.equal(record.revision, 8);
+// Typing resets the debounce; explicit lifecycle saves flush without waiting.
+mock.timers.enable({ apis: ['setTimeout'] });
+try {
+  migrated.edit('First keystrokes');
+  migrated.scheduleSave();
+  mock.timers.tick(400);
+  migrated.edit('Latest keystrokes');
+  migrated.scheduleSave();
+  mock.timers.tick(499);
+  await Promise.resolve();
+  assert.equal(record.revision, 8);
+  mock.timers.tick(1);
+  await migrated.save();
+  assert.equal(record.revision, 9);
+  assert.equal(record.value.notes[0].text, 'Latest keystrokes');
+  migrated.edit('Flush before quit');
+  migrated.scheduleSave();
+  await migrated.save();
+  assert.equal(record.value.notes[0].text, 'Flush before quit');
+  mock.timers.tick(500);
+  await Promise.resolve();
+  assert.equal(record.revision, 10);
+  migrated.edit('Discard this draft');
+  migrated.scheduleSave();
+  await migrated.load(true);
+  mock.timers.tick(500);
+  await Promise.resolve();
+  assert.equal(migrated.text, 'Flush before quit');
+  assert.equal(record.revision, 10);
+} finally {
+  mock.timers.reset();
+}
 console.log(
   'Notebook migration, multiple notes, queued autosave, recovery and revision checks passed.',
 );
