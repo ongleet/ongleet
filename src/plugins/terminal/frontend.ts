@@ -472,7 +472,10 @@ export class TerminalFrontend {
   async sendText(text: string, enter = false) {
     if (this.id === undefined || this.replaying || this.disposed)
       throw new SdkError('unavailable', 'Terminal unavailable');
-    await this.sdk.pty.sendText(this.id, text, { enter });
+    await this.sdk.pty.sendText(this.id, text, {
+      enter,
+      bracketedPaste: this.term?.getMode(2004) ?? false,
+    });
     return { acknowledged: true };
   }
 

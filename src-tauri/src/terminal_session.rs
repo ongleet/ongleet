@@ -127,6 +127,7 @@ pub struct Attachment {
 
 struct Input {
     bytes: Vec<u8>,
+    enter: bool,
     done: mpsc::Sender<Result<(), String>>,
 }
 
@@ -314,7 +315,20 @@ impl TerminalSession {
             while let Ok(request) = pending_input.recv() {
                 let result = (|| {
                     let mut bytes = request.bytes.as_slice();
-                    while !bytes.is_empty() {
+                    let mut submit = request.enter;
+                    loop {
+                        if bytes.is_empty() {
+                            if !submit {
+                                break;
+                            }
+                            // Agent TUIs detect rapid input as paste. Let that
+                            // window expire before sending the submission key.
+                            if !request.bytes.is_empty() {
+                                std::thread::sleep(Duration::from_millis(500));
+                            }
+                            submit = false;
+                            bytes = b"\r";
+                        }
                         if writer_cancel.cancelled.load(Ordering::Acquire) {
                             return Err("Terminal has exited".into());
                         }
@@ -526,7 +540,15 @@ impl TerminalSession {
         &self,
         bytes: Vec<u8>,
     ) -> Result<mpsc::Receiver<Result<(), String>>, String> {
-        if bytes.len() > 8192 {
+        self.queue_text(bytes, false)
+    }
+
+    pub fn queue_text(
+        &self,
+        bytes: Vec<u8>,
+        enter: bool,
+    ) -> Result<mpsc::Receiver<Result<(), String>>, String> {
+        if bytes.len() + usize::from(enter) > 8192 {
             return Err("Input chunk exceeds 8 KiB".into());
         }
         let (done, result) = mpsc::channel();
@@ -537,7 +559,7 @@ impl TerminalSession {
             .input
             .as_ref()
             .ok_or("Terminal is stopped")?
-            .try_send(Input { bytes, done })
+            .try_send(Input { bytes, enter, done })
             .map_err(|e| e.to_string())?;
         Ok(result)
     }

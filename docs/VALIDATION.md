@@ -1363,3 +1363,20 @@ failed-save retry and disposal. Native WebKitGTK lifecycle/restart acceptance
 and live before/after CPU measurement were not performed for this change.
 The longer periodic interval increases the unsaved-history window on abrupt
 application death; normal lifecycle flushes bypass it.
+
+## Agent text submission (2026-11-05)
+
+Live development-instance validation used ABG → Main → Codex (terminal tab 2).
+A 7,275-byte multiline `send-text` payload remained in the composer with raw
+input and a delayed Enter. Negotiated bracketed paste followed by a separate
+Enter submitted the same-sized fixture, and Codex returned `ONG_BRACKET_OK`.
+The fixture requested no tools or file changes. Sending the previously pending
+Diff comment through tab 5's `send-comment` action then started Codex without
+manual Enter; Codex posted the requested 20-word reply in the original thread.
+
+`check:terminal-input` includes deterministic checks for paste framing, chunk
+bounds at the maximum payload size, text-write acknowledgement before Enter,
+submission delay, literal input without Enter, and failed writes without retry.
+The CLI preserves literal input semantics and separates optional Enter inside
+the bounded Rust writer queue. Live acceptance here covers Codex in the current
+development instance; other agent TUIs and display backends were not exercised.

@@ -1,3 +1,4 @@
+import { sendPtyText } from './pty-text';
 import { themeAccess } from '../appearance';
 // Private native boundary. Plugins import only the SDK public entrypoint.
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -342,14 +343,17 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
         return native<Attachment | null>('sdk_pty_connect', { id, attachment, ...options, output });
       },
       acknowledge: (runtimeId: number, seq: number) => pty<void>('acknowledge', { runtimeId, seq }),
-      sendText: (runtimeId: number, text: string, options: { enter?: boolean } = {}) => {
-        const bytes = new TextEncoder().encode(text + (options.enter ? '\r' : ''));
-        if (bytes.length > 8192)
-          return Promise.reject(
-            new SdkError('limit_exceeded', 'Input exceeds 8 KiB including Enter'),
-          );
-        return pty<void>('input', { runtimeId, bytes: Array.from(bytes) });
-      },
+      sendText: (
+        runtimeId: number,
+        text: string,
+        options: { enter?: boolean; bracketedPaste?: boolean } = {},
+      ) =>
+        sendPtyText(
+          (bytes) => pty<void>('input', { runtimeId, bytes }),
+          text,
+          options.enter,
+          options.bracketedPaste,
+        ),
       input: (runtimeId: number, bytes: number[]) => pty<void>('input', { runtimeId, bytes }),
       resize: (runtimeId: number, cols: number, rows: number) =>
         pty<void>('resize', { runtimeId, cols, rows }),

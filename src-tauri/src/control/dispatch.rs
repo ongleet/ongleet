@@ -404,11 +404,8 @@ pub fn handle(
             serde_json::to_value(updated).map_err(|e| failed(e.to_string()))?
         }
         Command::TabInput { id, text, enter } => {
-            let mut bytes = text.into_bytes();
-            if enter {
-                bytes.push(b'\r');
-            }
-            if bytes.len() > 8192 {
+            let bytes = text.into_bytes();
+            if bytes.len() + usize::from(enter) > 8192 {
                 return Err(RpcError::new(
                     "limit_exceeded",
                     "Input exceeds 8 KiB including Enter",
@@ -422,7 +419,7 @@ pub fn handle(
                 return Err(RpcError::new("unavailable", "Terminal is stopped"));
             }
             let result = terminal
-                .queue_input(bytes)
+                .queue_text(bytes, enter)
                 .map_err(|error| RpcError::new("busy", error))?;
             // Never hold the registry while waiting for a blocked PTY writer.
             drop(registry);

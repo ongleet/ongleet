@@ -600,3 +600,45 @@ fn io_cancellation_wakes_all_waiters_and_remains_signalled() {
     }
     assert!(!cancel.wait_io(&file, libc::POLLIN).unwrap());
 }
+
+#[test]
+fn text_submission_separates_enter_from_paste() {
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn(
+        1,
+        launch(
+            "import os,tty,select; tty.setraw(0); os.write(1,b'READY'); data=os.read(0,8192); assert data == 'review\\n日本語'.encode(), repr(data); assert not select.select([0],[],[],0.1)[0], 'Enter arrived inside paste window'; assert os.read(0,1) == b'\\r'; assert os.read(0,1) == b'Z'; os.write(1,b'SUBMITTED')",
+        ),
+        output,
+    )
+    .unwrap();
+    let mut ready = Vec::new();
+    while !ready.ends_with(b"READY") {
+        match receive.recv_timeout(Duration::from_secs(5)).unwrap() {
+            Output::Data { seq, bytes } => {
+                ready.extend(bytes);
+                session.acknowledge(seq).unwrap();
+            }
+            Output::Size { seq, .. } | Output::Ready { seq } => {
+                session.acknowledge(seq).unwrap();
+            }
+            _ => panic!("Probe exited before becoming ready"),
+        }
+    }
+    assert!(session.queue_text(vec![b'x'; 8192], true).is_err());
+    let submitted = session
+        .queue_text("review\n日本語".as_bytes().to_vec(), true)
+        .unwrap();
+    submitted
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    session
+        .queue_input(b"Z".to_vec())
+        .unwrap()
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap();
+    assert_eq!(drain(&session, &receive), b"SUBMITTED");
+    session.close().unwrap();
+}

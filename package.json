@@ -15,7 +15,7 @@
     "check:terminal-history": "node scripts/check-terminal-history.mjs",
     "check:terminal-reuse": "node scripts/check-terminal-reuse.mjs",
     "check:rendering": "node scripts/check-rendering.mjs && node scripts/check-terminal-rendering.mjs",
-    "check:terminal-input": "node scripts/check-terminal-input.mjs",
+    "check:terminal-input": "node scripts/check-terminal-input.mjs && node scripts/check-pty-text.mjs",
     "check:terminal-selection": "node scripts/check-terminal-selection.mjs",
     "check:engine-loader": "node scripts/check-engine-loader.mjs",
     "check:editor-merge": "node scripts/check-editor-merge.mjs",
