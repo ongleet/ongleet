@@ -1,3 +1,4 @@
+import { Input } from '../../components/Controls';
 import type { ConfigurationEditorProps } from '..';
 export function FilesConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
   let config: { folder?: string; editorFile?: string } = {};
@@ -11,7 +12,7 @@ export function FilesConfigurationEditor({ value, onChange }: ConfigurationEdito
   return (
     <label>
       Initial folder
-      <input
+      <Input
         placeholder="Session directory"
         value={folder}
         onChange={(event) =>

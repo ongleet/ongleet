@@ -1,3 +1,4 @@
+import { Button, Dialog, Textarea } from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { actionEditor } from './plugins';
 import type { PluginTab } from './plugins/types';
@@ -23,7 +24,7 @@ export function TabConfiguration({
   }, []);
   const Editor = editor?.ConfigurationEditor;
   return (
-    <dialog
+    <Dialog
       ref={dialog}
       aria-label="Tab configuration"
       onCancel={(event) => {
@@ -64,7 +65,7 @@ export function TabConfiguration({
           ) : (
             <label>
               Configuration (JSON)
-              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} />
+              <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} />
             </label>
           )}
         </fieldset>
@@ -74,12 +75,12 @@ export function TabConfiguration({
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" disabled={busy} onClick={dismiss}>
+          <Button type="button" disabled={busy} onClick={dismiss}>
             Cancel
-          </button>
-          <button disabled={busy}>Save configuration</button>
+          </Button>
+          <Button disabled={busy}>Save configuration</Button>
         </div>
       </form>
-    </dialog>
+    </Dialog>
   );
 }

@@ -1,3 +1,11 @@
+import {
+  Button,
+  Dialog,
+  Disclosure,
+  DisclosureTrigger,
+  Input,
+  Select,
+} from './components/Controls';
 import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { actionEditor, plugins } from './plugins';
@@ -52,7 +60,7 @@ export function SessionMenu({
   }
   return (
     <>
-      <details
+      <Disclosure
         className="titlebar-menu session-actions-menu"
         name="titlebar-menu"
         ref={menu}
@@ -70,15 +78,15 @@ export function SessionMenu({
           }
         }}
       >
-        <summary aria-label="Session and tab menu" title="Session and tab menu">
+        <DisclosureTrigger aria-label="Session and tab menu" title="Session and tab menu">
           <span aria-hidden="true">⋮</span>
-        </summary>
+        </DisclosureTrigger>
         <div className="app-menu-items">
           {loading && <p role="status">Loading actions…</p>}
           {error && (
             <p className="error" role="alert">
               {error}
-              <button
+              <Button
                 disabled={disabled}
                 onClick={() => {
                   menu.current!.open = false;
@@ -86,7 +94,7 @@ export function SessionMenu({
                 }}
               >
                 Open action settings…
-              </button>
+              </Button>
             </p>
           )}
           {(sessionId === null ? [] : (['tabs', 'external'] as const)).map((group) => (
@@ -95,7 +103,7 @@ export function SessionMenu({
               {actions
                 .filter((action) => (action.kind === 'command') === (group === 'external'))
                 .map((action) => (
-                  <button
+                  <Button
                     key={action.id}
                     disabled={disabled || loading}
                     title={
@@ -110,14 +118,14 @@ export function SessionMenu({
                     }}
                   >
                     {action.name}
-                  </button>
+                  </Button>
                 ))}
               {!loading &&
                 !error &&
                 !actions.some(
                   (action) => (action.kind === 'command') === (group === 'external'),
                 ) && (
-                  <button
+                  <Button
                     disabled={disabled}
                     onClick={() => {
                       menu.current!.open = false;
@@ -127,10 +135,10 @@ export function SessionMenu({
                     {group === 'tabs'
                       ? 'No tabs configured — configure…'
                       : 'No actions configured — configure…'}
-                  </button>
+                  </Button>
                 )}
               {group === 'tabs' && (
-                <button
+                <Button
                   disabled={disabled}
                   onClick={() => {
                     menu.current!.open = false;
@@ -138,14 +146,14 @@ export function SessionMenu({
                   }}
                 >
                   Custom tab…
-                </button>
+                </Button>
               )}
             </div>
           ))}
           {activeTabName !== undefined && (
             <div>
               <p className="muted">Tab</p>
-              <button
+              <Button
                 disabled={disabled}
                 onClick={() => {
                   menu.current!.open = false;
@@ -153,8 +161,8 @@ export function SessionMenu({
                 }}
               >
                 Configure…
-              </button>
-              <button
+              </Button>
+              <Button
                 disabled={disabled}
                 title={`Archive “${activeTabName}” for 30 days`}
                 onClick={() => {
@@ -163,10 +171,10 @@ export function SessionMenu({
                 }}
               >
                 Archive tab
-              </button>
+              </Button>
             </div>
           )}
-          <button
+          <Button
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
@@ -174,9 +182,9 @@ export function SessionMenu({
             }}
           >
             Archives
-          </button>
+          </Button>
         </div>
-      </details>
+      </Disclosure>
       {custom && (
         <CustomTab
           disabled={disabled}
@@ -210,7 +218,7 @@ function CustomTab({
   const editor = actionEditor(kind)!;
   const Editor = editor.ConfigurationEditor;
   return (
-    <dialog
+    <Dialog
       ref={(node) => {
         dialog.current = node;
         if (node && !node.open) node.showModal();
@@ -251,7 +259,7 @@ function CustomTab({
         <fieldset disabled={disabled || busy}>
           <label>
             Name
-            <input
+            <Input
               autoFocus
               required
               value={name}
@@ -260,7 +268,7 @@ function CustomTab({
           </label>
           <label>
             Tab type
-            <select
+            <Select
               value={kind}
               onChange={(event) => {
                 const kind = event.target.value;
@@ -277,7 +285,7 @@ function CustomTab({
                     {plugin.label}
                   </option>
                 ))}
-            </select>
+            </Select>
           </label>
           <Editor value={draft} onChange={setDraft} />
         </fieldset>
@@ -287,12 +295,12 @@ function CustomTab({
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" disabled={busy} onClick={dismiss}>
+          <Button type="button" disabled={busy} onClick={dismiss}>
             Cancel
-          </button>
-          <button disabled={disabled || busy || !name.trim()}>Create tab</button>
+          </Button>
+          <Button disabled={disabled || busy || !name.trim()}>Create tab</Button>
         </div>
       </form>
-    </dialog>
+    </Dialog>
   );
 }

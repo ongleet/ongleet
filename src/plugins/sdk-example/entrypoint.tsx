@@ -1,3 +1,4 @@
+import { Button, TabPanel } from '../../components/Controls';
 import { useState } from 'react';
 import { useSdk } from '../../sdk';
 import type { PluginContentProps } from '../types';
@@ -64,21 +65,21 @@ function Content({ tab, visible }: PluginContentProps) {
     }
   }
   return (
-    <section className="plugin-panel" role="tabpanel" id={`tab-panel-${tab.id}`} hidden={!visible}>
+    <TabPanel className="plugin-panel" id={`tab-panel-${tab.id}`} hidden={!visible}>
       <p>
         Frontend-only filesystem, literal process arguments and revision-checked storage example.
       </p>
-      <button disabled={busy} onClick={() => void run()}>
+      <Button disabled={busy} onClick={() => void run()}>
         Run SDK example
-      </button>
-      <button disabled={busy} onClick={() => void inspectTerminal()}>
+      </Button>
+      <Button disabled={busy} onClick={() => void inspectTerminal()}>
         Discover terminal state
-      </button>
-      <button disabled={busy} onClick={() => void sendExample()}>
+      </Button>
+      <Button disabled={busy} onClick={() => void sendExample()}>
         Send example text without Enter
-      </button>
+      </Button>
       <p role="status">{message}</p>
-    </section>
+    </TabPanel>
   );
 }
 function ConfigurationEditor() {

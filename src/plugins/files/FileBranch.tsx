@@ -1,3 +1,4 @@
+import { Button, Disclosure, DisclosureTrigger } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { FileIcon } from '../../components/FileIcon';
 import { FolderIcon } from '../../components/FolderIcon';
@@ -63,14 +64,14 @@ export function FileBranch(props: Props) {
   return (
     <li>
       {entry.directory ? (
-        <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
-          <summary title={entry.path}>
+        <Disclosure open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
+          <DisclosureTrigger title={entry.path}>
             <FolderIcon />
             <span className="file-tree-label">
               {entry.name}
               {entry.symlink ? ' ↗' : ''}
             </span>
-          </summary>
+          </DisclosureTrigger>
           <ul className="file-list">
             {listing?.entries.map((child) => (
               <FileBranch {...props} key={child.path} entry={child} />
@@ -83,16 +84,16 @@ export function FileBranch(props: Props) {
             </p>
           )}
           {!busy && (!listing || listing.nextOffset != null || error) && (
-            <button type="button" onClick={() => void load(error ? 0 : (listing?.nextOffset ?? 0))}>
+            <Button type="button" onClick={() => void load(error ? 0 : (listing?.nextOffset ?? 0))}>
               {error ? 'Retry loading' : 'Load more'}
-            </button>
+            </Button>
           )}
           {!busy && listing?.entries.length === 0 && (
             <p className="muted file-list-empty">No entries in this folder.</p>
           )}
-        </details>
+        </Disclosure>
       ) : (
-        <button
+        <Button
           type="button"
           title={entry.path}
           disabled={disabled}
@@ -102,7 +103,7 @@ export function FileBranch(props: Props) {
           <FileIcon />
           <span className="file-tree-label">{entry.name}</span>
           {entry.symlink && <span aria-label="Symbolic link">↗</span>}
-        </button>
+        </Button>
       )}
     </li>
   );

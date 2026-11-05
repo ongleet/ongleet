@@ -1,3 +1,4 @@
+import { Button } from '../../components/Controls';
 import { useState } from 'react';
 import { useSdk } from '../../sdk';
 
@@ -53,15 +54,15 @@ export function FileDetails({
         </p>
       )}
       <div className="file-details-actions">
-        <button disabled={busy} onClick={() => void openExternally()}>
+        <Button disabled={busy} onClick={() => void openExternally()}>
           {busy ? 'Opening…' : 'Open in default application'}
-        </button>
-        <button
+        </Button>
+        <Button
           disabled={busy}
           onClick={() => void close().catch((error) => setError(String(error)))}
         >
           Close file
-        </button>
+        </Button>
       </div>
     </section>
   );

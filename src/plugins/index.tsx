@@ -1,3 +1,4 @@
+import { TabPanel } from '../components/Controls';
 import { useEffect, useState, type ComponentType } from 'react';
 import { createSdk } from '../sdk/transport';
 import { SdkContext, type PluginSdk } from '../sdk';
@@ -48,8 +49,7 @@ export function TabHost(props: HostProps) {
   if (plugin && plugin.configVersion === props.tab.configVersion)
     return <AttachedPlugin key={props.tab.id} plugin={plugin} props={props} />;
   return (
-    <section
-      role="tabpanel"
+    <TabPanel
       id={`tab-panel-${props.tab.id}`}
       aria-labelledby={`tab-${props.tab.id}`}
       hidden={!props.visible}
@@ -59,7 +59,7 @@ export function TabHost(props: HostProps) {
         Plugin unavailable: {props.tab.kind} (configuration version {props.tab.configVersion}). Its
         saved configuration has been retained.
       </p>
-    </section>
+    </TabPanel>
   );
 }
 

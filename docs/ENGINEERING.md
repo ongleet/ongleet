@@ -27,6 +27,18 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 
 ## Shared form controls
 
+Use `src/components/Controls.tsx` for application and plugin buttons, inputs,
+selects, textareas, dialogs, disclosures and tabs. These primitives forward native
+props and React 19 refs without adding DOM wrappers. `Tab`, `TabList` and
+`TabPanel` own their accessibility roles; callers supply labels, selection,
+relationships and navigation handlers. `Tab` defaults to a non-submitting button
+and derives its focus order from `aria-selected`; regular `Button` preserves
+native submit behavior. Shared control styles live in `src/style.css`; contextual
+classes handle compact toolbars, icon buttons and other layout variants.
+Keep native `option`, `label` and `form` elements inside these controls. Menus
+retain their existing roles, popover/disclosure behavior and shared buttons.
+Third-party editor/terminal DOM remains owned by its library.
+
 Use `src/components/Checkbox.tsx` for application-owned checkbox inputs. Its
 shared stylesheet supplies themed unchecked, checked, disabled and keyboard-focus
 states. CodeMirror owns its search-panel DOM; those generated checkboxes inherit

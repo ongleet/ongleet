@@ -1,3 +1,4 @@
+import { Button, Disclosure, DisclosureTrigger } from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -44,7 +45,7 @@ export function WindowTitleBar({
       <span className="window-brand-mark" aria-label="Ongleet">
         ›_
       </span>
-      <details
+      <Disclosure
         className="titlebar-menu"
         name="titlebar-menu"
         ref={menu}
@@ -59,11 +60,11 @@ export function WindowTitleBar({
           }
         }}
       >
-        <summary aria-label="Application menu" title="Application menu">
+        <DisclosureTrigger aria-label="Application menu" title="Application menu">
           Application
-        </summary>
+        </DisclosureTrigger>
         <div className="app-menu-items">
-          <button
+          <Button
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
@@ -71,8 +72,8 @@ export function WindowTitleBar({
             }}
           >
             New project…
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
@@ -80,8 +81,8 @@ export function WindowTitleBar({
             }}
           >
             Configure…
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={disabled}
             onClick={() => {
               menu.current!.open = false;
@@ -89,16 +90,16 @@ export function WindowTitleBar({
             }}
           >
             Archives
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => {
               menu.current!.open = false;
               appearance();
             }}
           >
             Appearance…
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={quitDisabled}
             onClick={() => {
               menu.current!.open = false;
@@ -106,9 +107,9 @@ export function WindowTitleBar({
             }}
           >
             Quit
-          </button>
+          </Button>
         </div>
-      </details>
+      </Disclosure>
       <div
         className="window-drag-area"
         onMouseDown={(event) => {
@@ -118,7 +119,7 @@ export function WindowTitleBar({
         }}
       />
       <div className="window-controls">
-        <button
+        <Button
           aria-label="Minimize window"
           title="Minimize"
           disabled={!isTauri()}
@@ -127,8 +128,8 @@ export function WindowTitleBar({
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="M3 8h10" />
           </svg>
-        </button>
-        <button
+        </Button>
+        <Button
           aria-label={maximized ? 'Restore window' : 'Maximize window'}
           title={maximized ? 'Restore' : 'Maximize'}
           disabled={!isTauri()}
@@ -137,8 +138,8 @@ export function WindowTitleBar({
           <svg viewBox="0 0 16 16" aria-hidden="true">
             {maximized ? <path d="M5 5V3h8v8h-2M3 5h8v8H3z" /> : <path d="M3 3h10v10H3z" />}
           </svg>
-        </button>
-        <button
+        </Button>
+        <Button
           className="window-close"
           aria-label="Close window"
           title="Close — keep sessions running"
@@ -148,7 +149,7 @@ export function WindowTitleBar({
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="m4 4 8 8m0-8-8 8" />
           </svg>
-        </button>
+        </Button>
       </div>
     </header>
   );

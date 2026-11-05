@@ -1,3 +1,4 @@
+import { Button } from '../../components/Controls';
 import { Checkbox } from '../../components/Checkbox';
 import type { ReactNode } from 'react';
 
@@ -29,7 +30,7 @@ export function FileReview({
   return (
     <>
       <header>
-        <button
+        <Button
           type="button"
           className="diff-fold"
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${path}`}
@@ -37,14 +38,14 @@ export function FileReview({
           onClick={() => setExpanded(!expanded)}
         >
           <span aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-        </button>
+        </Button>
         <span className="diff-file-name">
           <span className="diff-status" data-status={statusCode}>
             {status}
           </span>{' '}
           {path}
         </span>
-        <button onClick={comment}>Comment</button>
+        <Button onClick={comment}>Comment</Button>
         <label className="diff-viewed">
           <Checkbox
             checked={viewed}

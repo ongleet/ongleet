@@ -1,3 +1,4 @@
+import { Button, Input, Select, TabPanel } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, useTabInteractions, SdkError, type Listing, type SortOrder } from '../../sdk';
 import { TextEditor, type TextDocument } from './TextEditor';
@@ -234,8 +235,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
     }
   }
   return (
-    <section
-      role="tabpanel"
+    <TabPanel
       id={`tab-panel-${tab.id}`}
       aria-labelledby={`tab-${tab.id}`}
       hidden={!visible}
@@ -252,13 +252,13 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
             {restoreError && (
               <div className="error" role="alert">
                 <p>{restoreError}</p>
-                <button
+                <Button
                   onClick={() =>
                     void leaveEditor().catch((error) => setRestoreError(String(error)))
                   }
                 >
                   Keep browsing
-                </button>
+                </Button>
               </div>
             )}
             <form
@@ -269,7 +269,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
               className="plugin-toolbar"
             >
               <div className="files-path">
-                <input
+                <Input
                   aria-label="Folder"
                   value={path}
                   onChange={(event) => setPath(event.target.value)}
@@ -280,7 +280,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                     }
                   }}
                 />
-                <button
+                <Button
                   className="files-refresh"
                   type="button"
                   aria-label="Refresh folder"
@@ -303,9 +303,9 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                     <path d="M20 7v5h-5M4 17v-5h5" />
                     <path d="M6.1 6.1A8 8 0 0 1 20 12M4 12a8 8 0 0 0 13.9 5.9" />
                   </svg>
-                </button>
+                </Button>
               </div>
-              <input
+              <Input
                 className="files-search"
                 type="search"
                 aria-label="Search filenames in current folder"
@@ -318,7 +318,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                   if (event.key === 'Enter') event.preventDefault();
                 }}
               />
-              <select
+              <Select
                 aria-label="Sort order (folders first)"
                 value={order}
                 disabled={busy || restoringEditor}
@@ -333,7 +333,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 <option value="dateAscending">Oldest</option>
                 <option value="sizeAscending">Smallest</option>
                 <option value="sizeDescending">Largest</option>
-              </select>
+              </Select>
             </form>
 
             <div className="files-content file-tree" ref={content}>
@@ -371,9 +371,9 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
               <div ref={loadMore} className="files-load-more">
                 {busy && <p role="status">Loading files…</p>}
                 {error && listing?.nextOffset != null && (
-                  <button onClick={() => void browse(listing.folder, listing.nextOffset!)}>
+                  <Button onClick={() => void browse(listing.folder, listing.nextOffset!)}>
                     Retry loading
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -405,6 +405,6 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
           )}
         </div>
       </div>
-    </section>
+    </TabPanel>
   );
 }

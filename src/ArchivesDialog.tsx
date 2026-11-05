@@ -1,3 +1,4 @@
+import { Button, Dialog } from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -52,7 +53,7 @@ export function ArchivesDialog({
     }
   }
   return (
-    <dialog
+    <Dialog
       ref={dialog}
       aria-label="Archives"
       className="archives-dialog"
@@ -63,9 +64,9 @@ export function ArchivesDialog({
     >
       <div className="archives-heading">
         <h2>Archives</h2>
-        <button disabled={busy} onClick={dismiss}>
+        <Button disabled={busy} onClick={dismiss}>
           Close
-        </button>
+        </Button>
       </div>
       <p className="muted">
         Sessions and removed tabs are kept for 30 days from archival. Expired archives are purged at
@@ -116,7 +117,7 @@ export function ArchivesDialog({
                 </td>
                 <td>
                   <div className="archive-actions">
-                    <button
+                    <Button
                       disabled={busy || entry.purging || entry.expiresAt * 1000 <= Date.now()}
                       onClick={async () => {
                         if (
@@ -130,8 +131,8 @@ export function ArchivesDialog({
                       }}
                     >
                       Restore
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       disabled={busy}
                       onClick={async () => {
                         if (
@@ -143,7 +144,7 @@ export function ArchivesDialog({
                       }}
                     >
                       Delete permanently
-                    </button>
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -152,7 +153,7 @@ export function ArchivesDialog({
         </table>
       )}
       <div className="dialog-actions">
-        <button
+        <Button
           disabled={busy}
           onClick={async () => {
             if (
@@ -164,8 +165,8 @@ export function ArchivesDialog({
           }}
         >
           Purge expired
-        </button>
+        </Button>
       </div>
-    </dialog>
+    </Dialog>
   );
 }

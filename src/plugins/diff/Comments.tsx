@@ -1,3 +1,4 @@
+import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../components/Controls';
 import { useState } from 'react';
 import type { Location, Thread } from './comments';
 export function Composer({
@@ -23,7 +24,7 @@ export function Composer({
         }
       }}
     >
-      <textarea
+      <Textarea
         aria-label={label}
         placeholder={label === 'Reply' ? 'Write a reply…' : 'Write a comment or question…'}
         autoFocus={autoFocus}
@@ -32,7 +33,7 @@ export function Composer({
         required
       />
       <div className="diff-composer-actions">
-        <button type="submit">{label === 'Comment' ? 'Add comment' : 'Reply'}</button>
+        <Button type="submit">{label === 'Comment' ? 'Add comment' : 'Reply'}</Button>
       </div>
     </form>
   );
@@ -81,7 +82,7 @@ export function Discussion({
               <time dateTime={comment.at}>{new Date(comment.at).toLocaleString()}</time>
             </div>
             <p className="diff-comment-text">{comment.text}</p>
-            <details
+            <Disclosure
               className="diff-message-send"
               onToggle={(e) => {
                 if (e.currentTarget.open)
@@ -90,10 +91,10 @@ export function Discussion({
                     .catch((error) => setStatus(String(error)));
               }}
             >
-              <summary>Send to…</summary>
+              <DisclosureTrigger>Send to…</DisclosureTrigger>
               <div className="diff-message-recipients">
                 {recipients.map((target) => (
-                  <button
+                  <Button
                     type="button"
                     key={target.id}
                     onClick={() => {
@@ -108,18 +109,18 @@ export function Discussion({
                     }}
                   >
                     {target.name}
-                  </button>
+                  </Button>
                 ))}
                 {!recipients.length && <span>No available recipients.</span>}
               </div>
-            </details>
+            </Disclosure>
           </article>
         ))}
       </div>
       <Composer label="Reply" submit={reply} />
-      <button type="button" className="diff-delete-thread" onClick={remove}>
+      <Button type="button" className="diff-delete-thread" onClick={remove}>
         Delete thread
-      </button>
+      </Button>
       {status && (
         <p className="diff-discussion-status" role="status">
           {status}

@@ -1,3 +1,4 @@
+import { Button } from './components/Controls';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Project, Session } from './main';
@@ -162,14 +163,14 @@ export function SessionSidebar({
     <aside id="session-sidebar" className="sidebar" aria-label="Sessions" style={{ width }}>
       <div className="sidebar-heading">
         <strong>Projects</strong>
-        <button
+        <Button
           disabled={!ready || disabled}
           onClick={createProject}
           aria-label="Create project"
           title="Create project"
         >
           +
-        </button>
+        </Button>
       </div>
       <nav className="session-list" aria-label="Select session">
         <ol
@@ -205,7 +206,7 @@ export function SessionSidebar({
                   setProjectDrop(null);
                 }}
               >
-                <button
+                <Button
                   id={`project-grip-${group.id}`}
                   className="session-grip"
                   draggable={!disabled}
@@ -243,8 +244,8 @@ export function SessionSidebar({
                       [3, 9].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.2" />),
                     )}
                   </svg>
-                </button>
-                <button
+                </Button>
+                <Button
                   className="project-toggle"
                   disabled={disabled}
                   aria-expanded={!group.collapsed}
@@ -257,8 +258,8 @@ export function SessionSidebar({
                 >
                   <span aria-hidden="true">{group.collapsed ? '▸' : '▾'}</span>
                   <span className="session-name">{group.name}</span>
-                </button>
-                <button
+                </Button>
+                <Button
                   className="project-icon"
                   disabled={!ready || disabled}
                   aria-label="Create session"
@@ -266,8 +267,8 @@ export function SessionSidebar({
                   onClick={() => create(group.id)}
                 >
                   +
-                </button>
-                <button
+                </Button>
+                <Button
                   id={`project-menu-${group.id}`}
                   className="session-menu-trigger"
                   disabled={disabled}
@@ -280,7 +281,7 @@ export function SessionSidebar({
                   }}
                 >
                   ⋮
-                </button>
+                </Button>
               </div>
               <ol id={`project-${group.id}`} className="project-sessions" hidden={group.collapsed}>
                 {sessions
@@ -326,7 +327,7 @@ export function SessionSidebar({
                           setDrop(null);
                         }}
                       >
-                        <button
+                        <Button
                           id={`session-grip-${session.id}`}
                           className="session-grip"
                           draggable={!disabled}
@@ -374,8 +375,8 @@ export function SessionSidebar({
                               [3, 9].map((x) => <circle key={`${x}-${y}`} cx={x} cy={y} r="1.2" />),
                             )}
                           </svg>
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           className="session-choice"
                           aria-current={selectedId === session.id ? 'page' : undefined}
                           disabled={disabled}
@@ -412,8 +413,8 @@ export function SessionSidebar({
                               ))}
                             </span>
                           )}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           id={`session-menu-${session.id}`}
                           className="session-menu-trigger"
                           disabled={disabled}
@@ -427,7 +428,7 @@ export function SessionSidebar({
                           }}
                         >
                           ⋮
-                        </button>
+                        </Button>
                       </li>
                     );
                   })}
@@ -529,7 +530,7 @@ export function SessionSidebar({
               }
             }}
           >
-            <button
+            <Button
               role="menuitem"
               onClick={() => {
                 setGroupMenuId(null);
@@ -537,8 +538,8 @@ export function SessionSidebar({
               }}
             >
               Edit project
-            </button>
-            <button
+            </Button>
+            <Button
               role="menuitem"
               disabled={sessions.some((w) => w.projectId === menuGroup.id)}
               title="Move or close its sessions before deleting the group"
@@ -549,7 +550,7 @@ export function SessionSidebar({
               }}
             >
               Delete project
-            </button>
+            </Button>
           </div>,
           document.body,
         )}
@@ -591,7 +592,7 @@ export function SessionSidebar({
               if (event.key === 'Tab') setMenuId(null);
             }}
           >
-            <button
+            <Button
               role="menuitem"
               onClick={() => {
                 setMenuId(null);
@@ -599,9 +600,9 @@ export function SessionSidebar({
               }}
             >
               Edit session
-            </button>
+            </Button>
             <div role="separator" />
-            <button
+            <Button
               role="menuitem"
               className="danger"
               onClick={() => {
@@ -610,7 +611,7 @@ export function SessionSidebar({
               }}
             >
               Archive session
-            </button>
+            </Button>
           </div>,
           document.body,
         )}

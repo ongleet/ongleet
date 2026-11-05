@@ -1,3 +1,4 @@
+import { Input, Select } from '../../components/Controls';
 import { Checkbox } from '../../components/Checkbox';
 import { useId } from 'react';
 import type { CommitOption } from './git';
@@ -21,13 +22,13 @@ export function ComparisonFields({
     <>
       <label className="diff-mode-field">
         Comparison
-        <select
+        <Select
           value={config.mode}
           onChange={(e) => onChange(changeMode(config, e.target.value as Settings['mode']))}
         >
           <option value="branch">Branch changes</option>
           <option value="refs">Between two refs</option>
-        </select>
+        </Select>
       </label>
       <datalist id={referenceList}>
         {references.map((ref) => (
@@ -38,7 +39,7 @@ export function ComparisonFields({
         <>
           <label>
             Compare from
-            <select
+            <Select
               value={config.compareFrom}
               onChange={(e) => onChange({ ...config, compareFrom: e.target.value })}
             >
@@ -53,7 +54,7 @@ export function ComparisonFields({
                   {commit.hash.slice(0, 10)} · {commit.subject}
                 </option>
               ))}
-            </select>
+            </Select>
             {commitError && <span role="alert">Could not load commits: {commitError}</span>}
           </label>
           <label className="diff-uncommitted-field">
@@ -72,7 +73,7 @@ export function ComparisonFields({
         <>
           <label>
             From ref
-            <input
+            <Input
               required
               list={referenceList}
               value={config.baseRef}
@@ -82,7 +83,7 @@ export function ComparisonFields({
           <span aria-hidden="true">→</span>
           <label>
             To ref
-            <input
+            <Input
               required
               list={referenceList}
               value={config.targetRef}
@@ -104,7 +105,7 @@ export function ConfigurationEditor({ value, onChange }: ConfigurationEditorProp
   return (
     <label>
       Repository folder
-      <input
+      <Input
         value={config.folder ?? ''}
         placeholder="Session directory"
         onChange={(e) => onChange(JSON.stringify({ ...config, folder: e.target.value || null }))}

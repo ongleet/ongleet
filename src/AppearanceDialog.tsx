@@ -1,3 +1,4 @@
+import { Button, Dialog, Select } from './components/Controls';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { appearance, themePresets } from './appearance';
 import type { ThemeId, ThemePreset } from './theme-presets';
@@ -47,12 +48,12 @@ export function AppearanceDialog({ close }: { close: () => void }) {
     dialog.current?.showModal();
   }, []);
   return (
-    <dialog ref={dialog} aria-labelledby="appearance-title" onCancel={close}>
+    <Dialog ref={dialog} aria-labelledby="appearance-title" onCancel={close}>
       <h2 id="appearance-title">Appearance</h2>
       <p>Changes apply immediately and save automatically.</p>
       <label>
         Application theme
-        <select
+        <Select
           autoFocus
           value={state.preferences.application}
           onChange={(event) => appearance.update({ application: event.target.value as ThemeId })}
@@ -62,12 +63,12 @@ export function AppearanceDialog({ close }: { close: () => void }) {
               {theme.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <Preview theme={state.application} />
       <label>
         Terminal theme
-        <select
+        <Select
           value={state.preferences.terminal ?? ''}
           onChange={(event) =>
             appearance.update({ terminal: (event.target.value as ThemeId) || null })
@@ -79,7 +80,7 @@ export function AppearanceDialog({ close }: { close: () => void }) {
               {theme.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <Preview theme={state.terminal} terminal />
       <p>
@@ -92,11 +93,11 @@ export function AppearanceDialog({ close }: { close: () => void }) {
         </p>
       )}
       <div className="dialog-actions">
-        <button onClick={() => appearance.update({ application: 'original', terminal: null })}>
+        <Button onClick={() => appearance.update({ application: 'original', terminal: null })}>
           Restore defaults
-        </button>
-        <button onClick={close}>Done</button>
+        </Button>
+        <Button onClick={close}>Done</Button>
       </div>
-    </dialog>
+    </Dialog>
   );
 }

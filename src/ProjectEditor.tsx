@@ -1,3 +1,13 @@
+import {
+  Button,
+  Dialog,
+  Input,
+  Select,
+  Tab,
+  TabList,
+  TabPanel,
+  Textarea,
+} from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -184,7 +194,7 @@ export function ProjectEditor({
     if (!busy) dismiss();
   }
   return (
-    <dialog
+    <Dialog
       ref={dialog}
       className="project-editor"
       aria-label={defaults ? 'Default actions' : 'Project editor'}
@@ -195,7 +205,7 @@ export function ProjectEditor({
     >
       <div className="project-editor-header">
         <h2>{defaults ? 'Default actions' : project ? 'Edit project' : 'New project'}</h2>
-        <button
+        <Button
           type="button"
           className="project-editor-close"
           aria-label="Close settings"
@@ -206,7 +216,7 @@ export function ProjectEditor({
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
             <path d="m4 4 8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.5" />
           </svg>
-        </button>
+        </Button>
       </div>
       {defaults && (
         <p className="muted">
@@ -216,8 +226,7 @@ export function ProjectEditor({
       )}
       {defaults && configPath && <p className="muted">{configPath}</p>}
       {(project || defaults) && (
-        <div
-          role="tablist"
+        <TabList
           aria-label="Project settings"
           className="settings-tabs"
           onKeyDown={(event) => {
@@ -242,11 +251,10 @@ export function ProjectEditor({
         >
           {((defaults ? ['actions', 'yaml'] : ['general', 'actions', 'yaml']) as View[]).map(
             (item) => (
-              <button
+              <Tab
                 key={item}
                 id={`settings-${item}`}
                 type="button"
-                role="tab"
                 aria-selected={view === item}
                 aria-controls={`settings-panel-${item}`}
                 tabIndex={view === item ? 0 : -1}
@@ -254,14 +262,13 @@ export function ProjectEditor({
                 onClick={() => void switchView(item)}
               >
                 {item === 'general' ? 'General' : item === 'actions' ? 'Actions' : 'YAML'}
-              </button>
+              </Tab>
             ),
           )}
-        </div>
+        </TabList>
       )}
-      <section
+      <TabPanel
         id="settings-panel-general"
-        role="tabpanel"
         aria-labelledby="settings-general"
         hidden={view !== 'general'}
       >
@@ -282,7 +289,7 @@ export function ProjectEditor({
         >
           <label>
             Name
-            <input
+            <Input
               required
               autoFocus
               value={name}
@@ -292,14 +299,14 @@ export function ProjectEditor({
           </label>
           <label>
             Root directory
-            <input
+            <Input
               required
               value={directory}
               disabled={busy}
               onChange={(event) => setDirectory(event.target.value)}
             />
           </label>
-          <button
+          <Button
             type="button"
             disabled={busy}
             onClick={() => {
@@ -313,14 +320,14 @@ export function ProjectEditor({
             }}
           >
             Choose directory…
-          </button>
+          </Button>
           <p className="muted">
             The root is the default directory for new sessions. Existing paths stay unchanged.
           </p>
           {configPath && (
             <label>
               Actions file
-              <input
+              <Input
                 readOnly
                 value={configPath}
                 onFocus={(event) => event.currentTarget.select()}
@@ -329,16 +336,15 @@ export function ProjectEditor({
           )}
           {!project && <p className="muted">Save this project first to customize its actions.</p>}
           <div className="dialog-actions">
-            <button type="button" disabled={busy} onClick={close}>
+            <Button type="button" disabled={busy} onClick={close}>
               Cancel
-            </button>
-            <button disabled={busy || !name.trim() || !directory}>Save project</button>
+            </Button>
+            <Button disabled={busy || !name.trim() || !directory}>Save project</Button>
           </div>
         </form>
-      </section>
-      <section
+      </TabPanel>
+      <TabPanel
         id="settings-panel-actions"
-        role="tabpanel"
         aria-labelledby="settings-actions"
         hidden={view !== 'actions'}
         className="action-form"
@@ -357,7 +363,7 @@ export function ProjectEditor({
             <div className="env-row" key={row.id}>
               <label>
                 Name
-                <input
+                <Input
                   aria-label="Common variable name"
                   disabled={busy}
                   value={row.name}
@@ -366,14 +372,14 @@ export function ProjectEditor({
               </label>
               <label>
                 Value
-                <input
+                <Input
                   aria-label="Common variable value"
                   disabled={busy}
                   value={row.value}
                   onChange={(event) => editEnv(row.id, { value: event.target.value })}
                 />
               </label>
-              <button
+              <Button
                 type="button"
                 disabled={busy}
                 onClick={() => {
@@ -383,10 +389,10 @@ export function ProjectEditor({
                 }}
               >
                 Remove variable
-              </button>
+              </Button>
             </div>
           ))}
-          <button
+          <Button
             type="button"
             disabled={busy}
             onClick={() => {
@@ -403,7 +409,7 @@ export function ProjectEditor({
             }}
           >
             Add variable
-          </button>
+          </Button>
         </section>
         <div className="action-grid">
           {draft.map((action, index) => (
@@ -413,7 +419,7 @@ export function ProjectEditor({
               </legend>
               <label>
                 Name
-                <input
+                <Input
                   aria-label="Action name"
                   value={action.name}
                   onChange={(event) => patch(action.id, { name: event.target.value })}
@@ -421,7 +427,7 @@ export function ProjectEditor({
               </label>
               <label>
                 Action type
-                <select
+                <Select
                   aria-label="Action type"
                   value={action.kind}
                   onChange={(event) =>
@@ -442,7 +448,7 @@ export function ProjectEditor({
                     </option>
                   ))}
                   <option value="command">External command</option>
-                </select>
+                </Select>
               </label>
               {action.kind === 'command' && (
                 <p className="muted">
@@ -464,17 +470,17 @@ export function ProjectEditor({
                 );
               })()}
               <div className="action-controls">
-                <button type="button" disabled={index === 0} onClick={() => move(index, -1)}>
+                <Button type="button" disabled={index === 0} onClick={() => move(index, -1)}>
                   Move earlier
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={index === draft.length - 1}
                   onClick={() => move(index, 1)}
                 >
                   Move later
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={draft.length <= 1}
                   onClick={() => {
@@ -484,12 +490,12 @@ export function ProjectEditor({
                   }}
                 >
                   Remove action
-                </button>
+                </Button>
               </div>
             </fieldset>
           ))}
         </div>
-        <button
+        <Button
           type="button"
           disabled={busy || draft.length >= 100}
           onClick={() => {
@@ -508,17 +514,16 @@ export function ProjectEditor({
           }}
         >
           Add action
-        </button>
-      </section>
-      <section
+        </Button>
+      </TabPanel>
+      <TabPanel
         id="settings-panel-yaml"
-        role="tabpanel"
         aria-labelledby="settings-yaml"
         hidden={view !== 'yaml'}
         className="action-yaml"
       >
         <label htmlFor="project-actions-yaml">Actions (YAML)</label>
-        <textarea
+        <Textarea
           id="project-actions-yaml"
           spellCheck={false}
           maxLength={65536}
@@ -533,7 +538,7 @@ export function ProjectEditor({
         <p className="muted">
           Use the actions list. The first terminal entry is the default for new sessions.
         </p>
-      </section>
+      </TabPanel>
       {(error || externalError) && (
         <p role="alert" className="error">
           {error || externalError}
@@ -543,18 +548,18 @@ export function ProjectEditor({
       {dirty && <p className="muted">Unsaved action changes</p>}
       {view !== 'general' && (
         <div className="dialog-actions settings-footer">
-          <button type="button" disabled={busy} onClick={close}>
+          <Button type="button" disabled={busy} onClick={close}>
             Close
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={busy || !loaded || !dirty}
             onClick={() => void saveActions()}
           >
             Save actions
-          </button>
+          </Button>
         </div>
       )}
-    </dialog>
+    </Dialog>
   );
 }

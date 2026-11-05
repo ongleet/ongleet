@@ -1,3 +1,4 @@
+import { Button, Disclosure, DisclosureTrigger, Input, TabPanel } from '../../components/Controls';
 import { SelectionSend } from '../../components/SelectionSend';
 import { captureDiffSelection } from './selection';
 import { CommentStore, commentTargets, deliverComment, type Location } from './comments';
@@ -97,7 +98,7 @@ const Viewer = memo(
                       : change.lineNumber;
                   return (
                     <>
-                      <button
+                      <Button
                         className="diff-line-comment"
                         data-comment-side={side}
                         data-comment-line={line}
@@ -108,7 +109,7 @@ const Viewer = memo(
                         <span className="diff-line-comment-icon" aria-hidden="true">
                           <span className="diff-comment-bubble" />
                         </span>
-                      </button>
+                      </Button>
                     </>
                   );
                 }}
@@ -120,7 +121,7 @@ const Viewer = memo(
                   hunks.map((hunk) => (
                     <Fragment key={hunk.content}>
                       <Decoration>
-                        <button
+                        <Button
                           type="button"
                           className="diff-expand-context"
                           aria-label="Show 20 more context lines"
@@ -141,7 +142,7 @@ const Viewer = memo(
                           >
                             <path d="M12 9V3m-3 3 3-3 3 3M12 15v6m-3-3 3 3 3-3M4 12h16" />
                           </svg>
-                        </button>
+                        </Button>
                         {hunk.content}
                       </Decoration>
                       <Hunk hunk={hunk} />
@@ -599,7 +600,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           setCompose(undefined);
         }}
       />
-      <button onClick={() => setCompose(undefined)}>Cancel</button>
+      <Button onClick={() => setCompose(undefined)}>Cancel</Button>
     </div>
   );
   const labels: Record<string, string> = {
@@ -612,10 +613,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     U: 'Unmerged',
   };
   return (
-    <section
+    <TabPanel
       hidden={!visible}
       className="plugin-panel diff-panel"
-      role="tabpanel"
       id={`tab-panel-${tab.id}`}
       aria-labelledby={`tab-${tab.id}`}
     >
@@ -651,15 +651,15 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             );
           }}
         />
-        <button type="submit">Compare</button>
-        <button type="button" className="diff-refresh" onClick={refresh}>
+        <Button type="submit">Compare</Button>
+        <Button type="button" className="diff-refresh" onClick={refresh}>
           <span className="diff-spinner-slot">
             {loading && (
               <span className="diff-spinner" role="status" aria-label="Loading comparison" />
             )}
           </span>
           Refresh
-        </button>
+        </Button>
       </form>
       {(commentError || comments.error) && <p role="alert">{commentError || comments.error}</p>}
       {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
@@ -679,7 +679,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           <DiffSidebar>
             <label>
               Filter filenames
-              <input value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <Input value={filter} onChange={(e) => setFilter(e.target.value)} />
             </label>
             <nav className="file-tree" ref={tree} aria-label="Changed files">
               <FileTree
@@ -833,7 +833,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           )}
         </footer>
       )}
-    </section>
+    </TabPanel>
   );
 }
 
@@ -855,18 +855,18 @@ function FileTree({
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([name, child]) => (
           <li key={name}>
-            <details open>
-              <summary title={name}>
+            <Disclosure open>
+              <DisclosureTrigger title={name}>
                 <FolderIcon />
                 <span className="diff-tree-label file-tree-label">{name}</span>
-              </summary>
+              </DisclosureTrigger>
               {render(child)}
-            </details>
+            </Disclosure>
           </li>
         ))}
       {node.files.map((file) => (
         <li key={file.key}>
-          <button
+          <Button
             title={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
             aria-pressed={selected === file.key}
             aria-current={selected === file.key ? 'true' : undefined}
@@ -874,7 +874,7 @@ function FileTree({
           >
             <FileIcon status={file.status[0]} statusLabel={labels[file.status[0]]} />
             <span className="diff-tree-label file-tree-label">{file.path.split('/').at(-1)}</span>
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

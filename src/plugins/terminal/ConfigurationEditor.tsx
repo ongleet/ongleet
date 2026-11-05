@@ -1,3 +1,4 @@
+import { Input, Select } from '../../components/Controls';
 import type { ConfigurationEditorProps } from '..';
 export type LaunchDraft = {
   mode: 'executable' | 'shell';
@@ -18,19 +19,19 @@ export function LaunchConfigurationEditor({
     <>
       <label>
         Launch mode
-        <select
+        <Select
           value={action.mode}
           onChange={(event) => patch({ mode: event.target.value as LaunchDraft['mode'] })}
         >
           <option value="executable">Executable + arguments</option>
           <option value="shell">Shell command</option>
-        </select>
+        </Select>
       </label>
       {action.mode === 'executable' ? (
         <>
           <label>
             Executable
-            <input
+            <Input
               aria-label="Executable"
               value={action.executable}
               onChange={(event) => patch({ executable: event.target.value })}
@@ -38,7 +39,7 @@ export function LaunchConfigurationEditor({
           </label>
           <label>
             Arguments (JSON array)
-            <input
+            <Input
               aria-label="Arguments"
               value={action.args}
               onChange={(event) => patch({ args: event.target.value })}
@@ -48,7 +49,7 @@ export function LaunchConfigurationEditor({
       ) : (
         <label>
           Shell command
-          <input
+          <Input
             aria-label="Shell command"
             value={action.shell}
             onChange={(event) => patch({ shell: event.target.value })}
@@ -57,7 +58,7 @@ export function LaunchConfigurationEditor({
       )}
       <label>
         Directory override
-        <input
+        <Input
           value={action.cwd}
           placeholder="Session directory"
           onChange={(event) => patch({ cwd: event.target.value })}
@@ -65,7 +66,7 @@ export function LaunchConfigurationEditor({
       </label>
       <label>
         Environment overrides (JSON)
-        <input
+        <Input
           aria-label="Environment overrides"
           value={action.env}
           onChange={(event) => patch({ env: event.target.value })}

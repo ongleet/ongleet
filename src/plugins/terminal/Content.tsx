@@ -1,3 +1,4 @@
+import { TabPanel } from '../../components/Controls';
 import { useSdk, useTabInteractions, SdkError } from '../../sdk';
 import { useEffect, useRef, useState } from 'react';
 import { TerminalFrontend, type ProcessStatus } from './frontend';
@@ -86,9 +87,8 @@ export function TerminalContent({
   }, [visible]);
 
   return (
-    <section
+    <TabPanel
       id={`tab-panel-${tab.id}`}
-      role="tabpanel"
       aria-labelledby={`tab-${tab.id}`}
       className="tab-terminal"
       hidden={!visible}
@@ -120,6 +120,6 @@ export function TerminalContent({
         <span>Ctrl+Shift+C / V: copy / paste</span>
         <span>Arrow keys on tab bar: navigate tabs</span>
       </footer>
-    </section>
+    </TabPanel>
   );
 }

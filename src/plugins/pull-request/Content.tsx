@@ -1,3 +1,11 @@
+import {
+  Button,
+  Dialog,
+  Disclosure,
+  DisclosureTrigger,
+  Input,
+  TabPanel,
+} from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, useTabInteractions } from '../../sdk';
 import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
@@ -33,7 +41,7 @@ export function PullRequestConfigurationEditor({ value, onChange }: Configuratio
       </p>
       <label>
         Refresh interval (seconds)
-        <input
+        <Input
           type="number"
           min="30"
           max="86400"
@@ -297,7 +305,7 @@ export function PullRequestContent({
       <div className="pr-association-fields">
         <label>
           Repository or PR URL
-          <input
+          <Input
             placeholder="owner/repository or GitHub PR URL"
             value={target}
             onChange={(event) => setTarget(event.target.value)}
@@ -305,7 +313,7 @@ export function PullRequestContent({
         </label>
         <label>
           PR number
-          <input
+          <Input
             type="number"
             min="1"
             placeholder="PR number"
@@ -320,7 +328,7 @@ export function PullRequestContent({
       </p>
       <label>
         Refresh interval (seconds)
-        <input
+        <Input
           type="number"
           min="30"
           max="86400"
@@ -331,11 +339,11 @@ export function PullRequestContent({
       </label>
       <div className="dialog-actions">
         {configurationOpen && (
-          <button type="button" disabled={saving} onClick={dismissConfiguration}>
+          <Button type="button" disabled={saving} onClick={dismissConfiguration}>
             Cancel
-          </button>
+          </Button>
         )}
-        <button disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <Button disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </div>
     </form>
   );
@@ -355,18 +363,18 @@ export function PullRequestContent({
             Ongleet to change the token.
           </p>
           {(!auth.login || auth.paused) && (
-            <button
+            <Button
               disabled={auth.busy || auth.loading}
               onClick={() => void githubAuth.reconnect(sdk)}
             >
               Reconnect
-            </button>
+            </Button>
           )}
         </>
       ) : auth.login && !replacing && !auth.paused ? (
-        <button onClick={() => setReplacing(true)} disabled={auth.busy}>
+        <Button onClick={() => setReplacing(true)} disabled={auth.busy}>
           Replace token
-        </button>
+        </Button>
       ) : (
         <form
           onSubmit={(event) => {
@@ -378,7 +386,7 @@ export function PullRequestContent({
         >
           <label>
             GitHub personal access token
-            <input
+            <Input
               type="password"
               autoComplete="off"
               value={token}
@@ -386,20 +394,20 @@ export function PullRequestContent({
               disabled={auth.busy || auth.loading}
             />
           </label>
-          <button disabled={auth.busy || auth.loading || !token.trim()}>
+          <Button disabled={auth.busy || auth.loading || !token.trim()}>
             {auth.login ? 'Replace token' : 'Connect'}
-          </button>
+          </Button>
         </form>
       )}
       {auth.login && (
-        <button
+        <Button
           disabled={auth.busy || auth.loading}
           onClick={() => void githubAuth.disconnect(sdk)}
         >
           Disconnect
-        </button>
+        </Button>
       )}
-      <button
+      <Button
         onClick={() =>
           void sdk.desktop
             .openUrl('https://github.com/settings/tokens')
@@ -407,7 +415,7 @@ export function PullRequestContent({
         }
       >
         GitHub token settings
-      </button>
+      </Button>
       {auth.loading && <p>Loading GitHub connection…</p>}
       {auth.error && (
         <p role="alert" className="error">
@@ -417,8 +425,7 @@ export function PullRequestContent({
     </section>
   );
   return (
-    <section
-      role="tabpanel"
+    <TabPanel
       id={`tab-panel-${tab.id}`}
       aria-labelledby={`tab-${tab.id}`}
       hidden={!visible}
@@ -429,7 +436,7 @@ export function PullRequestContent({
           <p className="muted">Configure this tab to connect your GitHub account.</p>
         )}
         {!session.pullRequest && !configurationOpen && configuration}
-        <dialog
+        <Dialog
           ref={configurationDialog}
           aria-label="Pull request configuration"
           onCancel={(event) => {
@@ -449,14 +456,14 @@ export function PullRequestContent({
               )}
             </div>
           )}
-        </dialog>
+        </Dialog>
         {session.pullRequest && (
           <header className="pr-heading">
             <h2>
               {data
                 ? `#${data.number} ${data.title}`
                 : `${session.pullRequest.repository} #${session.pullRequest.number}`}{' '}
-              <button
+              <Button
                 type="button"
                 className="pr-refresh"
                 aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
@@ -478,7 +485,7 @@ export function PullRequestContent({
                   <path d="M20 7v5h-5M4 17v-5h5" />
                   <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1" />
                 </svg>
-              </button>
+              </Button>
             </h2>
           </header>
         )}
@@ -506,7 +513,7 @@ export function PullRequestContent({
                 </li>
               ))}
             </ul>
-            <button onClick={() => void markReviewsRead()}>Mark reviews read</button>
+            <Button onClick={() => void markReviewsRead()}>Mark reviews read</Button>
           </div>
         )}
         {data && (
@@ -515,20 +522,20 @@ export function PullRequestContent({
               State: {pullRequestStatus(data)} · Review:{' '}
               {data.reviewDecision || 'No review decision'}
             </p>
-            <button
+            <Button
               onClick={() =>
                 void sdk.desktop.openUrl(data.url).catch((error) => setError(String(error)))
               }
             >
               Open pull request
-            </button>
+            </Button>
             <section aria-label="Linked issues">
               <h3>Linked issues</h3>
               {data.issues.length ? (
                 <ul>
                   {data.issues.map((issue) => (
                     <li key={issue.id}>
-                      <button
+                      <Button
                         onClick={() =>
                           void sdk.desktop
                             .openUrl(issue.url)
@@ -536,7 +543,7 @@ export function PullRequestContent({
                         }
                       >
                         {issue.repository.nameWithOwner}#{issue.number}: {issue.title}
-                      </button>{' '}
+                      </Button>{' '}
                       · {issue.state}
                     </li>
                   ))}
@@ -569,8 +576,8 @@ export function PullRequestContent({
                 <p>No reviews submitted.</p>
               )}
             </section>
-            <details className="pr-checks" key={associationKey}>
-              <summary>Checks</summary>
+            <Disclosure className="pr-checks" key={associationKey}>
+              <DisclosureTrigger>Checks</DisclosureTrigger>
               {data.statusCheckRollup?.length ? (
                 <ul>
                   {data.statusCheckRollup.map((check, index) => (
@@ -583,7 +590,7 @@ export function PullRequestContent({
               ) : (
                 <p>No checks reported.</p>
               )}
-            </details>
+            </Disclosure>
           </>
         )}
       </div>
@@ -605,6 +612,6 @@ export function PullRequestContent({
           </span>
         </footer>
       )}
-    </section>
+    </TabPanel>
   );
 }

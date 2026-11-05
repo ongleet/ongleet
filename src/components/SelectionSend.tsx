@@ -1,3 +1,4 @@
+import { Button, Dialog, Select, Textarea } from './Controls';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../sdk';
@@ -90,19 +91,19 @@ export function SelectionSend({
   }
   return (
     <div className="selection-send">
-      <button
+      <Button
         type="button"
         disabled={busy}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => void open()}
       >
         Send selection…
-      </button>
+      </Button>
       {status && <span role="status">{status}</span>}
       {error && !selection && <span role="alert">{error}</span>}
       {selection &&
         createPortal(
-          <dialog
+          <Dialog
             ref={dialog}
             aria-label="Send selected code"
             onCancel={(event) => {
@@ -128,7 +129,7 @@ export function SelectionSend({
               <pre className="selection-preview">{selection.text}</pre>
               <label>
                 Optional comment or question
-                <textarea
+                <Textarea
                   autoFocus
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
@@ -138,7 +139,7 @@ export function SelectionSend({
               {targets.length > 1 && (
                 <label>
                   Send to
-                  <select
+                  <Select
                     value={target ?? ''}
                     disabled={busy}
                     onChange={(event) =>
@@ -151,7 +152,7 @@ export function SelectionSend({
                         {tab.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
               )}
               {loadingTargets ? (
@@ -161,7 +162,7 @@ export function SelectionSend({
               )}
               {error && <p role="alert">{error}</p>}
               <div className="dialog-actions">
-                <button
+                <Button
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -170,13 +171,13 @@ export function SelectionSend({
                   }}
                 >
                   Cancel
-                </button>
-                <button type="submit" disabled={busy || target === undefined}>
+                </Button>
+                <Button type="submit" disabled={busy || target === undefined}>
                   {busy ? 'Sending…' : targets.length === 1 ? `Send to ${targets[0].name}` : 'Send'}
-                </button>
+                </Button>
               </div>
             </form>
-          </dialog>,
+          </Dialog>,
           document.body,
         )}
     </div>

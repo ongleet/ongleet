@@ -1,3 +1,4 @@
+import { Button, Dialog } from '../../components/Controls';
 import { SelectionSend } from '../../components/SelectionSend';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, SdkError, type TextDocument } from '../../sdk';
@@ -503,9 +504,9 @@ export function TextEditor({
             };
           }}
         />
-        <button ref={menuTrigger} popoverTarget={menuId} aria-haspopup="menu">
+        <Button ref={menuTrigger} popoverTarget={menuId} aria-haspopup="menu">
           Actions ▾
-        </button>
+        </Button>
         <div
           id={menuId}
           ref={menu}
@@ -538,7 +539,7 @@ export function TextEditor({
             items[next]?.focus();
           }}
         >
-          <button
+          <Button
             role="menuitem"
             disabled={busy}
             onClick={() => {
@@ -548,8 +549,8 @@ export function TextEditor({
             }}
           >
             Close file
-          </button>
-          <button
+          </Button>
+          <Button
             role="menuitem"
             disabled={busy || !dirty}
             onClick={() => {
@@ -558,8 +559,8 @@ export function TextEditor({
             }}
           >
             Save <kbd>Ctrl+S</kbd>
-          </button>
-          <button
+          </Button>
+          <Button
             role="menuitem"
             disabled={busy}
             onClick={() => {
@@ -569,9 +570,9 @@ export function TextEditor({
             }}
           >
             Reload
-          </button>
+          </Button>
           <div role="separator" />
-          <button
+          <Button
             role="menuitem"
             onClick={() => {
               menu.current?.hidePopover();
@@ -582,8 +583,8 @@ export function TextEditor({
             }}
           >
             Undo <kbd>Ctrl+Z</kbd>
-          </button>
-          <button
+          </Button>
+          <Button
             role="menuitem"
             onClick={() => {
               menu.current?.hidePopover();
@@ -594,8 +595,8 @@ export function TextEditor({
             }}
           >
             Redo <kbd>Ctrl+Shift+Z</kbd>
-          </button>
-          <button
+          </Button>
+          <Button
             role="menuitem"
             onClick={() => {
               menu.current?.hidePopover();
@@ -603,10 +604,10 @@ export function TextEditor({
             }}
           >
             Find / replace <kbd>Ctrl+F</kbd>
-          </button>
+          </Button>
           <div role="separator" />
           <div className="editor-menu-heading">Settings</div>
-          <button
+          <Button
             role="menuitemcheckbox"
             aria-checked={wrap}
             onClick={() => {
@@ -616,7 +617,7 @@ export function TextEditor({
             }}
           >
             Wrap long lines <span>{wrap ? 'On' : 'Off'}</span>
-          </button>
+          </Button>
         </div>
       </div>
       {error && (
@@ -643,7 +644,7 @@ export function TextEditor({
         </span>
       </footer>
       {confirmation && (
-        <dialog
+        <Dialog
           ref={dialog}
           aria-label={confirmation === 'overwrite' ? 'File changed on disk' : 'Unsaved changes'}
           onCancel={() => setConfirmation(undefined)}
@@ -655,11 +656,11 @@ export function TextEditor({
               : `Discard your changes to ${document.path}?`}
           </p>
           <div className="dialog-actions">
-            <button autoFocus onClick={() => setConfirmation(undefined)}>
+            <Button autoFocus onClick={() => setConfirmation(undefined)}>
               Cancel
-            </button>
+            </Button>
             {confirmation === 'overwrite' && (
-              <button
+              <Button
                 onClick={() => {
                   setConfirmation(undefined);
                   confirmationRef.current = undefined;
@@ -667,9 +668,9 @@ export function TextEditor({
                 }}
               >
                 Merge into editor
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={() => {
                 const action = confirmation;
                 setConfirmation(undefined);
@@ -681,9 +682,9 @@ export function TextEditor({
               }}
             >
               {confirmation === 'overwrite' ? 'Force save' : 'Discard changes'}
-            </button>
+            </Button>
           </div>
-        </dialog>
+        </Dialog>
       )}
     </div>
   );

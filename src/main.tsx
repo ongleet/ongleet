@@ -1,3 +1,4 @@
+import { Button, Dialog, Input, Select, Tab, TabList } from './components/Controls';
 import { reconcileCommentSessions } from './diff-comment-cleanup';
 import { appearance, applyAppearance } from './appearance';
 import { AppearanceDialog } from './AppearanceDialog';
@@ -53,7 +54,7 @@ function ConfirmationDialog({
     dialog.current?.showModal();
   }, []);
   return (
-    <dialog
+    <Dialog
       ref={dialog}
       aria-label="Confirm action"
       onCancel={(event) => {
@@ -65,13 +66,13 @@ function ConfirmationDialog({
         <h2>Confirm action</h2>
         <p>{message}</p>
         <div className="dialog-actions">
-          <button autoFocus onClick={() => choose(false)}>
+          <Button autoFocus onClick={() => choose(false)}>
             Cancel
-          </button>
-          <button onClick={() => choose(true)}>Confirm</button>
+          </Button>
+          <Button onClick={() => choose(true)}>Confirm</Button>
         </div>
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 
@@ -120,7 +121,7 @@ function SessionEditor({
   }
 
   return (
-    <dialog
+    <Dialog
       ref={dialog}
       aria-labelledby="session-editor-title"
       onCancel={(event) => {
@@ -142,7 +143,7 @@ function SessionEditor({
         <h2 id="session-editor-title">{session ? 'Edit session' : 'New session'}</h2>
         <label>
           Project
-          <select
+          <Select
             value={projectId}
             disabled={busy}
             onChange={(event) => {
@@ -156,11 +157,11 @@ function SessionEditor({
                 {group.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label>
           Name
-          <input
+          <Input
             id="session-name"
             autoFocus
             required
@@ -171,7 +172,7 @@ function SessionEditor({
         </label>
         <label>
           Base directory
-          <input
+          <Input
             id="session-directory"
             required
             value={directory}
@@ -179,9 +180,9 @@ function SessionEditor({
             disabled={busy}
           />
         </label>
-        <button type="button" onClick={() => void browse()} disabled={busy}>
+        <Button type="button" onClick={() => void browse()} disabled={busy}>
           Choose directory…
-        </button>
+        </Button>
         {session && (
           <p className="muted">
             Directory changes apply to future launches. Running processes keep their working
@@ -194,15 +195,15 @@ function SessionEditor({
           </p>
         )}
         <div className="dialog-actions">
-          <button type="button" onClick={dismiss} disabled={busy}>
+          <Button type="button" onClick={dismiss} disabled={busy}>
             Cancel
-          </button>
-          <button disabled={busy || !name.trim() || !directory}>
+          </Button>
+          <Button disabled={busy || !name.trim() || !directory}>
             {busy ? 'Please wait…' : 'Save session'}
-          </button>
+          </Button>
         </div>
       </form>
-    </dialog>
+    </Dialog>
   );
 }
 
@@ -279,8 +280,7 @@ function SessionPane({
   return (
     <section className="session-pane" hidden={!visible} aria-label={session.name}>
       <div className="tab-bar">
-        <div
-          role="tablist"
+        <TabList
           aria-label={`${session.name} tabs`}
           className="tab-list"
           onDragLeave={(event) => {
@@ -321,9 +321,8 @@ function SessionPane({
                 setTabDrop(null);
               }}
             >
-              <button
+              <Tab
                 id={`tab-${tab.id}`}
-                role="tab"
                 aria-selected={tab.id === active?.id}
                 aria-controls={`tab-panel-${tab.id}`}
                 tabIndex={tab.id === active?.id ? 0 : -1}
@@ -347,8 +346,8 @@ function SessionPane({
                 {statuses[tab.id]?.state === 'exited' && (
                   <span>({(statuses[tab.id] as { code: number }).code})</span>
                 )}
-              </button>
-              <button
+              </Tab>
+              <Button
                 className="tab-icon tab-close"
                 disabled={disabled}
                 tabIndex={tab.id === active?.id ? 0 : -1}
@@ -357,10 +356,10 @@ function SessionPane({
                 onClick={() => closeTab(tab)}
               >
                 ×
-              </button>
+              </Button>
             </div>
           ))}
-        </div>
+        </TabList>
         <SessionMenu
           sessionId={session.id}
           disabled={disabled}
@@ -686,7 +685,7 @@ function App() {
           <div className="empty-state">
             <h1>Welcome to Ongleet</h1>
             <p>Create a session pointing to an existing directory.</p>
-            <button
+            <Button
               disabled={!ready || disabled}
               onClick={() => {
                 if (state.projects.length) {
@@ -696,7 +695,7 @@ function App() {
               }}
             >
               {state.projects.length ? 'Create session' : 'Create project'}
-            </button>
+            </Button>
           </div>
         )}
         {state.sessions.map((session) => (

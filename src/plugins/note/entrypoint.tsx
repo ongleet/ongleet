@@ -1,3 +1,4 @@
+import { Button, Input, TabPanel, Textarea } from '../../components/Controls';
 import { useEffect, useState } from 'react';
 import { useSdk, useTabInteractions } from '../../sdk';
 import type { PluginContentProps } from '../types';
@@ -78,9 +79,8 @@ function Content({ tab, visible }: PluginContentProps) {
     }
   }
   return (
-    <section
+    <TabPanel
       className="plugin-panel note-panel"
-      role="tabpanel"
       id={`tab-panel-${tab.id}`}
       aria-labelledby={`tab-${tab.id}`}
       hidden={!visible}
@@ -89,7 +89,7 @@ function Content({ tab, visible }: PluginContentProps) {
         <aside className="note-sidebar" aria-label="Notes">
           <div className="note-sidebar-heading">
             <strong>Notes</strong>
-            <button
+            <Button
               disabled={note.loading || !note.notes.length}
               onClick={() =>
                 update(() => {
@@ -98,36 +98,36 @@ function Content({ tab, visible }: PluginContentProps) {
               }
             >
               Add note
-            </button>
+            </Button>
           </div>
           <div className="note-list">
             {note.notes.map((item) => (
-              <button
+              <Button
                 key={item.id}
                 aria-current={item.id === note.selectedNoteId ? 'true' : undefined}
                 title={item.name}
                 onClick={() => update(() => note.select(item.id))}
               >
                 {item.name}
-              </button>
+              </Button>
             ))}
           </div>
         </aside>
         <div className="note-editor">
           <div className="note-toolbar">
             <span>Markdown · saved automatically</span>
-            <button
+            <Button
               disabled={note.loading || note.saving || !note.dirty}
               onClick={() => void note.save().catch(() => {})}
             >
               Retry save
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={note.loading || note.saving}
               onClick={() => void note.load(true).catch(() => {})}
             >
               {note.dirty ? 'Discard edits and reload' : 'Reload'}
-            </button>
+            </Button>
           </div>
           {!!note.notes.length && (
             <NoteName
@@ -137,7 +137,7 @@ function Content({ tab, visible }: PluginContentProps) {
               rename={(name) => update(() => note.rename(name))}
             />
           )}
-          <textarea
+          <Textarea
             aria-label="Markdown note"
             spellCheck={false}
             disabled={note.loading || !note.notes.length}
@@ -159,7 +159,7 @@ function Content({ tab, visible }: PluginContentProps) {
         {' · '}
         {new TextEncoder().encode(note.text).length} / 24576 bytes
       </div>
-    </section>
+    </TabPanel>
   );
 }
 
@@ -177,7 +177,7 @@ function NoteName({
   return (
     <label className="note-name">
       Name
-      <input
+      <Input
         aria-label="Note name"
         value={draft}
         disabled={disabled}
