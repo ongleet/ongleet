@@ -1316,3 +1316,29 @@ mise exec -- python3 scripts/check-diff-native.py \
 
 Wayland, physical keyboard/compositor focus and forced-colors mode remain
 untested. Keyboard evidence here uses WebDriver on the private native display.
+
+## Event-driven PTY waits — 2026-11-05
+
+Removed per-terminal 25 ms child-exit checks, 50 ms PTY readiness timeouts,
+and one-second ACK-wait timeouts. The reaper blocks in child.wait(); PTY
+read/write waits poll indefinitely with separate eventfd cancellation signals.
+Natural exit cancels input while preserving bounded final-output draining;
+explicit close wakes both I/O workers and the ACK condition variable.
+
+The full offline Rust suite passes with host cgroup access: 146 passed, two
+existing ignored tests. Real PTY regressions cover idle-reader shutdown, blocked
+input and queued-write cancellation, ACK backpressure, exact output bytes,
+exit-before-ACK notifications, replay, job-control descendants and owner death.
+An additional socket-based cancellation test covers concurrent waiters,
+idempotent cancellation and cancellation before a later wait.
+
+The first PTY run exposed portable-pty's writer destructor injecting a newline
+and EOF during faster exit handling. Writes now use a plain owned duplicate of
+the nonblocking master descriptor; the exact-byte regression passes. Formatting
+and git diff whitespace checks pass. The initial sandbox test run could not
+create cgroups; the successful full run used host access.
+
+No WebKitGTK/Wayland desktop acceptance or before/after live CPU measurement
+was performed for this change. Running instances retain their old executable
+until rebuilt and restarted; this evidence does not establish a CPU reduction
+for the reported 30–50% episode.

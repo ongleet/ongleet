@@ -549,3 +549,54 @@ fn exit_notification_bypasses_pending_output_and_survives_reattachment() {
     assert!(drain(&session, &receive).starts_with(b"final output"));
     session.close().unwrap();
 }
+
+#[test]
+fn close_wakes_idle_reader_without_output_or_input() {
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn(
+        90,
+        launch("import os,time; os.write(1,b'READY'); time.sleep(60)"),
+        output,
+    )
+    .unwrap();
+    let Output::Data { seq, bytes } = receive.recv_timeout(Duration::from_secs(5)).unwrap() else {
+        panic!("Expected readiness output");
+    };
+    assert_eq!(bytes, b"READY");
+    session.acknowledge(seq).unwrap();
+    // Allow the reader to enter its indefinite readiness wait on a quiet PTY.
+    assert!(receive.recv_timeout(Duration::from_millis(100)).is_err());
+    session.close().unwrap();
+    assert!(session.resources.0.lock().unwrap().completed);
+}
+
+#[test]
+fn io_cancellation_wakes_all_waiters_and_remains_signalled() {
+    use std::os::unix::net::UnixStream;
+    let (socket, _peer) = UnixStream::pair().unwrap();
+    let file = std::fs::File::from(std::os::fd::OwnedFd::from(socket));
+    let cancel = Arc::new(IoCancel::new().unwrap());
+    let (done, receive) = mpsc::channel();
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let file = file.try_clone().unwrap();
+        let cancel = cancel.clone();
+        let done = done.clone();
+        workers.push(std::thread::spawn(move || {
+            done.send(cancel.wait_io(&file, libc::POLLIN)).unwrap();
+        }));
+    }
+    assert!(receive.recv_timeout(Duration::from_millis(100)).is_err());
+    cancel.cancel();
+    cancel.cancel();
+    for _ in 0..2 {
+        assert!(!receive
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap());
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    assert!(!cancel.wait_io(&file, libc::POLLIN).unwrap());
+}

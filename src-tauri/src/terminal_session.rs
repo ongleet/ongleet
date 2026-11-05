@@ -147,7 +147,8 @@ pub struct TerminalSession {
     initial_rows: u16,
     resources: Arc<(Mutex<Resources>, Condvar)>,
     containment: Arc<Containment>,
-    cancel_input: Arc<AtomicBool>,
+    cancel_input: Arc<IoCancel>,
+    cancel_read: Arc<IoCancel>,
     flow: Arc<(Mutex<Flow>, Condvar)>,
     closed: bool,
 }
@@ -167,14 +168,75 @@ fn poll_handle(master: &dyn MasterPty) -> Result<std::fs::File, String> {
     Ok(unsafe { std::fs::File::from_raw_fd(duplicate) })
 }
 
-fn wait_io(file: &std::fs::File, event: i16) {
-    let mut fd = libc::pollfd {
-        fd: file.as_raw_fd(),
-        events: event,
-        revents: 0,
-    };
-    unsafe {
-        libc::poll(&mut fd, 1, 50);
+// A level-triggered eventfd stays readable after cancellation, waking every
+// current or future waiter without a check/sleep race. Never drain this fd.
+struct IoCancel {
+    cancelled: AtomicBool,
+    wake: std::fs::File,
+}
+
+impl IoCancel {
+    fn new() -> Result<Self, String> {
+        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+        if fd < 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        Ok(Self {
+            cancelled: AtomicBool::new(false),
+            wake: unsafe { std::fs::File::from_raw_fd(fd) },
+        })
+    }
+
+    fn cancel(&self) {
+        if !self.cancelled.swap(true, Ordering::AcqRel) {
+            let value = 1u64;
+            loop {
+                let result =
+                    unsafe { libc::write(self.wake.as_raw_fd(), (&value as *const u64).cast(), 8) };
+                if result >= 0
+                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn wait_io(&self, file: &std::fs::File, event: i16) -> Result<bool, String> {
+        let mut fds = [
+            libc::pollfd {
+                fd: file.as_raw_fd(),
+                events: event,
+                revents: 0,
+            },
+            libc::pollfd {
+                fd: self.wake.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+        ];
+        loop {
+            if self.cancelled.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            let result = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+            if result < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error.to_string());
+            }
+            if fds[1].revents != 0 {
+                return Ok(false);
+            }
+            if fds[0].revents & libc::POLLNVAL != 0 {
+                return Err("PTY descriptor closed".into());
+            }
+            if fds[0].revents != 0 {
+                return Ok(true);
+            }
+        }
     }
 }
 
@@ -197,9 +259,13 @@ impl TerminalSession {
             .map_err(|e| e.to_string())?;
         // Prepare all fallible PTY handles before creating the child.
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let read_poll = poll_handle(pair.master.as_ref())?;
         let write_poll = poll_handle(pair.master.as_ref())?;
+        // portable-pty's writer Drop injects newline + VEOF. Own a plain fd
+        // instead: exit/close must not add bytes while the reader drains.
+        let mut writer = write_poll.try_clone().map_err(|e| e.to_string())?;
+        let cancel_input = Arc::new(IoCancel::new()?);
+        let cancel_read = Arc::new(IoCancel::new()?);
         let containment = Arc::new(Containment::create()?);
         let handshake = Handshake::new()?;
         let mut cmd = CommandBuilder::new(crate::containment::executable()?);
@@ -242,7 +308,6 @@ impl TerminalSession {
             }),
             Condvar::new(),
         ));
-        let cancel_input = Arc::new(AtomicBool::new(false));
         let writer_cancel = cancel_input.clone();
         let (input, pending_input) = mpsc::sync_channel::<Input>(1);
         let writer_thread = std::thread::spawn(move || {
@@ -250,14 +315,16 @@ impl TerminalSession {
                 let result = (|| {
                     let mut bytes = request.bytes.as_slice();
                     while !bytes.is_empty() {
-                        if writer_cancel.load(Ordering::Acquire) {
+                        if writer_cancel.cancelled.load(Ordering::Acquire) {
                             return Err("Terminal has exited".into());
                         }
                         match writer.write(bytes) {
                             Ok(0) => return Err("PTY input closed".into()),
                             Ok(n) => bytes = &bytes[n..],
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                wait_io(&write_poll, libc::POLLOUT)
+                                if !writer_cancel.wait_io(&write_poll, libc::POLLOUT)? {
+                                    return Err("Terminal has exited".into());
+                                }
                             }
                             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                             Err(error) => return Err(error.to_string()),
@@ -269,6 +336,7 @@ impl TerminalSession {
             }
         });
         let reader_flow = flow.clone();
+        let reader_cancel = cancel_read.clone();
         let reader_thread = std::thread::spawn(move || {
             let mut drained = 0usize;
             let (lock, changed) = &*reader_flow;
@@ -280,10 +348,7 @@ impl TerminalSession {
                     && !state.draining
                     && (state.acked != state.sent || !state.pending.is_empty())
                 {
-                    state = changed
-                        .wait_timeout(state, Duration::from_secs(1))
-                        .unwrap()
-                        .0;
+                    state = changed.wait(state).unwrap();
                 }
                 if state.closed {
                     break;
@@ -318,7 +383,19 @@ impl TerminalSession {
                         state.dispatch();
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        wait_io(&read_poll, libc::POLLIN)
+                        match reader_cancel.wait_io(&read_poll, libc::POLLIN) {
+                            Ok(true) => {}
+                            Ok(false) => break,
+                            Err(message) => {
+                                let mut state = lock.lock().unwrap();
+                                state.ended = true;
+                                if let Some(output) = &state.output {
+                                    let _ = output.send(Output::Error { message });
+                                }
+                                state.dispatch();
+                                break;
+                            }
+                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                     Err(e) => {
@@ -349,19 +426,13 @@ impl TerminalSession {
         let reaper_containment = containment.clone();
         let reaper_flow = flow.clone();
         let reaper_cancel = cancel_input.clone();
+        let reaper_read_cancel = cancel_read.clone();
         std::thread::spawn(move || {
-            let exit = loop {
-                match child.try_wait() {
-                    Ok(Some(exit)) => break Ok(exit),
-                    Ok(None) => std::thread::sleep(Duration::from_millis(25)),
-                    Err(error) => {
-                        let _ = reaper_containment.stop();
-                        break child.wait().map_err(|_| error.to_string());
-                    }
-                }
-            };
+            // The dedicated reaper blocks in waitpid; cgroup cleanup on close
+            // kills the child and wakes it without periodic status checks.
+            let exit = child.wait().map_err(|error| error.to_string());
             let cleanup = reaper_containment.stop();
-            reaper_cancel.store(true, Ordering::Release);
+            reaper_cancel.cancel();
             let code = exit.as_ref().map(|e| e.exit_code()).unwrap_or(1);
             {
                 let mut resources = reaper_resources.0.lock().unwrap();
@@ -385,6 +456,7 @@ impl TerminalSession {
                         });
                     }
                     flow.closed = true;
+                    reaper_read_cancel.cancel();
                 }
                 reaper_flow.1.notify_all();
             }
@@ -403,6 +475,7 @@ impl TerminalSession {
             resources,
             containment,
             cancel_input,
+            cancel_read,
             flow,
             closed: false,
         })
@@ -499,7 +572,8 @@ impl TerminalSession {
             return Ok(());
         }
         self.containment.stop()?;
-        self.cancel_input.store(true, Ordering::Release);
+        self.cancel_input.cancel();
+        self.cancel_read.cancel();
         self.flow.0.lock().unwrap().closed = true;
         self.flow.1.notify_all();
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
