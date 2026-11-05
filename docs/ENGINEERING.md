@@ -8,6 +8,8 @@ Keep PTYs in Rust and controllers persistent across renders/navigation. Preserve
 
 PTY readiness waits indefinitely on the PTY plus an eventfd cancellation signal; child exit uses a blocking reaper wait. Keep separate input/reader cancellation so natural exit drains final output, while explicit closure wakes both workers. ACK waits use condition-variable notifications without periodic timeouts. Own a plain duplicated PTY descriptor for writes: the portable-pty writer destructor injects newline/EOF bytes during cleanup.
 
+Terminal history snapshots run only after output or resize, with a five-second interval during continuous activity. Clean flushes skip scanning, and unchanged text skips persistence. Explicit lifecycle flushes bypass the interval; output arriving during an in-flight save stays dirty. Keep the existing 2,000-line/60,000-code-unit bounds and replay guards.
+
 Use literal executable/argument arrays; shell syntax requires explicit shell mode. Re-exec `/proc/<app-pid>/exe`, never a replaced pathname. Join delegated cgroup v2 before user exec; require pidfds and `cgroup.kill`. Confirmed close immediately kills the leaf and waits; keep the death watchdog outside it. Deliberate cgroup migration/external services are outside containment.
 
 Apply RIS only to new emulators after initial fit/redraw, before output attachment. Reload reattaches rather than relaunching. Suppress input/query replies/resizing during replay; report journal overflow. Ghostty frontend state is authoritative for snapshots: no second emulator or ANSI stripping.
@@ -70,6 +72,7 @@ mise exec -- npm run build
 mise exec -- npm run check:plugins
 mise exec -- npm run check:editor-merge
 mise exec -- npm run check:wasm
+mise exec -- npm run check:terminal-history
 mise exec -- npm run check:terminal-reuse
 mise exec -- npm run check:terminal-selection
 mise exec -- npm run check:rendering

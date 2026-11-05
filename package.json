@@ -12,6 +12,7 @@
     "tauri": "tauri",
     "check:host": "bash scripts/check-host.sh",
     "check:wasm": "node scripts/check-wasm.mjs",
+    "check:terminal-history": "node scripts/check-terminal-history.mjs",
     "check:terminal-reuse": "node scripts/check-terminal-reuse.mjs",
     "check:rendering": "node scripts/check-rendering.mjs && node scripts/check-terminal-rendering.mjs",
     "check:terminal-input": "node scripts/check-terminal-input.mjs",

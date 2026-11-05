@@ -10,6 +10,7 @@ import {
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from '../../byte-transport';
 import { prepareTerminalRendering } from '../../terminal-rendering';
+import { TerminalHistory } from '../../terminal-history';
 import { createEngineLoader } from '../../engine-loader';
 import { attachTerminalMouse } from '../../terminal-mouse';
 import { TerminalLinks } from '../../terminal-links';
@@ -36,9 +37,7 @@ export class TerminalFrontend {
   private visible = true;
   private fitVisible?: () => void;
   private replaying = false;
-  private historyTimer?: ReturnType<typeof setTimeout>;
-  private lastHistorySave = 0;
-  private historySave?: Promise<void>;
+  private history?: TerminalHistory;
   private disposed = false;
   private unregisterValidation?: () => void;
 
@@ -111,6 +110,14 @@ export class TerminalFrontend {
       theme: this.sdk.theme.getSnapshot().terminal.terminal,
     });
     this.term = term;
+    this.history = new TerminalHistory(
+      () => this.historySnapshot(),
+      async (text) => {
+        if (this.id !== undefined && this.term === term)
+          await this.sdk.pty.saveHistory(this.id, text);
+      },
+      this.error,
+    );
     const fit = new FitAddon();
     term.loadAddon(fit);
     this.rendering = prepareTerminalRendering(term, () => this.visible && !document.hidden);
@@ -233,8 +240,10 @@ export class TerminalFrontend {
     this.subscriptions.push(term.onData((text) => this.send(text)));
     this.subscriptions.push(
       term.onResize(({ cols, rows }) => {
-        if (this.id !== undefined && !this.replaying)
+        if (this.id !== undefined && !this.replaying) {
+          this.history?.changed();
           void this.sdk.pty.resize(this.id!, cols, rows).catch(this.error);
+        }
       }),
     );
     // ghostty-web's custom handler returns true when it handled the event.
@@ -271,15 +280,17 @@ export class TerminalFrontend {
           // Preserve byte boundaries all the way into Ghostty's stateful VT
           // parser. Never decode each PTY chunk as an independent UTF-8 string.
           terminalLinks.write(event.bytes);
-          if (!this.replaying) this.scheduleHistory();
+          if (!this.replaying) this.history?.changed();
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.
           await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'size') {
           term.resize(event.cols, event.rows);
+          if (!this.replaying) this.history?.changed();
           await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'ready') {
           this.replaying = false;
+          this.history?.changed();
           fitVisible();
           await this.sdk.pty.acknowledge(id, event.seq);
         } else if (event.type === 'exit') {
@@ -317,6 +328,7 @@ export class TerminalFrontend {
         if (connection.replay) term.resize(connection.cols, connection.rows);
         // Publish the ID before waiting output handlers resume.
         this.id = connection.id;
+        if (!this.replaying) this.history?.changed();
         return connection.id;
       });
     try {
@@ -333,27 +345,13 @@ export class TerminalFrontend {
     }
   }
 
-  private scheduleHistory() {
-    if (this.historyTimer !== undefined) return;
-    this.historyTimer = setTimeout(
-      () => {
-        void this.saveHistory()
-          .catch(this.error)
-          .finally(() => {
-            this.historyTimer = undefined;
-          });
-      },
-      Math.max(0, 1000 - (Date.now() - this.lastHistorySave)),
-    );
+  async saveHistory() {
+    await this.history?.flush();
   }
 
-  async saveHistory() {
-    // Keep disk writes ordered and retain at most one snapshot in flight.
-    while (this.historySave) await this.historySave.catch(() => {});
+  private historySnapshot(): string | undefined {
     const term = this.term;
-    const id = this.id;
-    if (!term || id === undefined || this.replaying || this.disposed) return;
-    this.lastHistorySave = Date.now();
+    if (!term || this.id === undefined || this.replaying || this.disposed) return;
     const buffer = term.buffer.active;
     const lines: string[] = [];
     let budget = 60000; // At most 240 KiB UTF-8, below the native 256 KiB limit.
@@ -368,13 +366,7 @@ export class TerminalFrontend {
       lines.push(line);
       budget -= line.length + 1;
     }
-    const text = lines.reverse().join('\n').trimEnd();
-    this.historySave = this.sdk.pty.saveHistory(id, text);
-    try {
-      await this.historySave;
-    } finally {
-      this.historySave = undefined;
-    }
+    return lines.reverse().join('\n').trimEnd();
   }
 
   private send(text: string) {
@@ -505,8 +497,8 @@ export class TerminalFrontend {
   }
 
   private disposeEmulator() {
-    clearTimeout(this.historyTimer);
-    this.historyTimer = undefined;
+    this.history?.dispose();
+    this.history = undefined;
     this.observer?.disconnect();
     this.rendering?.dispose();
     this.rendering = undefined;

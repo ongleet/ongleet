@@ -1342,3 +1342,24 @@ No WebKitGTK/Wayland desktop acceptance or before/after live CPU measurement
 was performed for this change. Running instances retain their old executable
 until rebuilt and restarted; this evidence does not establish a CPU reduction
 for the reported 30–50% episode.
+
+## Throttled terminal history snapshots — 2026-11-05
+
+History snapshots now wait five seconds after the first unsaved output/resize,
+including hidden terminals. Continued output does not reset that deadline.
+Idle clean terminals have no history timer; clean lifecycle flushes avoid
+scrollback scans and unchanged snapshot text avoids backend writes. EOF and the
+existing beforeQuit hook flush immediately. Output received during persistence
+remains dirty and schedules another snapshot. Failed persistence retains dirty
+state for retry. Explicit terminal closure retains immediate process cleanup.
+The snapshot's existing line/code-unit limits and replay guards remain intact.
+
+Passed production build (plugin boundaries, TypeScript and Vite),
+`npm run check:terminal-history`, `npm run check:terminal-reuse`, and
+`npm run check:rendering`, all through mise. The history regression uses a
+controlled clock to check continuous-output deadlines, idle scan suppression,
+unchanged text, immediate flush, concurrent flushes, trailing in-flight output,
+failed-save retry and disposal. Native WebKitGTK lifecycle/restart acceptance
+and live before/after CPU measurement were not performed for this change.
+The longer periodic interval increases the unsaved-history window on abrupt
+application death; normal lifecycle flushes bypass it.
