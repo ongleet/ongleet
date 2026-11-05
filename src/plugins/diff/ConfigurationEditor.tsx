@@ -1,3 +1,4 @@
+import { Checkbox } from '../../components/Checkbox';
 import { useId } from 'react';
 import type { CommitOption } from './git';
 import type { ConfigurationEditorProps } from '..';
@@ -56,8 +57,7 @@ export function ComparisonFields({
             {commitError && <span role="alert">Could not load commits: {commitError}</span>}
           </label>
           <label className="diff-uncommitted-field">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={config.includeUncommitted}
               onChange={(e) => onChange({ ...config, includeUncommitted: e.target.checked })}
             />

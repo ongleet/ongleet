@@ -97,7 +97,6 @@ const Viewer = memo(
                       : change.lineNumber;
                   return (
                     <>
-                      {renderDefault()}{' '}
                       <button
                         className="diff-line-comment"
                         data-comment-side={side}
@@ -105,7 +104,10 @@ const Viewer = memo(
                         aria-label={`Comment on ${side} line ${line}`}
                         onClick={() => comment(side, line)}
                       >
-                        Comment
+                        <span className="diff-line-number">{renderDefault()}</span>
+                        <span className="diff-line-comment-icon" aria-hidden="true">
+                          <span className="diff-comment-bubble" />
+                        </span>
                       </button>
                     </>
                   );
@@ -578,6 +580,28 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     setSelected(file.key);
     fileElements.current.get(file.key)?.scrollIntoView({ block: 'start' });
   }
+  const composer = compose && (
+    <div className="diff-discussion diff-new-thread">
+      <p>
+        {compose.path} · {compose.side ?? 'file'} {compose.line ?? ''}
+      </p>
+      <Composer
+        autoFocus
+        submit={(text) => {
+          changeComments(() => {
+            if (loading || error || composeRevision.current !== reviews.current.revision)
+              throw new SdkError(
+                'revision_conflict',
+                'Comparison changed; reopen the comment control',
+              );
+            return comments.add(compose, text, 'User');
+          });
+          setCompose(undefined);
+        }}
+      />
+      <button onClick={() => setCompose(undefined)}>Cancel</button>
+    </div>
+  );
   const labels: Record<string, string> = {
     A: 'Added',
     M: 'Modified',
@@ -638,27 +662,6 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
         </button>
       </form>
       {(commentError || comments.error) && <p role="alert">{commentError || comments.error}</p>}
-      {compose && (
-        <div className="diff-discussion">
-          <p>
-            {compose.path} · {compose.side ?? 'file'} {compose.line ?? ''}
-          </p>
-          <Composer
-            submit={(text) => {
-              changeComments(() => {
-                if (loading || error || composeRevision.current !== reviews.current.revision)
-                  throw new SdkError(
-                    'revision_conflict',
-                    'Comparison changed; reopen the comment control',
-                  );
-                return comments.add(compose, text, 'User');
-              });
-              setCompose(undefined);
-            }}
-          />
-          <button onClick={() => setCompose(undefined)}>Cancel</button>
-        </div>
-      )}
       {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
       {error && (
         <p role="alert">
@@ -716,6 +719,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                     }
                     comment={() => {
                       try {
+                        setReview([file.path], 'expanded', true);
                         composeRevision.current = reviews.current.revision;
                         setCompose(
                           comments.anchor(comparison.root, {
@@ -734,20 +738,29 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                     patch={patches[file.key]?.text}
                     failed={!!patches[file.key]?.error}
                   >
+                    {comments.threads
+                      .filter((t) => !t.orphan && !t.location.side && t.location.path === file.path)
+                      .map(discussion)}
+                    {compose?.path === file.path && !compose.side && composer}
                     {patches[file.key]?.error ? (
                       <p role="alert">{patches[file.key].error}</p>
                     ) : patches[file.key]?.text !== undefined ? (
                       <Viewer
-                        discussionRevision={`${comparison.root}:${file.path}:${commentVersion}`}
-                        threads={comments.threads
-                          .filter(
-                            (t) => !t.orphan && t.location.path === file.path && t.location.side,
-                          )
-                          .map((t) => ({
-                            side: t.location.side!,
-                            line: t.location.line!,
-                            node: discussion(t),
-                          }))}
+                        discussionRevision={`${comparison.root}:${file.path}:${commentVersion}:${compose?.path}:${compose?.side}:${compose?.line}`}
+                        threads={[
+                          ...comments.threads
+                            .filter(
+                              (t) => !t.orphan && t.location.path === file.path && t.location.side,
+                            )
+                            .map((t) => ({
+                              side: t.location.side!,
+                              line: t.location.line!,
+                              node: discussion(t),
+                            })),
+                          ...(compose?.path === file.path && compose.side
+                            ? [{ side: compose.side, line: compose.line!, node: composer }]
+                            : []),
+                        ]}
                         patch={patches[file.key].text!}
                         loading={loading}
                         comment={(side, line) => {
@@ -774,9 +787,6 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                     ) : (
                       <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
                     )}
-                    {comments.threads
-                      .filter((t) => !t.orphan && !t.location.side && t.location.path === file.path)
-                      .map(discussion)}
                   </FileReview>
                 </article>
               ))}

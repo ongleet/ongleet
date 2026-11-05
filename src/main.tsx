@@ -18,6 +18,7 @@ import { TabConfiguration } from './TabConfiguration';
 import { SessionMenu } from './SessionMenu';
 import { WindowTitleBar } from './WindowTitleBar';
 import './style.css';
+import './components/checkbox.css';
 
 export type Project = {
   id: number;

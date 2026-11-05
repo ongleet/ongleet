@@ -896,7 +896,7 @@ dialog.project-editor > [role='status'] {
   color: var(--muted3);
   font-size: 11px;
 }
-.editor-surface .cm-panel input {
+.editor-surface .cm-panel input:not([type='checkbox']) {
   width: auto;
   min-width: 0;
   max-width: 100%;

@@ -174,6 +174,12 @@ def run(args):
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
+            if args.checkboxes_only:
+                spec = importlib.util.spec_from_file_location('checkboxes', Path(__file__).with_name('checkboxes-native.py'))
+                checkboxes = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(checkboxes)
+                checkboxes.check(client, native, directory, tab, mark)
+                return
             if args.selection_only:
                 spec = importlib.util.spec_from_file_location('selection', Path(__file__).with_name('selection-send-native.py'))
                 selection = importlib.util.module_from_spec(spec)
@@ -482,6 +488,7 @@ def run(args):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ['application','driver']: parser.add_argument('--'+name,required=True)
+    parser.add_argument('--checkboxes-only', action='store_true')
     parser.add_argument('--notes-only', action='store_true')
     parser.add_argument('--selection-only', action='store_true')
     parser.add_argument('--comments-only', action='store_true')

@@ -25,6 +25,14 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 - Window close confirms, flushes plugins and hides for two minutes before cleanup/exit; reopening cancels the deadline. Explicit Quit confirms and exits immediately; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart only the last recorded running set; stopped/closed/exited tabs never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
+## Shared form controls
+
+Use `src/components/Checkbox.tsx` for application-owned checkbox inputs. Its
+shared stylesheet supplies themed unchecked, checked, disabled and keyboard-focus
+states. CodeMirror owns its search-panel DOM; those generated checkboxes inherit
+the same global styles. Keep checkbox inputs out of text-input sizing rules.
+Checkbox-style menu items retain their menu roles and button behavior.
+
 ## Code map
 
 - UI/plugins: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.

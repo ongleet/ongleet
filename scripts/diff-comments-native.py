@@ -1,5 +1,6 @@
 """Diff discussion acceptance on an isolated WebKitGTK fixture."""
 import json
+import base64
 import subprocess
 
 
@@ -15,6 +16,26 @@ def check(client, native, directory, env, session, diff, mark, cli):
     def state(): return command('tab', 'state', diff)['state']['data']
     def invoke(action, args, **kw): return command('tab','invoke',diff,action,'--args',json.dumps(args),**kw)
     native.wait_for(lambda: not state()['loading'], 'loaded comparison')
+    gutter = '[data-diff-path="hello.txt"] [data-comment-side="new"][data-comment-line="1"]'
+    client.js("document.querySelector(arguments[0]).scrollIntoView({block:'center'})",gutter)
+    dimensions = client.js("const b=document.querySelector(arguments[0]);return {height:b.closest('tr').getBoundingClientRect().height,plus:getComputedStyle(b.querySelector('.diff-line-comment-icon')).display,text:b.querySelector('.diff-line-number').textContent}", gutter)
+    assert dimensions['plus']=='none' and dimensions['text']=='1' and dimensions['height'] < 25, dimensions
+    point=client.js("const r=document.querySelector(arguments[0]).getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}",gutter)
+    client.request('POST','/actions',{'actions':[{'type':'pointer','id':'comment-hover','parameters':{'pointerType':'mouse'},'actions':[{'type':'pointerMove','duration':0,'x':point['x'],'y':point['y']}]}]})
+    (directory/'gutter-hover.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+    native.wait_for(lambda: client.js("const b=document.querySelector(arguments[0]);return getComputedStyle(b.querySelector('.diff-line-comment-icon')).display==='flex' && getComputedStyle(b.querySelector('.diff-line-number')).visibility==='hidden'",gutter), 'hover comment icon')
+    assert client.js("return document.querySelector(arguments[0]).closest('tr').getBoundingClientRect().height",gutter)==dimensions['height']
+    client.click(gutter)
+    native.wait_for(lambda: client.js("return !!document.querySelector('[data-diff-path=\"hello.txt\"] .diff-widget .diff-new-thread textarea')"),'composer at selected line')
+    assert not client.js("return !!document.querySelector('.diff-panel > .diff-new-thread')")
+    (directory/'inline-composer.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+    client.fill('.diff-new-thread textarea','Inline UI question')
+    client.click('.diff-new-thread form button')
+    native.wait_for(lambda: state()['totalThreads']==1,'line UI thread creation')
+    assert state()['comments'][0]['location']['side']=='new' and state()['comments'][0]['location']['line']==1
+    client.click('.diff-delete-thread')
+    native.wait_for(lambda: state()['totalThreads']==0,'remove UI fixture thread')
+    mark('Line numbers retain compact row height, show comment bubble controls on hover, and open the composer directly beneath the chosen line')
     revision = state()['revision']
     invoke('add-comment', {'revision':'stale','path':'hello.txt','text':'stale'},error='revision_conflict')
     ids = invoke('add-comment', {'revision':revision,'path':'hello.txt','side':'new','line':1,'text':'Explain this line'})
@@ -22,6 +43,9 @@ def check(client, native, directory, env, session, diff, mark, cli):
     assert state()['totalThreads'] == 1
     invoke('reply-comment', {'threadId':ids['threadId'],'text':'Agent reply'})
     native.wait_for(lambda: client.js("return document.querySelector('.diff-discussion')?.textContent.includes('Agent reply')"), 'shared reply UI')
+    assert client.js("const cards=document.querySelectorAll('.diff-message');return cards.length===2 && cards[0].querySelector('time') && getComputedStyle(cards[0]).paddingTop==='14px' && getComputedStyle(cards[0].querySelector('.diff-comment-text')).whiteSpace==='pre-wrap'")
+    client.js("document.querySelector('.diff-discussion').scrollIntoView({block:'center'})")
+    (directory/'discussion-cards.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
     client.js("document.querySelector('.diff-discussion details summary').click()")
     native.wait_for(lambda: client.js("return document.querySelector('.diff-discussion details button')?.textContent==='Shell'"), 'named same-session recipient')
     terminal = session['tabs'][0]['id']
@@ -61,15 +85,19 @@ def check(client, native, directory, env, session, diff, mark, cli):
     client.click(f'#tab-{terminal}')
     assert state()['totalComments'] == 4
     mark('Reload persists discussion; removed code becomes visible orphan; hidden-tab orphan replies remain accessible')
+    observed = command('tab','state',diff)['state']['observedAt']
     client.click(f'#tab-{diff}')
+    native.wait_for(lambda: command('tab','state',diff)['state']['observedAt'] != observed and not state()['loading'], 'navigation refresh before UI creation')
     client.click('.diff-discussion > button')
     native.wait_for(lambda: state()['totalThreads'] == 0, 'UI thread deletion')
     client.js("Array.from(document.querySelectorAll('.diff-file > header button')).find(button=>button.textContent==='Comment').click()")
-    client.fill('.diff-panel > .diff-discussion textarea', 'UI file comment')
-    client.click('.diff-panel > .diff-discussion form button')
+    assert client.js("return !!document.querySelector('.diff-file-content > .diff-new-thread') && !document.querySelector('.diff-panel > .diff-new-thread')")
+    client.fill('.diff-new-thread textarea', 'UI file comment')
+    client.click('.diff-new-thread form button')
     native.wait_for(lambda: state()['totalComments'] == 1, 'UI file creation')
     assert state()['comments'][0]['comment']['origin'] == 'User'
     assert 'side' not in state()['comments'][0]['location']
+    assert client.js("const thread=document.querySelector('.diff-discussion');return thread.parentElement.classList.contains('diff-file-content') && thread.parentElement.firstElementChild===thread")
     mark('UI deletes orphan threads and creates file comments through the shared persistent store')
     command('session','close',session['id'],'--confirm')
     native.wait_for(lambda: client.js("return !Object.keys(localStorage).some(key=>key.startsWith(arguments[0]))", f"ongleet.diff-comments.v1.{session['id']}."), 'CLI session cleanup')

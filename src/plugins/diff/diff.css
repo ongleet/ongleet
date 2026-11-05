@@ -35,7 +35,7 @@
   color: var(--muted4);
   font-size: 12px;
 }
-.diff-toolbar input,
+.diff-toolbar input:not([type='checkbox']),
 .diff-toolbar select,
 .diff-toolbar button {
   height: 34px;
@@ -154,9 +154,21 @@
 }
 
 .diff-file-content {
+  padding-bottom: 4px;
   overflow-x: auto;
   min-width: 0;
   border-radius: 0 0 5px 5px;
+}
+.diff-file-content::-webkit-scrollbar {
+  height: 10px;
+}
+.diff-file-content::-webkit-scrollbar-track {
+  background: var(--editor);
+}
+.diff-file-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid var(--editor);
+  border-radius: 5px;
 }
 .diff-viewer {
   overflow-x: hidden;
@@ -220,36 +232,6 @@
     12px system-ui,
     sans-serif;
   cursor: pointer;
-}
-.diff-viewed input {
-  appearance: none;
-  width: 15px;
-  height: 15px;
-  padding: 0;
-  margin: 0;
-  border-radius: 3px;
-  display: grid;
-  place-content: center;
-  cursor: pointer;
-}
-.diff-viewed input:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.diff-viewed input:checked::after {
-  content: '✓';
-  color: var(--editor);
-  font:
-    bold 12px system-ui,
-    sans-serif;
-}
-.diff-viewed input:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.diff-viewed input:focus {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--editor);
 }
 
 .diff-viewer {
@@ -319,30 +301,157 @@
   flex-basis: auto;
   height: 34px;
 }
-.diff-toolbar .diff-uncommitted-field input {
-  width: 16px;
-  height: 16px;
-}
 
 .diff-discussion {
-  padding: 12px;
-  margin: 8px;
+  margin: 12px 16px;
+  padding: 16px;
   border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.diff-discussion-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+.diff-discussion-count,
+.diff-discussion-location {
+  color: var(--muted4);
+  font-size: 12px;
+  font-weight: 400;
+}
+.diff-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.diff-message {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted4);
+  border-radius: 6px;
+  background: var(--editor);
+}
+.diff-message[data-origin='Agent'] {
+  border-left-color: var(--accent);
+}
+.diff-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.diff-message-author {
+  font-weight: 650;
+}
+.diff-message-meta time {
+  color: var(--muted4);
+  font-size: 11px;
 }
 .diff-comment-text {
+  margin: 0;
+  max-width: 100ch;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.diff-message-send {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted4);
+}
+.diff-message-send summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.diff-message-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
 }
 .diff-comment-composer {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: start;
 }
 .diff-comment-composer textarea {
-  min-height: 60px;
-  flex: 1;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 10px 12px;
+  font: inherit;
+  line-height: 1.5;
+  border-radius: 6px;
+}
+.diff-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.diff-delete-thread {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted4);
+}
+.diff-discussion-status {
+  margin: 12px 0 0;
+  color: var(--muted4);
+  font-size: 12px;
 }
 .diff-line-comment {
-  font-size: 9px;
-  padding: 0 2px;
+  position: relative;
+  display: block;
+  width: 1.5em;
+  min-width: 0;
+  height: 1.5em;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-align: right;
+  cursor: pointer;
+}
+.diff-line-comment-icon {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+}
+.diff-panel .diff-line-comment:hover,
+.diff-panel .diff-line-comment:focus-visible {
+  background: var(--accent);
+  color: var(--editor);
+}
+.diff-line-comment:hover .diff-line-number,
+.diff-line-comment:focus-visible .diff-line-number {
+  visibility: hidden;
+}
+.diff-line-comment:hover .diff-line-comment-icon,
+.diff-line-comment:focus-visible .diff-line-comment-icon {
+  display: flex;
+}
+.diff-comment-bubble {
+  display: block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask: url('./comment-bubble.svg') center / contain no-repeat;
+  mask: url('./comment-bubble.svg') center / contain no-repeat;
 }

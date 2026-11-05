@@ -1,3 +1,4 @@
+import { Checkbox } from '../../components/Checkbox';
 import type { ReactNode } from 'react';
 
 export function FileReview({
@@ -45,8 +46,7 @@ export function FileReview({
         </span>
         <button onClick={comment}>Comment</button>
         <label className="diff-viewed">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={viewed}
             disabled={patch === undefined || failed || !patch}
             aria-label={`Mark ${path} as viewed`}

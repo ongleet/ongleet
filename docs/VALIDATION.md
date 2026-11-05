@@ -1255,3 +1255,64 @@ mise exec -- /usr/bin/python3 scripts/check-diff-native.py --notes-only \
 ```
 
 Restore production frontend assets with `mise exec -- npm run build` afterward.
+
+## Diff discussion UI — 2026-11-05
+
+Line-number controls now replace the repeated per-line Comment buttons; a plus
+appears on hover or keyboard focus without increasing row height. New line
+composers render in the selected line's widget. File discussion threads appear
+under the file header, above the patch, with a new file composer after existing
+file threads. Discussion messages use separate cards with author/time metadata,
+readable spacing, secondary send controls, and a full-width reply field.
+
+The horizontal patch scrollbar has a bounded 10px track so its native hit area
+does not intercept the last line's gutter. Initial native checks exposed this
+interception; adding padding alone did not fix it. An additional fixture run
+stopped during startup; a later file-creation check correctly rejected a stale
+revision while navigation was refreshing. The harness now waits for the new
+successful observation before creating that UI comment.
+
+`mise exec -- npm run build`, `npm run check:diff`, the tab-interaction model
+checks and the offline custom-protocol GUI build pass. Private Xvfb/WebKitGTK
+report `/tmp/ongleet-diff-native-vt2w5hyf/report.json` passes ten checks with zero
+cleanup survivors, including hover hit testing, unchanged compact row height,
+line composer placement/creation, file thread placement above the patch, readable
+message cards, replies, exact PTY sends, persistence, orphan access and GUI/CLI
+cleanup. Native screenshots `gutter-hover.png`, `inline-composer.png` and
+`discussion-cards.png` capture the revised UI; composer and discussion screenshots
+were inspected. Wayland and physical keyboard/compositor focus remain untested
+for these changes.
+
+## Shared checkboxes — 2026-11-05
+
+The checkbox audit found two application-owned inputs (Diff comparison and
+Viewed), three CodeMirror search inputs, and the editor's existing checkbox-style
+menu item. Both application-owned inputs now use `components/Checkbox.tsx`.
+`components/checkbox.css` supplies the same 16px themed square, visible unchecked
+border, SVG checkmark, disabled state and inset keyboard-focus treatment to all
+checkbox inputs, including CodeMirror's generated controls. The wrap menu item
+keeps its menu semantics. Removed Viewed-specific drawing rules, excluded
+checkboxes from toolbar/search text-input sizing, and documented shared-component
+usage in the engineering guide.
+
+The production build, Diff checks, tab-interaction model checks and offline
+custom-protocol GUI build pass. Private native Xvfb/WebKitGTK report
+`/tmp/ongleet-diff-native-ydsxeylq/report.json` passes six checks with zero cleanup
+survivors. It verifies unchecked/checked indicators, consistent dimensions,
+comparison label and Space-key toggling, Viewed folding/unfolding, visible
+keyboard focus, disabled click rejection, and all six appearance presets. The
+CodeMirror search controls retain case-sensitive matching and Space-key behavior.
+Dark and Light+ screenshots were captured; the Light+ screenshot was inspected.
+Earlier harness assertions were corrected to allow the focused control's accent
+border and to refresh frontend state after direct backend tab creation.
+
+Reproduce after the normal frontend and custom-protocol GUI builds:
+
+```bash
+mise exec -- python3 scripts/check-diff-native.py \
+  --application src-tauri/target/debug/ongleet-gui \
+  --driver /usr/bin/WebKitWebDriver --checkboxes-only
+```
+
+Wayland, physical keyboard/compositor focus and forced-colors mode remain
+untested. Keyboard evidence here uses WebDriver on the private native display.
