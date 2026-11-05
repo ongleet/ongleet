@@ -96,7 +96,9 @@
   font-size: 12px;
 }
 .diff-panel .diff-code {
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 .diff-panel .diff-decoration {
   background: var(--hover3);

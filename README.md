@@ -2,22 +2,19 @@
 
 **An agent-first IDE. A workspace you and your agent can both drive.**
 
-Ongleet brings terminals, files, diffs, notes and pull request status into a native
-Linux workspace. Work directly in the interface, let an agent pilot the IDE through
-the CLI, or move between the two as the task evolves.
+Ongleet combines terminals, files, diffs, notes and pull request status in a native
+Linux workspace. Use the GUI, let an agent drive through the CLI, or use both.
 
-The CLI is a first-class interface: agents can organize projects and sessions,
-open and configure tabs, inspect their state, and invoke the actions each plugin
-exposes. You see and use the same workspace they control.
+Agents use the CLI to organize projects and sessions, configure tabs, inspect state
+and run plugin actions. GUI and CLI control the same workspace.
 
 [Get started](#get-started) · [CLI workflow](#let-your-agent-drive) ·
 [Architecture](#built-for-continuity-and-control) · [Usage guide](docs/USAGE.md)
 
 ## One workspace for the whole task
 
-Organize work as **projects → sessions → tabs**. Keep an agent, a shell, the files
-you are editing and the changes you are reviewing together in one session.
-Switching to another task preserves running terminals and their screen state.
+Organize work as **projects → sessions → tabs**. Keep agents, shells, files and
+reviews in one session. Switching tasks preserves running terminals and screens.
 
 | Tab              | What it brings to your workflow                                                                                                              |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -38,8 +35,7 @@ cells retain their launch colors.
 
 ## Let your agent drive
 
-An agent can discover the IDE's available tools through the CLI instead of relying
-on mouse coordinates or a fixed set of plugin assumptions.
+Agents discover available tools through the CLI.
 
 ```bash
 # Discover the workspace and available tab configurations.
@@ -60,8 +56,8 @@ ongleet tab state 42 --json
 ongleet tab input 42 --text 'git status --short' --enter
 ```
 
-The same CLI manages project configuration, session directories, tab selection,
-ordering, tags, archives and application lifecycle. Plugins declare structured
+The CLI also manages project configuration, session directories, tab selection,
+ordering, tags, archives and app lifecycle. Plugins declare structured
 state and actions: an agent can open a file in Files, read a terminal buffer,
 update a notebook, or mark reviewed files in Diff. Discover the target first:
 
@@ -71,14 +67,13 @@ ongleet tab capabilities 43 --json
 ongleet tab invoke 43 open-path --args '{"path":"/absolute/project/src/main.tsx"}' --json
 ```
 
-Commands offer structured JSON, stable IDs, validated arguments and explicit
-errors. GUI and CLI changes use the same core operations, so the interface follows
-along as an agent works. Ongleet terminals receive their project, session and tab
-IDs in the environment; the CLI does not guess context from the selected tab.
+Commands use JSON, stable IDs, validated arguments and explicit errors. GUI and
+CLI share core operations, so the interface follows agent changes. Terminals
+receive project, session and tab IDs through environment variables. The CLI never
+guesses context from the selected tab.
 
-Ongleet runs the agent tools you choose. It provides the workspace and control
-surface; you decide which agent to launch and what work to delegate. Ordinary
-shells and manual editing fit the same workflow.
+Choose which agents to launch and what to delegate. Shells and manual editing
+use the same workspace.
 
 See [CLI usage](docs/USAGE.md#cli), `ongleet automation --help` and
 [discoverable plugin interactions](docs/PLUGINS.md#discoverable-tab-interactions).
@@ -89,7 +84,7 @@ state before retrying an action after a timeout.
 ## Built for continuity and control
 
 Ongleet uses **Tauri 2, React, TypeScript, Rust, SQLite and Ghostty WASM** through
-pinned `ghostty-web` 0.4.0. The architecture gives each layer a clear job:
+pinned `ghostty-web` 0.4.0. Each layer has one role:
 
 | Design                                                            | Benefit                                                                                                                           |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -105,19 +100,18 @@ The desktop uses WebKitGTK rather than shipping Electron. There is no tmux layer
 or persistent daemon. Installed builds bundle their frontend and terminal assets,
 with no Node or Vite runtime requirement.
 
-Workspace persistence is distinct from process persistence: restarting the app can
-relaunch eligible commands as **new processes**. Archives preserve definitions,
-not live processes or terminal checkpoints. Closing the window hides it for two
-minutes before shutdown; reopening cancels that deadline. **Application → Quit**
-shuts down immediately after confirmation. Session metadata operations never
-create, move or delete your working directories.
+Restart can relaunch eligible commands as **new processes**. Archives keep session
+and tab definitions for 30 days, without live processes or terminal checkpoints.
+Window close hides the app for two minutes, then shuts down; reopening cancels
+shutdown. **Application → Quit** exits immediately after confirmation. Session
+metadata operations never create, move or delete working directories.
 
 Read the [architecture guide](docs/STACK.md) and
 [engineering contracts](docs/ENGINEERING.md) for the boundaries and recovery model.
 
 ## Get started
 
-Ongleet is currently a **Linux preview**, validated on the Ubuntu host documented
+Ongleet is a **Linux preview**, validated on the Ubuntu host documented
 in the [native validation guide](docs/VALIDATION.md). It requires a graphical
 desktop, systemd cgroup v2 delegation, `cgroup.kill` and pidfds. Other Linux setups
 are not all validated; macOS is unsupported.

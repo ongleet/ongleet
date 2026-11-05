@@ -1,12 +1,14 @@
 # Stack summary
 
-Ongleet is a Linux desktop application using Tauri 2, React/TypeScript, Rust, portable-pty, SQLite and Ghostty WASM through pinned `ghostty-web` 0.4.0. No alternate terminal engine or daemon is used.
+Ongleet uses Tauri 2, React/TypeScript, Rust, portable-pty, SQLite and Ghostty WASM
+through pinned `ghostty-web` 0.4.0. It is a Linux desktop app with no alternate
+terminal engine or daemon.
 
 ## Runtime boundaries
 
 - Rust owns PTYs, process containment, metadata and shared UI/CLI operations. React retains one Ghostty controller per stable tab ID; navigation changes visibility, not process ownership.
 - Ghostty parses raw bytes and owns screen state. TypeScript supplies rendering/input/selection. Validate browser behavior in WebKitGTK; engine tests alone are insufficient.
-- Vite bundles local WASM through `?url`; no runtime CDN. `write(Uint8Array)` parses synchronously in 0.4.0, so ACK follows parsing rather than animation-frame completion. Recheck on upgrade.
+- Vite bundles local WASM through `?url`; no runtime CDN. `write(Uint8Array)` parses synchronously in 0.4.0, so ACK follows parsing rather than waiting for an animation frame. Recheck on upgrade.
 - Require delegated systemd cgroup v2, `cgroup.kill` and pidfds. Bootstrap through `/proc/<app-pid>/exe`. No process-group fallback; non-systemd Linux, restricted containers and macOS are unsupported.
 
 ## Bounds and recovery
@@ -20,9 +22,15 @@ Ongleet is a Linux desktop application using Tauri 2, React/TypeScript, Rust, po
 
 ## Persistence and plugins
 
-Diesel provides typed Rust models and queries over the existing bundled SQLite database. Historical SQL migrations retain `PRAGMA user_version` and run in immediate transactions; adopting the ORM does not change the on-disk schema. `rusqlite` is used only by tests as an independent SQLite reader.
+Diesel handles typed Rust queries over bundled SQLite. Historical SQL migrations
+keep `PRAGMA user_version` and use immediate transactions. The ORM leaves the
+schema unchanged. `rusqlite` is used only by tests as an independent SQLite reader.
 
-SQLite stores stable IDs, definitions, openings, selections, ordering, explicit launch overrides and restart eligibility. Only previously running commands restart, as new processes. Window close hides after confirmation and quits after two minutes unless reopened; explicit Quit terminates contained processes immediately after confirmation.
+SQLite stores stable IDs, definitions, openings, selections, order, explicit
+launch overrides and restart eligibility. Only previously running commands
+restart, as new processes. Window close confirms and hides for two minutes;
+reopening cancels shutdown. Explicit Quit confirms and terminates contained
+processes immediately.
 
 Built-in terminal, Files and PR plugins own versioned configuration. Unknown plugins remain opaque/unavailable. Schema 4 wraps plugin payloads; schema 5 repairs either schema-4 PR-column variant; schema 6 adds archives; schema 7 adds bounded versioned plugin namespaces and migrates PR associations. Schema 8 migrates branding namespaces and saved executables, including archives. Archive version 2 preserves namespaces and reads version-1 payloads. Archives retain metadata for 30 days, restore stable IDs and use retryable two-phase artifact purge. They retain neither live processes nor unsaved edits.
 
@@ -30,7 +38,7 @@ Files uses bounded scans/batches and a 1 MiB UTF-8 CodeMirror editor. Saves chec
 
 PR status uses explicit session associations and authenticated `gh`, with 20-second timeouts, at most 32 jobs and 60-second visible-only polling. Cancellation waits for child cleanup. Results are not persisted; no Git discovery or credential storage.
 
-External command actions have no PTY/tab, discard output and intentionally outlive Ongleet. At most 64 direct-child waiters reap/report exits. Literal argument placeholders and explicit shell mode remain separate.
+External command actions have no PTY/tab, discard output and outlive Ongleet. At most 64 direct-child waiters reap/report exits. Literal argument placeholders and explicit shell mode remain separate.
 
 `ong-codex` records conversation IDs through invocation hooks and resumes after a two-second delay, stopping after five rapid exits. Missing history never starts a fresh conversation implicitly. Hook trust bypass also permits other enabled hooks without review. No global Codex configuration changes occur.
 

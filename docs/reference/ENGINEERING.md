@@ -1,7 +1,7 @@
 # Engineering contracts and code map
 
-Historical detailed reference, retained during documentation compression. Read the
-[current guide](../ENGINEERING.md) first; older status statements may be superseded.
+Historical reference. Read the [current guide](../ENGINEERING.md) first;
+it may supersede older status statements.
 
 Read the sections relevant to your change. These contracts supplement
 [AGENTS.md](../../AGENTS.md); validation evidence lives in
@@ -11,7 +11,11 @@ Read the sections relevant to your change. These contracts supplement
 
 Ongleet uses Tauri 2, React/TypeScript, Rust, Ghostty (`ghostty-web`), portable-pty and SQLite. Priorities: native terminal validation → bounded lifecycle/containment → navigation → persistence/window lifecycle → private-socket CLI → Ubuntu packaging. Consult `TODO.ignore.md` for remaining work.
 
-Do not silently replace Ghostty with another engine. No Electron, xterm.js runtime, tmux, automatic Git discovery, worktree management, session setup scripts, or agent orchestration. These product exclusions do not prohibit ordinary repository maintenance requested by the user. Do not modify shell or Codex configuration automatically. Explicit session-linked, read-only GitHub PR status through the authenticated gh CLI is an intentional scope expansion.
+Keep Ghostty. No Electron, xterm.js runtime, tmux, automatic Git discovery,
+worktree management, session setup scripts or agent orchestration. These product
+limits permit user-requested repository maintenance. Never change shell or Codex
+configuration automatically. Explicit session-linked, read-only GitHub PR status
+through authenticated gh CLI is supported.
 
 ## Terminal invariants
 
@@ -34,7 +38,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - Navigation is projects → sessions → terminal tabs. Projects have a name and existing root, supply the default path for new sessions, and fold their sidebar list without changing processes or the active terminal. Persist membership/fold state. Existing session paths never follow root changes automatically.
 - User-configurable session properties are name and an existing base directory. Store stable IDs and display order internally.
 - Tab metadata includes stable ID, editable name, working-directory override, executable and arguments, explicit environment overrides, and ordering. Process status comes from the runtime.
-- External `kind: command` actions launch explicitly without tabs or PTYs and intentionally outlive session/app closure. Bound direct-child waiters, discard output, reap children and report launch/nonzero-exit failures. Resolve documented session/project placeholders literally in argument arrays; shell commands use quoted reserved context environment variables. Never automatically execute external actions or store them as tab definitions.
+- External `kind: command` actions launch explicitly without tabs or PTYs and outlive session/app closure. Bound direct-child waiters, discard output, reap children and report launch/nonzero-exit failures. Resolve documented session/project placeholders literally in argument arrays; shell commands use quoted reserved context environment variables. Never automatically execute external actions or store them as tab definitions.
 - Common project environment variables live in the actions YAML root `env`. Merge inherited process environment → common group env → explicit action overrides at launch. Never mutate running process environments or persist the inherited/merged environment in tab metadata.
 - New tabs default to the user's shell in the session directory. Switching tabs or sessions preserves processes and emulator state.
 - Creating a session opens and starts the first configured terminal project action with its name and copied launch settings; validate YAML before changing metadata. Never create a generic stopped Terminal N placeholder. Creating a session requires an existing directory and supports a native picker. Renaming or closing a session must never create, move, modify, or delete its directory.
@@ -44,7 +48,7 @@ Do not silently replace Ghostty with another engine. No Electron, xterm.js runti
 - Native window close confirms and flushes plugins, then hides for two minutes before cleanup/exit. Reopening cancels the deadline. Explicit Quit remains immediate after confirmation. Repeated launch or --show activates it through a private socket; --show must never start an unavailable app. Keep explicit Quit confirmation and clean up before exiting. Desktop installation remains packaging work.
 - The user changed the original restart policy: automatically launch new processes for tabs that were running before shutdown, or in the last committed running set after a crash. Explicitly stopped/closed tabs and observed exits must not auto-start. Metadata restoration does not restore live processes or screens. Processes do not survive crashes, Quit, or reboot; commands may be launched anew next time. Historical output remains optional.
 - Separate available tab definitions from their openings. Closing a tab preserves its definition; reopening explicitly launches its saved command. Store the plugin identifier and configuration version/payload with each definition. Built-in terminal, files with text editing and session-linked pull-request plugins have one opening per definition.
-- UI and CLI must use the same Rust operations. The CLI must never access SQLite directly. Restrict the Unix socket to the current user; use stable targeting IDs, JSON output, structured errors, and meaningful exit codes. Do not silently start the application when unavailable.
+- UI and CLI must use the same Rust operations. The CLI must never access SQLite directly. Restrict the Unix socket to the current user; use stable targeting IDs, JSON output, structured errors, and meaningful exit codes. Do not silently start the app when unavailable.
 
 ## Code map
 
@@ -71,7 +75,7 @@ mise exec -- cargo check --manifest-path src-tauri/Cargo.toml --offline
 mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline
 ```
 
-Offline Cargo commands require a populated cache. Fetch dependencies online when necessary. Launch the native prototype with:
+Offline Cargo commands require a populated cache. Fetch dependencies online when needed. Launch the native prototype with:
 
 ```bash
 mise exec -- npm run tauri -- dev

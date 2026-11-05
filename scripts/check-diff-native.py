@@ -39,7 +39,7 @@ def run(args):
     file.write_text('original\n')
     git('add', '.')
     git('commit', '-m', 'next')
-    file.write_text('changed ' + 'long line ' * 80 + '\n')
+    file.write_text('changed ' + 'long line ' * 80 + 'x' * 400 + '\n')
     second.write_text('second changed\n')
     if args.syntax_only:
         (folder/'syntax.ts').write_text('/* comment\n * continued */\nconst value = 42;\nconsole.log("<tag>&");\n')
@@ -218,10 +218,16 @@ def run(args):
             mark('Filename filter stays fixed while tree scrolls; input right border fits inside sidebar')
 
             native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'patches loaded')
-            assert client.js("return Array.from(document.querySelectorAll('.diff-file-content')).some(v=>v.scrollWidth>v.clientWidth)")
+            assert client.js("""
+                const node=document.querySelector('.diff-code-insert');
+                const range=document.createRange();
+                range.selectNodeContents(node);
+                return range.getBoundingClientRect().height > parseFloat(getComputedStyle(node).lineHeight)*2 &&
+                    Array.from(document.querySelectorAll('.diff-file-content')).every(v=>v.scrollWidth<=v.clientWidth);
+            """)
             assert client.js("const node=document.querySelector('.diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
             assert client.js("const file=document.querySelector('.diff-file');const viewer=document.querySelector('.diff-viewer');const r=file.getBoundingClientRect();const v=viewer.getBoundingClientRect();return r.right < v.right && viewer.scrollWidth===viewer.clientWidth")
-            mark('Long-line overflow and DOM text selection; right card border stays inside viewer')
+            mark('Long lines and unbroken words wrap with DOM text selection; right card border stays inside viewer')
             assert client.js("""
                 const tree=Array.from(document.querySelectorAll('.diff-layout nav button')).map(row=>row.title);
                 const panels=Array.from(document.querySelectorAll('.diff-file > header .diff-file-name')).map(row=>Array.from(row.childNodes).filter(node=>node.nodeType===Node.TEXT_NODE).map(node=>node.textContent).join('').trim());

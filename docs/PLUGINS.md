@@ -1,33 +1,88 @@
 # Bundled frontend plugins and SDK
 
-Plugins are trusted bundled React/TypeScript, HTML and CSS. Rust owns PTYs, containment, metadata and native services. The application host creates one SDK attachment per open tab; hiding a tab retains that attachment. Closing, archiving, reloading or quitting cancels and waits for its subprocess and HTTP jobs. Reload reattaches PTYs without restarting them.
+Plugins are trusted bundled React/TypeScript, HTML and CSS. Rust owns PTYs,
+containment, metadata and native services. Each open tab has one SDK attachment;
+hiding retains it. Closing, archiving, reloading or quitting cancels subprocess
+and HTTP jobs and waits for cleanup. Reload reattaches existing PTYs.
 
-Add a directory under `src/plugins/` with `manifest.json` and `entrypoint.tsx`. Vite discovers the entrypoint and manifest; the Rust build discovers the same manifest without executing JavaScript. No Rust provider or registration edit is needed. Keep IDs and configuration versions stable. Unsupported plugins retain their opaque configuration and data.
+Add `manifest.json` and `entrypoint.tsx` under `src/plugins/`. Vite discovers both;
+Rust discovers the same manifest without running JavaScript. No Rust provider or
+registration edit is required. Keep IDs and configuration versions stable.
+Unsupported plugins keep opaque configuration and data.
 
-A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (currently `entrypoint.tsx`), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`. Declare `contextDefaults: {"folder":"session.directory"}` for a folder initialized from the session directory. PTY plugins declare `runtime: "pty"`; core launch validation still applies. Configuration and runtime compatibility are separate from plugin data versions.
+A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (currently `entrypoint.tsx`), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`.
+
+Declare `contextDefaults: {"folder":"session.directory"}` for a folder initialized from the session directory. PTY plugins declare `runtime: "pty"`; core launch validation still applies. Configuration, runtime compatibility and plugin data have separate versions.
 
 The entrypoint exports `Content`, `ConfigurationEditor`, `toDraft`, `fromDraft` and optionally `beforeQuit`. Content receives its tab/session and visibility through host props. Call `useSdk()` from `src/sdk`; pass that SDK to retained non-React controllers. Importing Tauri packages or SDK transport internals from plugins is rejected by `npm run check:plugins`.
 
 The bundled [SDK example](../src/plugins/sdk-example/entrypoint.tsx) lists a directory, runs an executable with literal arguments and increments a persisted tab counter. Add an action with `kind: sdk-example` and `config: {}` to try it. The example needs no plugin-specific Rust code.
 
-The public services are:
+## Public SDK services
 
-- `session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: the only tag operations, returning the calling tab’s session tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls. Background and dot are independently optional `#RRGGBB` colors. Priority defaults to 0, accepts signed 32-bit integers, and sorts higher values first with stable ties. Adding an existing name replaces its style/priority while preserving siblings; removing an absent name succeeds. All mutations are atomic in Rust and share CLI validation/persistence. Use `storage.subscribe` to observe changes. Tags persist in `ongleet.session-tags` and survive archival/restoration; legacy `color` values load as dots. The `Codex` activity tag is an ordinary member of this list, managed through the same operations. Bulk replacement is not exposed.
-- `tab.setTitle(title: string | null)`: updates only the calling tab’s display title synchronously. Titles are limited to 256 UTF-16 code units, trimmed, and stripped of control characters. `null` or blank text restores the configured name. Overrides last for the attachment, survive hiding and metadata refreshes, and clear on detach; they do not rename the saved action/tab. Terminal reads standard OSC 0/2 shell titles from the bounded byte stream, including fragmented UTF-8 and BEL/ST terminators; shells must emit these sequences to advertise their current directory or command. No shell startup files are changed; Files uses the open file’s basename.
-- `fs.list`, `fs.readText`, `fs.saveText`, `fs.watchText`: bounded scans/text and revision-checked atomic saves. Unsupported text returns `null`, allowing a plugin to choose an external opener. Plugin configuration updates are explicit. `watchText(path, changed)` returns an unsubscribe function and watches the parent directory with Linux inotify, filtering the basename so atomic replacements remain observable. One watch per attachment/tab, 128 globally; events coalesce until `readText` acknowledges before reading. Queue overflow requests a fresh read. Detach, close, session removal and Quit stop and join watchers; subscribers may stop sooner. Network filesystem remote writes and mmap writes are outside inotify coverage; moving/deleting the parent directory invalidates the watch and requires reopening the editor.
-- `env.get(name)`: read-only access to the native app’s launch environment; requires `env`. Returns a UTF-8 string (including empty strings), or `null` for an unset variable. All variable names are available to declaring trusted plugins; no variable whitelist is enforced yet. Names are bounded to 1–1024 bytes without NUL or `=`, and values to 64 KiB. Non-UTF-8 values fail explicitly. Values are returned to JavaScript without logging or persistence. This reads the app process environment, not a tab’s shell environment.
-- `credentials.get(key)`, `set(key, value)`, `delete(key)`: Linux Secret Service records scoped to the plugin ID derived from the calling tab; requires `credentials`. Keys are 1–128 bytes without controls; values are UTF-8 strings up to 64 KiB. Missing keys return `null`. Each operation uses a fresh encrypted Secret Service session; locked/unavailable storage fails without unlocking prompts or a plaintext fallback. Records belong to the plugin across tabs/projects/restarts and are excluded from SQLite, namespaces, configuration and archives. Tokens are returned to trusted JavaScript; this is not a plugin sandbox.
-- `http.request({url, method, headers?, body?, signal?})`: generic Rust reqwest transport; requires `http`. Returns `{status, headers, body}` with lowercase header names and UTF-8 text. HTTPS with normal certificate validation only; no redirects or URL credentials. Twenty-second total timeout, 64 KiB body, 64 KiB headers, 8 KiB URL, 512 KiB response, four concurrent requests per attachment/tab and 32 globally. Abort, detach, close and Quit cancel active transport. Native I/O runs outside registry locks. Credentials, HTTP headers and bodies are never logged. HTTP status errors remain responses for plugin-specific handling.
-- `process.run`, `process.cancel`: literal executable/arguments, explicit environment overrides, optional absolute cwd, exit code/stdout/stderr. One active job per tab, 32 globally; callers may lower the 20-second timeout and 512 KiB per-stream output ceilings. Requests are bounded to 64 KiB. Cancellation completes after child cleanup. Detached external application actions remain separate.
-- `pty.connect`, `acknowledge`, `input`, `sendText`, `resize`, `status`, `history`, `saveHistory`, `close`: native ownership and raw bytes with replay and backpressure. `sendText(runtimeId, text, { enter?: boolean })` encodes literal UTF-8 and optionally appends CR; the default sends no Enter. Both input methods are limited to 8 KiB per call, including Enter. Embedded newlines/control characters are sent verbatim and can execute commands. Calls acknowledge writes, not command completion; avoid automatic retries after ambiguous errors. The SDK targets only the calling tab’s runtime. `connect` also delivers an `exit` control event with the exit code, independently of data ACKs and EOF; reattachment repeats the exited state. Query `status` at connection and exit to reconcile restart eligibility and session tags, rather than polling. Always acknowledge after the terminal engine consumes output. Receipt alone never ACKs. Native adapters validate tab, frontend attachment and runtime ownership.
-- `storage.read`, `replace`, `configure`, `subscribe`: versioned session/tab JSON namespaces scoped to the calling plugin ID, explicit configuration patches and change notifications. A missing namespace has revision zero. Replacement supplies the expected revision and an application-defined data version; conflicts require reloading and merging. Combined namespace data per session or tab is limited to 64 KiB, including envelopes. The host disposes subscriptions on detachment; callers may unsubscribe sooner. Mutable data stays separate from action configuration.
-- `desktop.readText`, `writeText`, `clipboard`, `selectPath`, `openFile`, `openUrl`: native clipboard, file selection and external opening. Terminal clipboard distinguishes images from text for Codex paste behavior. `clipboard(selection)` and `writeText(text, selection)` accept an optional `"clipboard" | "primary"` selection, defaulting to `"clipboard"`. Primary reads are text-only; primary writes and terminal text reads are limited to 65,500 UTF-8 bytes and GTK requests time out after three seconds.
+### Session tags
+
+`session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: the only tag operations, returning the calling tab’s session tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls.
+
+Background and dot are independently optional `#RRGGBB` colors. Priority defaults to 0, accepts signed 32-bit integers, and sorts higher values first with stable ties. Adding an existing name replaces its style/priority while preserving siblings; removing an absent name succeeds. All mutations are atomic in Rust and share CLI validation/persistence.
+
+Use `storage.subscribe` to observe changes. Tags persist in `ongleet.session-tags` and survive archival/restoration; legacy `color` values load as dots. The `Codex` activity tag is an ordinary member of this list, managed through the same operations. Bulk replacement is not exposed.
+
+### Tab title
+
+`tab.setTitle(title: string | null)`: updates only the calling tab’s display title synchronously. Titles allow at most 256 UTF-16 code units, trimmed, and stripped of control characters. `null` or blank text restores the configured name. Overrides last for the attachment, survive hiding and metadata refreshes, and clear on detach; they do not rename the saved action/tab.
+
+Terminal reads standard OSC 0/2 shell titles from the bounded byte stream, including fragmented UTF-8 and BEL/ST terminators; shells must emit these sequences to advertise their current directory or command. No shell startup files are changed; Files uses the open file’s basename.
+
+### Filesystem
+
+`fs.list`, `fs.readText`, `fs.saveText`, `fs.watchText`: bounded scans/text and revision-checked atomic saves. Unsupported text returns `null`, allowing a plugin to choose an external opener. Plugin configuration updates are explicit. `watchText(path, changed)` returns an unsubscribe function and watches the parent directory with Linux inotify, filtering the basename so atomic replacements remain observable.
+
+One watch per attachment/tab, 128 globally; events coalesce until `readText` acknowledges before reading. Queue overflow requests a fresh read. Detach, close, session removal and Quit stop and join watchers; subscribers may stop sooner. Network filesystem remote writes and mmap writes are outside inotify coverage; moving/deleting the parent directory invalidates the watch and requires reopening the editor.
+
+### Launch environment
+
+`env.get(name)`: read-only access to the native app’s launch environment; requires `env`. Returns a UTF-8 string (including empty strings), or `null` for an unset variable. All variable names are available to declaring trusted plugins; no variable whitelist is enforced yet. Names are bounded to 1–1024 bytes without NUL or `=`, and values to 64 KiB.
+
+Non-UTF-8 values fail explicitly. Values are returned to JavaScript without logging or persistence. This reads the app process environment, not a tab’s shell environment.
+
+### Credentials
+
+`credentials.get(key)`, `set(key, value)`, `delete(key)`: Linux Secret Service records scoped to the plugin ID derived from the calling tab; requires `credentials`. Keys are 1–128 bytes without controls; values are UTF-8 strings up to 64 KiB. Missing keys return `null`. Each operation opens a fresh encrypted Secret Service session; locked/unavailable storage fails without unlocking prompts or a plaintext fallback.
+
+Records belong to the plugin across tabs/projects/restarts and are excluded from SQLite, namespaces, configuration and archives. Tokens are returned to trusted JavaScript; this is not a plugin sandbox.
+
+### HTTP
+
+`http.request({url, method, headers?, body?, signal?})`: generic Rust reqwest transport; requires `http`. Returns `{status, headers, body}` with lowercase header names and UTF-8 text. HTTPS with normal certificate validation only; no redirects or URL credentials. Twenty-second total timeout, 64 KiB body, 64 KiB headers, 8 KiB URL, 512 KiB response, four concurrent requests per attachment/tab and 32 globally.
+
+Abort, detach, close and Quit cancel active transport. Native I/O runs outside registry locks. Credentials, HTTP headers and bodies are never logged. HTTP status errors remain responses for plugin-specific handling.
+
+### Subprocesses
+
+`process.run`, `process.cancel`: literal executable/arguments, explicit environment overrides, optional absolute cwd, exit code/stdout/stderr. One active job per tab, 32 globally; callers may lower the 20-second timeout and 512 KiB per-stream output ceilings. Requests are bounded to 64 KiB. Cancellation completes after child cleanup. Detached external application actions remain separate.
+
+### PTYs
+
+`pty.connect`, `acknowledge`, `input`, `sendText`, `resize`, `status`, `history`, `saveHistory`, `close`: native ownership and raw bytes with replay and backpressure. `sendText(runtimeId, text, { enter?: boolean })` encodes literal UTF-8 and optionally appends CR; the default sends no Enter. Both input methods allow at most 8 KiB per call, including Enter.
+
+Embedded newlines/control characters are sent verbatim and can execute commands. Calls acknowledge writes, not command completion; avoid automatic retries after ambiguous errors. The SDK targets only the calling tab’s runtime. `connect` also delivers an `exit` control event with the exit code, independently of data ACKs and EOF; reattachment repeats the exited state.
+
+Query `status` at connection and exit to reconcile restart eligibility and session tags, rather than polling. Always acknowledge after the terminal engine consumes output. Receipt alone never ACKs. Native adapters validate tab, frontend attachment and runtime ownership.
+
+### Storage
+
+`storage.read`, `replace`, `configure`, `subscribe`: versioned session/tab JSON namespaces scoped to the calling plugin ID, explicit configuration patches and change notifications. A missing namespace has revision zero. Replacement supplies the expected revision and an application-defined data version; conflicts require reloading and merging. Combined namespace data per session or tab allows at most 64 KiB, including envelopes. The host disposes subscriptions on detachment; callers may unsubscribe sooner. Mutable data stays separate from action configuration.
+
+### Desktop
+
+`desktop.readText`, `writeText`, `clipboard`, `selectPath`, `openFile`, `openUrl`: native clipboard, file selection and external opening. Terminal clipboard distinguishes images from text for Codex paste behavior. `clipboard(selection)` and `writeText(text, selection)` accept an optional `"clipboard" | "primary"` selection, defaulting to `"clipboard"`. Primary reads are text-only; primary writes and terminal text reads allow at most 65,500 UTF-8 bytes and GTK requests time out after three seconds.
 
 Errors are `SdkError` objects with readable messages and stable `code` values: `revision_conflict`, `busy`, `cancelled`, `timeout`, `limit_exceeded`, `unavailable`, `capability_unavailable`, or `operation_failed`. Feature-specific parsing, arguments, polling and messages belong in JavaScript. A failed refresh can retain its last successful result.
 
 For a new native capability, implement a reusable service under `src-tauri/src/core/`, add a typed native adapter and public SDK method, and validate ownership/capability/limits there. Extend manifest capabilities and test the actual native serialization and disposal path. Do not expose raw invocation, native command names, shell interpolation or another Rust plugin provider.
 
-Schema 7 adds session/tab namespace JSON and transactionally migrates the legacy PR association into the `pull-request` session namespace. CLI PR input validation and `pullRequest` response fields remain compatibility adapters. Archive version 2 includes namespaces; the version-1 decoder migrates legacy associations while retaining IDs, selections and opaque plugin data. Archives retain their existing 30-day policy.
+Schema 7 adds session/tab namespace JSON and transactionally migrates the legacy PR association into the `pull-request` session namespace. CLI PR input validation and `pullRequest` response fields remain compatibility adapters. Archive version 2 includes namespaces; the version-1 decoder migrates legacy associations while retaining IDs, selections and opaque plugin data. Archives keep their existing 30-day policy.
 
 Run `mise exec -- npm run check:plugins`, the frontend build and Rust suite. Native validation mode also exposes an SDK probe bridge used by the mixed-plugin harness; production bundles omit it. See [native validation](VALIDATION.md) for isolated WebKitGTK commands and remaining manual acceptance.
 
@@ -40,18 +95,17 @@ saved automatically to the local SQLite plugin namespace. A first note named
 left sidebar. Edit **Name**, then press Enter or leave the field to rename a note.
 Names, contents and the selected note survive restart. Existing single-note tabs
 migrate automatically, preserving their text as the first note.
-No Markdown file is created in the project. Notes survive tab closure, application
-restart and session archive/restore; permanently deleting the archive removes
+Notes do not create project Markdown files. Notes survive tab closure, restart and session archive/restore; permanently deleting the archive removes
 them. The existing 30-day archive retention policy applies.
 
 The editor displays save failures and retains pending text for retry. **Discard
-edits and reload** explicitly abandons pending edits and loads the saved version.
-Each note is limited to 24 KiB UTF-8; the entire notebook is limited to 100 notes
-and 48 KiB encoded JSON. Names are nonblank, at most 128 UTF-8 bytes, without
+edits and reload** explicitly abandons pending edits and loads the saved version. Each note allows at most 24 KiB UTF-8; the entire notebook allows at most 100 notes
+and 48 KiB encoded JSON.
+
+Names are nonblank, at most 128 UTF-8 bytes, without
 control characters. State includes note IDs and names, `selectedNoteId`, current
 text, notebook revision, loading/saving status, dirty flag and errors. Pass
-`--args '{"noteId":"NOTE_ID"}'` to read another note without selecting it.
-Read state and wait until it is not stale before replacing text:
+`--args '{"noteId":"NOTE_ID"}'` to read another note without selecting it. Read state and wait until it is not stale before replacing text:
 
 ```bash
 ongleet tab state 42 --json
@@ -63,14 +117,15 @@ persistence with `{revision, noteId}`. The revision belongs to the whole noteboo
 `create-note` takes `{revision, name}` and selects the new empty note;
 `rename-note` takes `{revision, noteId, name}`; `select-note` takes
 `{revision, noteId}`. All actions persist before returning and use the same UI
-mutations. They reject stale revisions and pending UI edits. Hidden open tabs remain
+mutations.
+
+They reject stale revisions and pending UI edits. Hidden open tabs remain
 callable; closed or archived tabs must be reopened first. Actions follow the
-standard cancellation and ambiguous-timeout contract; never retry automatically.
-Run `mise exec -- npm run check:note` for autosave and concurrency checks.
+standard cancellation and ambiguous-timeout contract; never retry automatically. Run `mise exec -- npm run check:note` for autosave and concurrency checks.
 
 ## Diff
 
-The bundled **Diff** tab requires `git` on the application's PATH. Add it through
+The bundled **Diff** tab requires `git` on the app's PATH. Add it through
 **Custom tab…**, action configuration, or the shipped Diff action (existing user
 and project action files are preserved). Comparisons resolve the enclosing
 repository only on request by this tab and include its entire tracked tree,
@@ -83,7 +138,7 @@ even when the configured folder is a subdirectory or linked worktree.
   use **Between two refs**.
 - **Compare from** offers **Branch divergence (default)**, **Latest commit**, and
   the latest 200 commits reachable from `HEAD`. A selected commit is the starting
-  snapshot; its own changes are excluded. Saved selections outside the list remain available.
+  snapshot; its own changes are excluded. Saved selections outside the list stay available.
 - **Include uncommitted changes** adds staged, unstaged, and untracked files.
   With **Latest commit**, this shows only local changes. Ignored files are excluded.
   Changes that cancel against the starting snapshot disappear.
@@ -96,27 +151,29 @@ only. Refs are fixed to object IDs for each refresh; working contents can change
 while being read. Refresh when working contents change during loading.
 Editing, staging, reverting and fetching are excluded.
 
-The tab title shows the number of changed files after each successful comparison.
-A session tag (`Diff #<tab ID>: N files`) carries the same count, including zero.
-Each Diff tab updates only its own tag; hidden/closed tabs retain their last
+The tab title shows the number of changed files after each successful comparison. A session tag (`Diff #<tab ID>: N files`) carries the same count, including zero. Each Diff tab updates only its own tag; hidden/closed tabs retain their last
 successful count. Counts follow the selected comparison and do not poll in the
 background.
+
 Each file header has a **Viewed** checkbox that folds its patch and a separate
 expand/collapse button. Viewed marks survive unchanged refreshes within the open
 tab; changed patches reopen and clear their marks. Changing comparison settings
-or reloading the application resets review state; marks and patch contents are
+or reloading the app resets review state; marks and patch contents are
 never stored on disk.
 
 The filename filter runs locally on a collapsible folder tree. Clicking a file
 jumps to its patch in a continuous page. File headers stay visible while their
 patches scroll, and the tree highlights and reveals the current file, opening
-collapsed folders when necessary. The diff panels follow the tree's folder-first
-order. The bottom status bar shows comparison refs, refresh time and file counts.
-Drag the divider beside the file tree
-to resize it; its preferred width is saved in localStorage across tabs and restarts.
-The divider also supports arrow keys, Home/End, and double-click to reset. Patches load serially and use
+collapsed folders when needed. The diff panels follow the tree's folder-first
+order.
+
+The bottom status bar shows comparison refs, refresh time and file counts. Drag the divider beside the file tree
+to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Patches load serially and use
 [react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,
-with three context lines and diff coloring. Binary and metadata-only changes show
+with three context lines and diff coloring. Long lines wrap to the panel width,
+preserving indentation and breaking long words when needed.
+
+Binary and metadata-only changes show
 notices. Non-UTF-8 filenames fail explicitly. Git runs with literal arguments,
 optional locking disabled, no external diff/text conversion or recursive
 submodule diffs, and the SDK's 20-second/512-KiB-per-stream bounds. Oversized
@@ -152,7 +209,7 @@ Run `mise exec -- npm run check:diff` for temporary-repository behavior checks.
 `scripts/check-diff-native.py` exercises bundled WebKitGTK on a private Xvfb
 server; see the validation guide for recorded evidence and remaining acceptance.
 
-Plugins can read `sdk.theme.getSnapshot()` for the application and resolved terminal
+Plugins can read `sdk.theme.getSnapshot()` for the app and resolved terminal
 preset and use `sdk.theme.subscribe(listener)` for changes. Call the returned
 unsubscribe function during cleanup. Snapshots and palettes are read-only; global
 appearance preferences are updated by the host's Appearance dialog.
@@ -191,13 +248,14 @@ useEffect(() => sdk.tab.registerInteractions({
 
 The state output schema must describe `{ summary, data, observedAt, stale }`.
 `observedAt` is an ISO timestamp or `null` when there is no observation. Providers
-must bound metadata themselves and describe loading/stale/unavailable information.
-The host wraps state as `{ tab: { id, sessionId, kind, name }, state, responseMs }`.
+must bound metadata themselves and describe loading/stale/unavailable information. The host wraps state as `{ tab: { id, sessionId, kind, name }, state, responseMs }`.
+
 Actions return their declared output directly. `useTabInteractions(handlers)` is
 a convenience hook retaining registration while handlers observe the latest
-committed React state. The set of handler names must stay fixed for that hook.
-Direct registration returns an unregister function; only one registration may
-exist per SDK attachment. Registration failures are reported to the console.
+committed React state. The set of handler names must stay fixed for that hook. Direct registration returns an unregister function; only one registration may
+exist per SDK attachment.
+
+Registration failures are reported to the console.
 
 Consumers declare the `tabs` core capability and use:
 
@@ -227,9 +285,10 @@ callable. Closed, detached or unregistered providers return `unavailable`.
 Rust validates arguments before dispatch and results before delivery, binds
 unique request IDs and replies to the target attachment, and rejects late or
 duplicate replies. Each request has a five-second deadline, 64 KiB encoded
-argument/result limits, four pending requests per target and 32 globally.
-Unregister, caller/target detach, reload and shutdown cancel pending requests;
-providers receive an abort signal. Cancellation is cooperative: it cannot undo
+argument/result limits, four pending requests per target and 32 globally. Unregister, caller/target detach, reload and shutdown cancel pending requests;
+providers receive an abort signal.
+
+Cancellation is cooperative: it cannot undo
 an action. A timeout explicitly warns that an action may have executed. Never
 automatically retry actions. Errors include `unsupported_operation` and
 `invalid_arguments`, alongside the existing stable SDK codes.
@@ -237,15 +296,16 @@ automatically retry actions. Errors include `unsupported_operation` and
 Terminal state defaults to 100 physical buffer lines (maximum 500), bounded to
 48 KiB of text/encoded lines. It reads the active Ghostty buffer without changing
 selection or viewport; alternate screen is active-screen content, not history.
-`send-text` preserves the 8 KiB write-acknowledgment contract, including Enter.
-The existing native `tab input` path remains available independently of a provider.
+`send-text` preserves the 8 KiB write-acknowledgment contract, including Enter. The existing native `tab input` path stays available independently of a provider.
+
 Diff state defaults to 50 file records (maximum 200), has a bounded page budget,
 and returns `totalFiles`, `nextOffset` and an opaque `revision`. It never includes
 patches. `set-files-expanded` and `set-files-viewed` use the UI's memory-only
 review state. Viewed actions require the returned revision and loaded successful
-patches; a changed comparison yields `revision_conflict`. Every path in a batch
-is checked before any update. Changed patches clear their viewed/expanded state.
-PR state returns summary counts and status from the last refresh; Files returns
+patches; a changed comparison yields `revision_conflict`.
+
+Every path in a batch
+is checked before any update. Changed patches clear their viewed/expanded state. PR state returns summary counts and status from the last refresh; Files returns
 folder, selected path and editor status. State reads trigger no Git/network
 refresh and return no file contents, credentials or review bodies.
 
@@ -270,11 +330,14 @@ The action returns `{ path, view: "editor" | "details" }`. It shares the UI's
 file-opening flow: unsupported text displays file details, and saved local drafts
 restore when reopening a file. Switching preserves unsaved drafts; an editor
 that is saving, awaiting confirmation, or unable to preserve edits returns `busy`.
+
 Opening/restoration already in progress also returns `busy`. Missing, inaccessible
 or directory paths fail without replacing the current file. Relative paths are
 invalid. The action never creates files, writes file contents, launches external
 applications, selects tabs or changes the explorer folder. Hidden Files tabs
-remain callable. The standard interaction cancellation/ambiguous timeout contract
+remain callable.
+
+The standard interaction cancellation/ambiguous timeout contract
 also applies to this action.
 
 Diff discussions are plain text and belong to one Diff tab. User/Agent labels
@@ -297,7 +360,7 @@ it submits a bounded discussion and reply instructions with Enter. Acknowledgmen
 means the terminal write succeeded, not that an agent processed it. Failed sends
 may have delivered input; they are never retried automatically.
 
-Comments are limited to 4 KiB each and 1 MiB per Diff tab. LocalStorage records
+Comments allow at most 4 KiB each and 1 MiB per Diff tab. LocalStorage records
 survive navigation, reload, application exit, and individual tab closure. Session
 closure/archive clears records, including CLI changes; startup removes stale
 session records. Storage failures appear in the UI. A changed comparison retains

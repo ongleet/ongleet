@@ -1,48 +1,58 @@
 # Validation guide
 
-For unexplained native keyboard warnings, launch with
-`ONGLEET_DEBUG=1 mise exec -- npm run tauri -- dev`.
-The opt-in stderr trace records GTK key/focus events, elapsed and GDK timestamps,
-hardware codes, key values, modifiers, layout group, window focus/visibility and
-the GTK `send_event` flag. Key values can reveal typed input. The flag alone
-does not establish whether an event came from a physical device. Logging leaves
-event propagation unchanged; reproduce the warning and retain adjacent trace lines.
-
-The full terminal compatibility gate remains open. Pass only observed checks; skipped checks and unavailable desktop access are limitations.
+The terminal compatibility gate remains open. Builds and engine tests do not
+certify WebKitGTK behavior. Record skipped checks and unavailable desktop access
+as limitations, never passes. One passing check does not complete a stage.
 
 ## Recorded evidence
 
-Observed host: Ubuntu 26.04.1, GTK 3.24.52, WebKitGTK 2.52.6, ghostty-web 0.4.0. Interactive Wayland Codex run: 0.163.0. X11 runs used XWayland, not a separate Xorg session. Historical test counts describe individual runs, not current coverage totals.
+Observed host: Ubuntu 26.04.1, GTK 3.24.52, WebKitGTK 2.52.6 and ghostty-web 0.4.0.
+Interactive Wayland Codex version: 0.163.0. X11 evidence uses XWayland, not a
+separate Xorg session. Results below describe individual runs, not current coverage
+of every subsequent change.
 
-- Builds, WASM parsing, shared-engine reuse, hidden-rendering and input/link adapter checks passed.
-- Native Wayland/XWayland checks passed shell typing, arrows, wide characters/emoji, split UTF-8, native clipboard shortcuts, alternate-screen resizing/replay, hidden output, reload with unchanged PID and query-reply suppression.
-- Wayland mouse forwarding, pointer selection/copy and private-handler OSC 8 activation passed. XWayland mouse reporting also passed in `096ye_uk`; separate Xorg remains unverified.
-- Actual Codex startup, prompt/cursor editing, slash menu, resize/reload and unsent draft preservation passed. No task was submitted.
-- Floods produced 350,000 lines across three hidden streams, at most 2,000 scrollback lines and explicit 4 MiB replay-overflow warnings. Tab interactions took about 22–75 ms. Debug WebProcess RSS samples were 371 MiB before, then 383/370/364 MiB; app RSS was about 197/201 MiB. These finite observations do not prove global memory bounds.
-- Real PTY tests passed detached/double-fork and app-death cleanup, eager resource release, blocked-I/O closure, replay/ACK validation and containment failure reporting.
-- Native lifecycle checks passed hide/reopen with the same process, activation, cancelled/confirmed Quit, socket cleanup and selective fresh-process restart.
-- Project/action editing and session/project/application CLI checks passed with isolated metadata, stable sibling PTYs, confirmations, bounds/permissions and unavailable-app handling. Later CLI additions still need native end-to-end acceptance.
-- Mixed-plugin checks passed Files navigation and PR fixtures, retained errors/results, visible-only polling and cancellation cleanup. Live GitHub was not contacted.
-- Editor/restoration/archive XWayland run `h2rfiwkv` passed fifteen checks without cleanup survivors. The Rust archive suite passed 71 application tests plus CLI/helper suites. Restored-running launch behavior has registry/containment coverage, not this GUI scenario.
-- History run `nnyy2t2r` verified saved text beside a fresh PID and no duplicate prefix after reload. This does not test actual power loss.
-- Startup run `whys2t3n` verified local missing-directory/executable errors and exit 23 while eleven sibling PTYs survived. The earlier live WebKit busy loop remains unprofiled/unresolved.
+| Area             | Evidence and limits                                                                                                                                                                                                                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Terminal         | Wayland/XWayland typing, UTF-8, mouse/curses, clipboard, alternate-screen resize/replay, reload, hidden output and reuse passed (`nbj7b88j`, `odspnvg9`). Hidden floods reached 350,000 lines with bounded scrollback and replay-overflow warnings. Finite runs do not prove global memory bounds. |
+| PTY ownership    | Real PTYs passed ACK backpressure, blocked-input cancellation, exact bytes, exit notifications, replay, detached descendants and owner-death cleanup. Event-driven waits passed 146 Rust tests on 2026-11-05; desktop CPU impact remains unmeasured.                                               |
+| Idle and history | Five-terminal sampling found zero frames/draws/status polls over three seconds (`8fohim6s`). Later five-second snapshot throttling passed model/build checks; native lifecycle/restart and CPU comparisons remain untested. Abrupt death can lose the latest history.                              |
+| Lifecycle        | Hide/reopen, selective fresh-process restart, activation and delayed close passed. A 15-check run passed with zero survivors (`4xnratrw`); a mixed-plugin run timed out during close confirmation (`96xd5pgl`). Cleanup remains unresolved.                                                        |
+| Files/editor     | Refresh, drafts, conflict/merge, restoration and archives passed 23 checks (`6p264nv5`). Hidden-tab CLI/SDK `open-path` safeguards passed (`ld39o4eu`). Physical shortcuts and external-writer races remain limits.                                                                                |
+| Diff             | General checks passed (`f8p_k8zr`); syntax/theme/reload passed on both backends (`3_590aof`, `9aq64pbc`). Navigation and refresh retained file/viewport/unchanged DOM (`o6k1uyxg`, `57rr9kk8`). New line wrapping has build evidence only.                                                         |
+| Interactions     | CLI/SDK discovery, hidden targets, ownership, bounds, cancellation and ambiguous errors passed (`nne3so8x`). Discussions/UI and exact PTY delivery passed (`vt2w5hyf`); selected code and unsaved-buffer delivery passed (`thq9n1ru`). Delivery does not prove agent processing.                   |
+| Notes            | Multiple notes, revision checks, autosave, reload and archive/restore passed (`vcm59k8w`). Immediate agent access after restore without reload remains unverified.                                                                                                                                 |
+| Appearance       | Visual/state checks passed on private Wayland/XWayland displays. Shared checkboxes passed six presets (`ydsxeylq`). Headless native keyboard focus was unavailable. Ghostty 0.4.0 does not support live cell recoloring.                                                                           |
+| Agent submission | On 2026-11-05, negotiated bracketed paste plus separate Enter submitted a 7,275-byte fixture to live Codex. A Diff comment also triggered a reply without manual Enter. Other agent TUIs/backends were not exercised.                                                                              |
 
-Full dated reports, paths, migration evidence and earlier failures: [validation record](reference/VALIDATION.md). Later entries supersede historical claims that Wayland mouse forwarding or tab management were unimplemented.
+Report IDs refer to temporary harness artifacts and may no longer exist.
+[Historical acceptance records](reference/VALIDATION.md) describe earlier states;
+current evidence above supersedes older pending or failing claims.
 
 ## Remaining acceptance
 
-- Codex actual image attachment, independent conversation resume/fork/hooks/missing history, crash recovery and close/Quit during retry delay.
-- Japanese/Chinese candidate-selection IMEs and complex grapheme shaping, primary selection, broader multiline bracketed paste/selection and separate Xorg mouse reporting. Basic function-key, combining-input and native Unicode-composition evidence is recorded below.
-- Title-bar dragging, rounded transparent corners, separate Xorg/other compositor window behavior, Wayland window-manager close, full session/selection retention and horizontally scrolled-tab pointer access.
-- Snapshot graphemes/selection and unavailable frontend behavior; CLI input/snapshots when implemented. Input queue saturation, cancellation and stale runtime IDs need complete boundary coverage.
-- Physical editor shortcuts, native editor clipboard and Wayland editor/archive interaction. WebDriver Ctrl-letter remapping required DOM shortcut events in editor checks.
-- Sudden power loss, fullscreen/cleared history, live GitHub, clean-system Ubuntu packaging and final resource/directory/state guarantees.
+- Physical keyboard focus, modal navigation, clipboard/selection and Japanese/Chinese
+  candidate-selection IMEs. Separate Xorg and other compositors remain untested.
+- Codex image attachment, independent resume/fork/hooks, missing history, crash
+  recovery and closure during retry delay. Live GitHub authentication/polling is
+  not certified by fixture responses.
+- Unattended packaged heap corruption and the earlier live WebKit busy loop.
+  The crash root cause remains unresolved; saved evidence is under
+  `.validation/crash-2026-10-26/`.
+- Mixed-plugin Quit timeout/cleanup, sustained resource bounds and sudden power
+  loss. Builds do not prove memory stability or clean shutdown.
+- Clean-system Ubuntu installation, upgrade behavior, WASM provenance and notices.
+- Native acceptance after event-driven PTY waits, history throttling and Diff
+  wrapping. Current builds do not validate already-running executables.
 
-Unsaved editor contents can be lost on crash, WebView reload or destructive CLI operations. Save checks cannot eliminate unrelated external-writer races; ACLs/xattrs are not retained.
+Files saves cannot eliminate unrelated external-writer races or preserve
+ACLs/xattrs. Draft persistence does not establish power-loss durability. Terminal
+text snapshots do not restore processes, modes or a complete transcript.
 
 ## Reproduce native terminal checks
 
-Use an isolated build, never the user's live instance. Record OS, display backend, WebKitGTK, Ghostty and Codex versions.
+Use isolated metadata, private displays and test-owned processes. Never target the
+user's live instance. Record OS, display backend, WebKitGTK, Ghostty and Codex
+versions. A running Vite server can hot-reload other development instances.
 
 ```bash
 mise exec -- npm run build -- --mode native-validation
@@ -51,11 +61,20 @@ mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland
 mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --skip-mouse --skip-codex
 ```
 
-Use Ubuntu `webkitgtk-webdriver` or `--driver /path/to/WebKitWebDriver`; matching 2.52.6 was observed. Desktop and writable user cgroup access are required. Preserve `MISE_DATA_DIR` and `MISE_CACHE_DIR` when isolating XDG directories: nested mise otherwise attempts fresh tool installation.
+Use Ubuntu `webkitgtk-webdriver` or `--driver /path/to/WebKitWebDriver`.
+Desktop and writable delegated user cgroup access are required. Offline Cargo
+needs a populated cache. Preserve `MISE_DATA_DIR` and `MISE_CACHE_DIR` when
+isolating XDG directories to avoid fresh toolchain installation.
 
-Harnesses use private app data/config/cache and test-owned processes. The bounded diagnostic bridge exists only in `native-validation` bundles. Clipboard checks back up/restore desktop contents or explicitly skip when backup is unsafe. No personal shell/Codex configuration changes occur.
+Copy bundled GUI/CLI executables before later Cargo builds can replace them.
+Keep the CLI named `ongleet` beside the copied GUI. The diagnostic bridge exists
+only in `native-validation` bundles. Clipboard mutation requires a private
+display; skip unsafe desktop clipboard checks. Never change personal shell or
+Codex configuration.
 
-Reports remain under `/tmp/terminal-native-validation-*`. Exit 0 means selected checks passed, 1 means failure, 2 means unresolved blockers. Harness cleanup does not prove general application containment. Restore the production frontend afterward:
+Harness reports live under their printed `/tmp/` paths. Exit codes: 0 selected
+checks passed, 1 failure, 2 unresolved blockers. Harness cleanup alone does not
+prove general containment. Restore production frontend assets afterward:
 
 ```bash
 mise exec -- npm run build
@@ -63,1320 +82,88 @@ mise exec -- npm run build
 
 ## Lifecycle, plugins, startup and editor
 
+After building the native-validation frontend and bundled GUI:
+
 ```bash
 mise exec -- /usr/bin/python3 scripts/check-lifecycle.py --driver /path/to/WebKitWebDriver
 mise exec -- /usr/bin/python3 scripts/check-terminal-startup.py --application /path/to/native-validation-app --driver /path/to/WebKitWebDriver
-mise exec -- npm run tauri -- build --no-bundle --debug
 mise exec -- /usr/bin/python3 scripts/check-file-editor.py \
   --driver /path/to/WebKitWebDriver \
-  --application src-tauri/target/debug/ongleet-gui
+  --application /path/to/native-validation-app
 ```
 
-Lifecycle requires X11/XWayland and libX11. For mixed plugins, add `--plugins --application /absolute/copied/ongleet-gui`; optionally add `--projects --actions-editor --cli /absolute/copied/ongleet`. Keep the CLI named `ongleet` beside the copied GUI. Copy the bundled GUI immediately after building; later Cargo builds can replace it with a development-server variant. PR checks use dummy GraphQL responses and real native credentials. They require a private D-Bus session with an unlocked temporary Secret Service; they refuse the desktop bus. Hidden polling uses real WebKitGTK timers. Editor checks accept optional `--cli /absolute/path/to/ongleet` for archive socket checks.
+Lifecycle requires X11/XWayland and libX11. Add
+`--plugins --application /absolute/copied/ongleet-gui` for mixed plugins; optionally
+add `--projects --actions-editor --cli /absolute/copied/ongleet`.
+Editor archive/socket checks accept `--cli /absolute/copied/ongleet`.
 
-## Manual checklist
+PR fixtures use dummy responses and require a private D-Bus session with an
+unlocked temporary Secret Service. They refuse the desktop bus. Fixture success
+does not certify live GitHub access.
 
-1. Exercise shell controls, `café λ 日本語 🙂 é`, multiline selection/paste and `scripts/terminal-probe.py` modes `unicode`, `flood`, `screen`. Check Codex input, approvals, interrupts and resizing without submitting unintended tasks.
-2. Switch/fold/reorder projects, sessions and tabs during output. Verify stable PIDs/screens/selection, immediate input focus, keyboard access and nonzero dimensions. Test literal arguments separately from explicit shell mode and environment/directory overrides.
-3. Cancel then confirm destructive closures. Verify sibling survival, cgroup cleanup and directory non-mutation. Test invalid executables and renamed/missing directories without recreation.
-4. Reload during live/hidden/exited output. Verify no duplicate replies/relaunch, overflow warnings and continuing output. Selection/scroll position are not restored.
-5. Hide/reopen: same PIDs. Quit/restart: fresh PIDs only for formerly running tabs. Stopped/closed/exited tabs stay stopped. Verify exclusive writer/socket ownership and persisted selections/configuration.
-6. Test YAML reload/errors atomically, editor conflict/dirty guards and archive restore/purge confirmation. Metadata stores explicit environment overrides; terminal history lives separately from SQLite.
+## Diff, notes and appearance
 
-Detailed acceptance steps and individual reports remain in the [full record](reference/VALIDATION.md).
-
-## Shared core API and SDK migration (2026-10-23)
-
-The production build, formatting, Rust check and complete Rust suite pass (73 application tests plus CLI, wrapper and helper suites). Ghostty WASM, terminal reuse, hidden rendering, input/link adapters and engine loading pass. Every frontend build checks plugin import boundaries.
-
-Observed native evidence with isolated metadata:
-
-- `terminal-lifecycle-validation-rkvu1rjo`: sixteen mixed-plugin/lifecycle checks pass with no cleanup survivors. The frontend-only SDK example crosses filesystem/process/storage boundaries; structured conflicts, timeouts, output limits, duplicate rejection, explicit cancellation, subscription disposal, reload cleanup and archive restoration pass. PR association replacement joins active work; hidden polling pauses and a full visible 60-second interval is observed. Pending PR work is joined on close and Quit. CLI operations, selective restart and terminal history/reload pass.
-- `ongleet-editor-validation-_7rwtfk_`: fifteen editor/archive checks pass with no cleanup survivors, covering Unicode editing, save conflicts, dirty guards, retained drafts, missing-file recovery and restoration. An earlier concurrent run timed out while taking a WebDriver screenshot; the isolated retry completed.
-- `terminal-native-validation-68ay2kvg`: twelve Wayland terminal checks pass through the SDK, including native clipboard, mouse/curses, resize, raw-byte replay, hidden floods and terminal reuse. Interactive Codex was explicitly skipped. Two WebKit worker processes were observed at harness cleanup and killed by the harness; no application or PTY process was listed as a survivor.
-
-These runs do not close the full terminal-stack gate. Live GitHub, the native 32-job saturation boundary, interactive Codex, remaining X11/Xorg input cases, IME and power-loss behavior remain unverified. The existing manual checklist still applies. Production frontend assets were restored after native validation.
-
-## Files refresh and overwrite confirmation (2026-10-25)
-
-Production frontend and native debug builds pass. Native WebKitGTK/X11 editor run `ongleet-editor-validation-ufbwwfue` passes fifteen checks with no cleanup survivors: clean-file automatic refresh, retained drafts, cancelled overwrite, renewed confirmation after another external write, confirmed overwrite, and existing editor/archive regression coverage. Refresh pauses for hidden tabs and resumes when visible; focus-triggered refresh and edits arriving during an in-flight read remain unverified by dedicated native scenarios. Physical keyboard shortcut limitations documented above still apply.
-
-## Files inotify notifications (2026-10-25)
-
-Replaced one-second file polling with an attachment-owned Linux inotify parent-directory watch, filtered by basename. Notifications coalesce until read acknowledgement; closing/detaching/removing the owner or quitting stops and joins the worker. Production frontend/native builds, formatting, plugin boundaries and the complete Rust suite pass outside the socket-restricted sandbox. The real-inotify Rust test covers sibling filtering, event coalescing, atomic replacement, deletion/recreation and worker disposal.
-
-Native WebKitGTK/X11 run `ongleet-editor-validation-ca7m4bqt` passes sixteen editor/archive checks with no cleanup survivors. It verifies repeated atomic replacements, deletion/recreation, no filesystem reads during 1.5 seconds idle (using IN_ACCESS with a positive control), retained drafts and revision-bound overwrite confirmation. An earlier run exposed a missing asynchronous Back-navigation wait in the harness; another rejected ineffective instrumentation of Tauri's immutable invoke property. The final harness observes actual filesystem access. Focus-triggered refresh, in-flight editing races, notification queue overflow and the global watch limit have no dedicated native acceptance scenario. Parent-directory relocation requires reopening; remote network-filesystem and mmap writes remain outside inotify coverage.
-
-## Persistent drafts and three-way save conflicts (2026-10-25)
-
-Edits persist synchronously in WebView localStorage with the original text/revision, scoped by tab ID and canonical path. The editor detail bar highlights unsaved changes and local draft availability. Reload/restart and GUI closure retain drafts; save, reverting to the baseline, and explicit Reload/Back discard remove them. Missing source files can recover their draft without recreation. Quota/storage failures retain live edits and show a visible error. Storage clearing and power-loss durability are not guaranteed.
-
-Conflicting saves offer Cancel, Force save and Merge into editor. The line-based three-way merge uses node-diff3 in a disposable Web Worker, with bounded input/matching work and a five-second timeout. It rereads the current disk version, updates the editor and draft baseline without writing, and preserves competing edits plus original context in conflict markers. Concurrent editor changes reject the result; a subsequent disk change is revision-checked again at save. Large or highly repetitive changes can require manual merging or explicit force save.
-
-Production frontend/native builds, plugin boundaries and formatting pass. `npm run check:editor-merge` passes seven behavior tests covering independent/overlapping/identical edits, whitespace/Unicode/EOF preservation, deletion/insertion, empty originals and bounded repetitive work. Native WebKitGTK/X11 report `ongleet-editor-validation-3e9zcmm4` passes 22 checks with no cleanup survivors, including persisted drafts across reload/restart, conflict cancellation/forcing, explicit discard, simulated quota failure and recovery, missing-file draft recovery, native worker merging, marker restoration and resolved save. The prior merge run reached the worker result but failed on a multiline expected-value escaping error in the harness; the final harness passes that value as a WebDriver argument. In-flight typing during merge, worker timeout, simultaneous editors for one file, and power-loss durability have no dedicated native acceptance scenario. Physical keyboard shortcut limitations remain as previously documented.
-
-## Codex activity tags
-
-`scripts/check-codex-activity.py --application /absolute/native-validation/ongleet-gui --cli /absolute/ongleet --driver /path/to/WebKitWebDriver` exercises real contained wrapper processes, generated hook commands, bounded mapping files, the private control socket, scoped SDK tag operations and the WebKitGTK sidebar with temporary XDG metadata. Its local fake Codex parses the injected TOML and emits fixture events; it never contacts a model or reads personal Codex configuration. It checks concurrent tabs and pending waits, Stop/Interrupt, wrapper restart and stale generations, reload retention, manual-tag preservation, closure and SessionEnd. Production frontend assets must be restored after building the native-validation bundle.
-
-The fixture establishes application integration, not hook delivery by actual Codex. Live `request_user_input`, permission approvals, interrupts and continuation behavior remain unverified. A plain-text final question is only distinguishable as Idle. User-configured hooks may continue a stopped turn or resolve a permission request automatically.
-
-Native X11/WebKitGTK report `/tmp/ong-codex-activity-6h9_oa3b/report.json` passed the ordinary Codex tag, independent background/dot colors, automatic text contrast, descending priority, unique-name updates and shared CLI/SDK listing/add/removal. It also passed concurrent hook waits, restart generation rejection, reload and closure checks with zero fixture process survivors. The full Rust suite, production frontend build, plugin boundaries and changed-file formatting passed. This uses fixture hook delivery; live Codex remains pending.
-
-## Terminal input and custom window controls (2026-10-25)
-
-Native Wayland run `terminal-native-validation-hkg5__hu` passed sixteen checks;
-XWayland run `terminal-native-validation-096ye_uk` passed seventeen. Both observed
-Codex 0.164.0 multiline Unicode clipboard paste, Ctrl+C clearing an unsent draft,
-prompt editing, slash menus and draft preservation across resize/reload. No task
-was submitted: approvals, active-task interruption and Codex scrolling remain
-unverified. Both backends passed F1/F12 as ncurses function keys, mouse reporting,
-selection/copy, clipboard types, OSC 8 activation, split UTF-8, PTY resize/replay,
-hidden floods and tab reuse. Custom maximize/restore followed native window state
-on both; XWayland custom close-to-hide/reopen preserved the shell PID. This is
-XWayland evidence, not a separate Xorg desktop test.
-
-XWayland run `terminal-native-validation-m7j2uzo6` observed native minimization,
-but `--show` did not clear the reported minimized state before timeout. Reproduce
-with `scripts/check-native.py --backend x11 --check-minimize` and the driver/build
-arguments above. The cause remains unresolved; do not count restoration as passed.
-Geometry/maximization persistence across Quit/restart, dragging, rounded transparent
-corners, IME, primary selection and broader grapheme/selection coverage remain open.
-
-The harness now uses the Session menu, waits for actual output rather than command
-echo, waits for clipboard ownership changes and waits for the actual GUI process
-at shutdown. Each successful run still listed one WebKit WebProcess at final
-cleanup, which the harness killed; neither listed a surviving GUI or PTY process.
-Do not infer general cleanup completion from these runs.
-
-Codex screenshots show blank spacing omitted by the current text snapshot
-(`codex-multiline.txt` versus `codex-multiline.png`). Token assertions allow this
-known limitation; exact whitespace fidelity remains open before CLI snapshots.
-Production frontend assets were restored after validation.
-
-## Minimized-window activation (2026-10-25)
-
-`--show` now presents the native GTK window on the main thread. In the pinned
-Tao implementation, unminimize queues a GTK request while set_focus rejects a
-window whose cached minimized flag remains true, so consecutive asynchronous
-requests can omit the presentation needed for activation.
-
-XWayland run `terminal-native-validation-_wk_hi6i` passed sixteen checks,
-including observed native minimization, restoration through `--show`,
-close-to-hide/reopen with unchanged shell PID and the terminal regression suite.
-No cleanup survivors were observed. Codex was explicitly skipped. This supersedes
-the earlier XWayland restore failure for this build.
-
-Wayland runs `tzuis95c` and `m_uuc3ox` timed out waiting for a native minimized
-state, before testing restoration; the latter was rerun after asking the user to
-leave the desktop untouched. An earlier run `jsulfbdm` failed to observe maximize;
-user interaction may have affected that run. Wayland minimize/restore remains
-unverified; these results do not establish a restoration regression. Xorg,
-window dragging and geometry/maximization persistence across restart remain open.
-
-WebDriver's close-button click endpoint also timed out after hiding the window
-in `qvn9_l7t`. The harness now asynchronously activates that DOM button to avoid
-waiting for a hidden WebView repaint; native pointer delivery for that close
-scenario is therefore not established by the successful run. Production frontend
-and native assets were restored after these checks.
-
-## Wayland activation and backend-aware validation (2026-10-25)
-
-Window activation now belongs to `window_state::activate`; socket dispatch only
-requests activation. It uses GTK presentation on both backends. On Wayland, an
-inactive visible GTK window is hidden and presented again to remap its surface,
-retaining the GTK window, WebView, terminal controllers and Rust PTYs. This also
-applies to explicitly showing an inactive, non-minimized window because the
-protocol does not expose minimized state. The compositor can choose its placement.
-Already-active windows do not remap. No GNOME-specific production API is used.
-
-The earlier test incorrectly expected `is_minimized()` to become true under
-Wayland. The [xdg-shell specification](https://raw.githubusercontent.com/wayland-mirror/wayland-protocols/main/stable/xdg-shell/xdg-shell.xml)
-provides a minimize request but no minimized-state notification or unminimize
-request. GTK activation can also be declined by the compositor. The trace in
-`xe2e2513` showed WebDriver's synthetic GTK input yielded activation serial zero.
-Even actual compositor input in `5myyd614` did not restore focus with the previous
-presentation-only implementation; the corrected test therefore catches the bug.
-
-The Wayland minimize check now verifies an outgoing `xdg_toplevel.set_minimized`,
-loss of native focus, restored native focus after `--show`, stable normal/maximized
-window dimensions and the same shell PID. It records protocol evidence instead of
-claiming to observe compositor minimized state. A temporary GNOME Mutter input
-session supplies Enter to the focused minimize button and is stopped after key
-release. This harness path needs Python GI and GNOME Mutter RemoteDesktop access;
-other Wayland compositors need equivalent native/manual acceptance. It does not
-change desktop settings or install a persistent service. Protocol tracing is
-scoped to the test driver/application with `ONGLEET_DEBUG=1`.
-
-Reproduce the focused window checks after a native-validation build:
+Use the native-validation frontend and bundled GUI for interaction and Note
+checks:
 
 ```bash
-mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland --check-minimize --window-only --skip-codex
-mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --check-minimize --window-only --skip-codex
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --interactions-only \
+  --application /path/to/native-validation-app \
+  --cli /path/to/ongleet --driver /usr/bin/WebKitWebDriver
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --notes-only \
+  --application /path/to/native-validation-app \
+  --cli /path/to/ongleet --driver /usr/bin/WebKitWebDriver
 ```
 
-Supply `--driver PATH` when WebKitWebDriver is not on PATH. Leave the desktop
-untouched during these input checks. `--window-only` skips terminal stress checks;
-it does not certify the complete terminal compatibility gate.
-
-Wayland full regression run `terminal-native-validation-phyc4qe4` passed eighteen
-checks including normal/maximized minimize/reactivation and terminal regression
-coverage; Codex was skipped. One WebKit WebProcess was listed at cleanup and
-killed by the harness; no GUI or PTY survivor was listed. After moving activation
-behind the window lifecycle abstraction, focused Wayland `piwgnsw5` and XWayland
-`ibhpnfxw` each passed five checks without cleanup survivors. Earlier XWayland
-attempt `mwrkxjcl` stopped at fixture setup because its typed temporary-directory
-path contained an extra final character; it exercised no window controls. These
-results supersede earlier unresolved minimize/restore entries on this GNOME host.
-Other compositors, a separate Xorg session, dragging and restart geometry remain
-outside this evidence. Production frontend/native builds were restored afterward.
-
-## Window geometry across Quit/restart (2026-10-25)
-
-Added `--check-window-restart` (requires `--window-only`) to the existing native
-harness. It resizes the actual window to 986 × 674, quits the isolated application,
-verifies GUI/shell termination and saved geometry, and launches a fresh GUI through
-WebDriver using the same private metadata. It then minimizes/reactivates a
-maximized window, quits/restarts again and checks maximization, full window size
-and the previous normal dimensions when restored. Both restarts assert distinct
-GUI and shell PIDs and a visible reopened window. XWayland additionally compares
-normal-window position across restart. Screenshots and structured before/after
-geometry are retained in each report directory.
-
-Wayland report `terminal-native-validation-dmft_6f6` and XWayland report
-`terminal-native-validation-l_5ye7_4` each pass five selected checks with no cleanup
-survivors. The normal window reopens at 986 × 674; maximized restart reopens at
-1920 × 1080 on this host, then restores to 986 × 674. No production code change was
-needed. These checks validate Quit/restart rather than power-loss durability.
-They do not validate position on Wayland, separate Xorg, other compositors,
-dragging or rounded transparent corners. The full terminal gate remains open.
-
-After building native-validation assets, reproduce with the driver path as needed:
-
-```bash
-mise exec -- /usr/bin/python3 scripts/check-native.py --backend wayland --window-only --check-window-restart --skip-codex
-mise exec -- /usr/bin/python3 scripts/check-native.py --backend x11 --window-only --check-window-restart --skip-codex
-```
-
-Wayland restart checks reuse the GNOME native-input fixture described above. Leave
-the test windows untouched during both runs. Production frontend/native assets
-were restored after acceptance; Python syntax and diff whitespace checks pass.
-
-## Live Codex approvals, interruption and scrolling (2026-10-25)
-
-Committed window restart acceptance as `a0add47`, then added
-`scripts/check-codex-interactive.py` for live terminal acceptance. It launches
-Codex 0.164.0 with the configured model (`gpt-6.1-sol` on this host) in a private
-workspace and Codex home, read-only sandbox and on-request approvals, without a
-shared daemon. It copies file-based authentication temporarily and removes the
-entire private Codex home in cleanup. It does not copy or change personal Codex
-configuration, hooks or project files. The fixture session is created through the
-normal backend operation, then displayed after frontend reload. These are live
-model requests using the signed-in account, restricted by the prompts to the
-harness fixtures.
-
-Wayland `ong-codex-validation-8vlu8kia` and XWayland
-`ong-codex-validation-kudr4nc5` each passed five selected checks with no
-cleanup survivors; private authentication copies were removed. Observed behavior:
-
-- Authenticated interactive Codex starts with isolated metadata.
-- An approval prompt blocks the marker command; Escape rejects it and its marker
-  remains absent.
-- Accepting a later request executes the marker command and completes the turn.
-- Ctrl+C during a bounded active command stops its actual subprocess and displays
-  the current turn's interruption message.
-- Native WebDriver wheel input scrolls a live eighty-line numbered response and
-  returns to its latest line. The validation-only bridge reports viewport offset;
-  assertions also compare numbered terminal rows because Codex handles scrolling
-  inside its alternate screen. Screenshots and text snapshots are retained.
-
-The first exploratory run `8c16ar_l` was invalidated: its assertions could match
-historical interruption text or a completion marker in the prompt. The corrected
-harness waits for actual process termination and a standalone completion reply.
-Wayland `s8uaq6jx` also passed these corrected checks; `gk3b7hf0` stopped during
-session-form setup, before Codex started. The final harness uses backend fixture
-creation and waits for the long response to settle before inspecting scrolling.
-It checks a multi-row change rather than accepting arbitrary screen differences.
-
-After a native-validation build, run with file-based Codex authentication:
-
-```bash
-mise exec -- /usr/bin/python3 scripts/check-codex-interactive.py --backend wayland --driver /path/to/WebKitWebDriver
-mise exec -- /usr/bin/python3 scripts/check-codex-interactive.py --backend x11 --driver /path/to/WebKitWebDriver
-```
-
-The default auth source is `CODEX_HOME`, falling back to `~/.codex`; use
-`--auth-home PATH` for another file-based profile. Leave the native test window
-untouched while running. Approval settings follow the
-[official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
-Physical keyboard/wheel input, actual image attachments, live ong-codex activity hook
-delivery, resume/fork/crash scenarios and other Codex versions remain outside this
-coverage. This does not close the full terminal compatibility gate. Production
-frontend/native assets were restored; Python syntax and targeted formatting checks
-pass.
-
-## Function keys, Unicode input and native composition (2026-10-25)
-
-Added `scripts/check-keyboard.py` and a temporary compositor-input helper in
-`scripts/native_input.py`. A real raw-mode PTY receiver records exact input bytes
-independently of terminal snapshots. Literal escape-sequence expectations cover
-F1–F12. Combining sequences `é`, `Å`, `ñ` and `👩‍💻` must reach the PTY as exact
-UTF-8, including combining marks and the zero-width joiner. A final aggregate
-comparison detects unexpected, missing or duplicated input across the sequence.
-
-Composition checks use [GTK Unicode input](https://docs.gtk.org/gtk3/class.IMContextSimple.html)
-with the input method selected only for the isolated test process. Real compositor
-key symbols enter preedit for `日`, commit it, then enter and cancel `あ`. Assertions
-require no raw preedit leakage, exactly one UTF-8 commit, and normal `x` input after
-cancellation. Trusted WebKit composition/key events and screenshots are retained.
-XWayland and IBus may expose DOM composition only on commit, so cancellation is
-verified by native Escape processing and PTY byte outcomes rather than requiring
-a DOM compositionend when no DOM composition began. Layout-independent key symbols
-preserve the desktop's existing Bépo configuration; settings and engine selection
-are never changed. Early invalid artifact directories from a physical-key-position
-assumption were deleted. A temporary GNOME Mutter input session releases its keys
-and stops on exit; no input service is installed.
-
-Each of these native runs passed four selected checks with no cleanup survivors:
-
-| Backend  | Input method  | Report suffix |
-| -------- | ------------- | ------------- |
-| Wayland  | GTK simple    | `qobd_zgg`    |
-| XWayland | GTK simple    | `tip29iil`    |
-| Wayland  | Existing IBus | `k_bs8yhq`    |
-| XWayland | Existing IBus | `nipeyhpb`    |
-
-Reports are under `/tmp/ongleet-keyboard-validation-<suffix>`. The existing IBus
-engine is `xkb:us::eng`; only XKB engines were available. The helper does not install
-or select Japanese/Chinese conversion engines, so candidate selection, conversion,
-reconversion and candidate-popup placement remain untested. Test keyboard events
-are supplied by WebDriver or the compositor input API, not physical hardware.
-
-Screenshot inspection shows combining accents on the fixed PTY output fixture.
-The ZWJ emoji renders as separate woman/laptop symbols even though the input bytes
-are correct; complex grapheme shaping remains a known limitation. Text snapshots
-also omit combining/joiner information, so byte acceptance does not establish
-snapshot fidelity. These findings remain in TODO and do not close the full
-terminal compatibility gate. No production input behavior was changed.
-
-After building native-validation assets, reproduce with the appropriate driver:
-
-```bash
-mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend wayland --driver /path/to/WebKitWebDriver
-mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend x11 --driver /path/to/WebKitWebDriver
-mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend wayland --input-method ibus --driver /path/to/WebKitWebDriver
-mise exec -- /usr/bin/python3 scripts/check-keyboard.py --backend x11 --input-method ibus --driver /path/to/WebKitWebDriver
-```
-
-The harness needs Python GI and GNOME Mutter RemoteDesktop access; IBus runs need
-the existing user's IBus service. Leave the desktop untouched during these checks.
-Native traces use `ONGLEET_DEBUG=1` and may include typed input. Production
-frontend/native assets were restored; Python syntax and diff whitespace checks pass.
-
-## Unicode selection, paste bounds and primary selection (2026-10-26)
-
-The terminal now serializes selected text from the existing Ghostty cells and
-absolute selection endpoints. Wide continuation cells contribute no extra spaces;
-combining graphemes use Ghostty's grapheme lookup, including in scrollback.
-Automatic/browser copy and native copy share this serialization. This compatibility
-adapter uses the pinned ghostty-web 0.4.0 selection manager because its public
-selection range is clipped to the visible viewport; revalidate it on upgrades.
-
-Fixed a second upstream 0.4.0 issue: selection auto-scroll extended an endpoint at
-the screen edge even when the viewport could not move. The adapter prevents edge
-scrolling at boundaries and stops an active timer after it reaches one. It retains
-Ghostty's selection/mouse machinery and restores patched methods on disposal.
-A focus click with no drag no longer copies a single cell over existing selections.
-
-Selections populate both CLIPBOARD and PRIMARY through the SDK/native services.
-Middle-click uses PRIMARY text and Ghostty's paste framing. The mouse adapter runs
-first: application mouse-reporting mode receives middle-button reports instead of
-pasted text. `desktop.clipboard(selection)` and `writeText(text, selection)` default
-to CLIPBOARD, preserving existing plugin callers. Primary text writes and terminal
-text reads retain the 65,500-byte limit and a three-second GTK request timeout.
-Standard clipboard image/file classification remains available.
-
-### Isolation incident and limits
-
-An early live-desktop run (`7qqda88_`) failed rich-text clipboard restoration and
-left fixture text on the user's clipboard. Its original rich-text backup could
-not be recovered. The user was informed; that run is failed evidence. Subsequent
-clipboard validation moved to a private authenticated Xvfb server containing only
-known fixtures. The final harness does not support live desktop clipboard mutation.
-It removes Wayland connection variables, uses a private DISPLAY/Xauthority and
-private application data, and seeds its own HTML/text and primary selections.
-The restoration helper is restricted to that private X11 context and serves all
-fixture data formats from memory. No system package was installed; Xvfb was
-extracted under `/tmp/terminal-native-tools` for these runs.
-
-Separate metadata does not prevent shared-desktop effects. The user's live GUI
-and Vite server were present during development, so source edits could hot-reload
-the live frontend. No input or shutdown command was intentionally sent to that
-GUI. Use a separate source/build copy or stop the live development session before
-future native acceptance if hot reload must be excluded. The harness never stops
-unrelated instances. Restart a development instance when needed to load matching
-frontend and Rust command changes.
-
-### Observed checks
-
-Final WebKitGTK private-X11 report `ongleet-clipboard-validation-ag2ehhy2` passes
-twelve checks. Its report records the private display/data path and disabled
-Wayland connection. Both original fixture selections were restored, and no marked
-cleanup survivors were observed. This is Xvfb integration evidence, not live
-Wayland, XWayland or a separate Xorg desktop acceptance.
-
-- GTK's observed CRLF-to-LF conversion precedes multiline Unicode paste. Bracketed
-  mode adds exactly one delimiter pair; unbracketed mode adds no explicit Enter.
-- Native image paste forwards Ctrl+V; copied local file URIs become quoted paths
-  with spaces/apostrophes preserved, without executing a shell.
-- A 65,500-byte Unicode clipboard crosses the native write chunks intact;
-  oversized text is rejected visibly without partially writing to the PTY.
-- A focus click preserves both selections. Forward/reverse multiline selection
-  preserves combining marks and wide characters. A narrow CJK/emoji selection near
-  the top edge remains stable at mouse release and owns PRIMARY.
-- Middle-click reads PRIMARY independently of CLIPBOARD. With mouse reporting
-  enabled it produces middle-button reports and no primary text paste.
-
-`check:terminal-selection` uses real Ghostty WASM cells for wide boundaries,
-leading spaces, combining text, reversed endpoints and selection spanning
-scrollback/live rows. `check:terminal-input` and the Rust clipboard file-quoting
-regression test pass. Python syntax and targeted formatting checks pass.
-Temporary selection mutation-stack instrumentation was removed.
-
-Build native-validation assets, then reproduce without touching desktop selections:
-
-```bash
-mise exec -- npm run check:terminal-selection
-mise exec -- /usr/bin/python3 scripts/check-clipboard.py --xvfb /path/to/Xvfb --driver /path/to/WebKitWebDriver
-```
-
-The script needs Xvfb, xclip and GTK 3. `scripts/check-native.py` now skips desktop
-clipboard mutation by default; it points to the private-display harness instead.
-The full terminal compatibility gate remains open. Live compositor primary
-selection, physical input, soft wrapping and broader retention still need safe
-acceptance. Production frontend/native assets were restored after validation.
-
-## Plugin-owned GitHub authentication (2026-10-26)
-
-The PR plugin now uses native HTTPS and plugin-scoped Secret Service credentials.
-`scripts/check-pr-auth.py --application /absolute/native-validation/ongleet-gui
---driver /path/to/WebKitWebDriver` exercises the WebKitGTK UI against dummy
-GraphQL responses. Credentials cross the real native boundary. It refuses to
-write credentials unless the caller supplies a private `/tmp/` D-Bus address and
-temporary XDG data directory. Never use real GitHub tokens in fixture mode.
-
-Build/copy the native-validation app using the commands above. Run the harness
-on a private X11 display under `dbus-run-session`, with temporary
-`XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`. Preserve `MISE_DATA_DIR`
-and `MISE_CACHE_DIR` before overriding XDG paths. Within that bus, start
-`gnome-keyring-daemon --unlock --components=secrets --control-directory=/tmp/your-private-control`
-with a fixture password on stdin; the control directory must have mode 0700.
-The service must stay alive for the complete UI restart test. The ignored Rust
-`isolated_secret_service_persists_and_isolates_plugin_records` test runs on the
-same private bus **after** UI checks: it intentionally locks the collection.
-It verifies reconnect persistence, replacement, deletion, plugin isolation and
-locked-storage rejection, without touching the desktop keyring.
-
-The native harness covers capability and attachment ownership checks, insecure
-URL rejection, four HTTP jobs per attachment, 32 globally, cancellation during
-stalled TLS I/O, shared connection, invalid replacement, retained snapshots after
-network failure, hidden polling, disconnect and native Quit/restart. GitHub
-responses are fixtures; this does not establish live public/private repository
-access, token permissions under organization policies, or live GitHub rate-limit
-behavior. The TypeScript behavior suite covers authentication failures, storage
-failure, rate-limit/reset headers, account changes, stale responses, review
-cursors, independent pagination and overflow rejection. Rust tests cover request
-and response bounds and transport cancellation. Live GitHub acceptance remains
-pending.
-
-Native X11/Xvfb report `/tmp/ongleet-pr-auth-9tmhgn3h/report.json` passes
-six checks with zero surviving test processes. The separate private Secret
-Service Rust test passes, including locked collection rejection. Fixture tokens
-are absent from application metadata/configuration files. The production
-frontend build (restored after native validation), plugin boundaries, 13 PR
-behavior tests, Rust formatting/check and complete Rust suite pass. HTTP body
-bounds are tested with and without Content-Length. Wayland authentication UI,
-live GitHub public/private access and real rate-limit acceptance remain untested.
-
-## Idle terminal CPU (2026-10-26)
-
-The terminal adapter replaces ghostty-web 0.4.0's perpetual frame loop with
-coalesced invalidation and retains dirty-row rendering for output. Hidden output
-still parses and ACKs synchronously. Native exit control events replace the
-frontend's 300 ms per-terminal status polling; exit delivery is independent of
-output ACKs and repeats on reattachment.
-
-Run the existing isolated native harness with `--check-idle --skip-codex
---skip-mouse` to create multiple idle shells, scroll into history, settle finite
-animations, and record three seconds of GUI/WebProcess CPU plus frame, text-paint
-and status-request counts. Use a copied bundled binary named `ongleet-gui` so
-subsequent Cargo builds cannot replace it with a development-server binary.
-
-The final Wayland run `/tmp/terminal-native-validation-wxdroisi/report.json`
-recorded five terminals, zero frames/text paints/status polls, and 1% of one CPU
-core each for GUI and WebProcess. Selected reload, exit display, Unicode, links,
-function keys, alternate screen, resizing, hidden output, 350,000-line flood and
-reuse checks passed. The initial XWayland run
-`/tmp/terminal-native-validation-755mqb0c/report.json` passed the same selected
-checks before the final dirty-row refinement, with zero idle work and about
-1.34% combined CPU. These short fixture samples are not a direct comparison
-with the user's larger live session.
-
-The final XWayland retry
-`/tmp/terminal-native-validation-s5dbkuyc/report.json` recorded five terminals,
-zero idle work and about 1.67% combined CPU. Reload, exit display, links,
-Unicode, function keys, hidden live output and resize/alternate-screen checks
-passed, but the run timed out activating a tab before the flood check. Another
-final XWayland attempt timed out activating a tab before idle measurement
-(`/tmp/terminal-native-validation-ie09gmjf/report.json`). Final XWayland
-flood/reuse acceptance remains incomplete; the earlier full selected XWayland
-run and final Wayland run do not resolve these intermittent activation timeouts.
-
-The real PTY suite, full Rust suite and rendering/input/selection/WASM/reuse
-checks passed. A new PTY regression verifies exit code 23 arrives while data is
-unacknowledged and survives reattachment. The renderer regression uses the
-pinned WASM and renderer with controlled frame/drawing boundaries to check idle
-scrollback, hidden parsing, coalescing, hover invalidation and disposal.
-
-Mouse forwarding, desktop clipboard mutation and interactive Codex were skipped
-in these native runs; the harness reports the skipped mouse check as a blocker.
-It also observed a remaining WebProcess during cleanup and force-cleaned that
-test-owned process. This evidence does not certify general WebKit child cleanup
-or complete the broader native acceptance gate.
-
-## Launch-environment authentication (2026-10-26)
-
-`scripts/check-pr-auth.py --environment-token` uses dummy `GH_TOKEN` and
-`GITHUB_TOKEN` values inherited by the native process. The same private D-Bus,
-Secret Service and display requirements apply. Normal fixture runs explicitly
-remove inherited GitHub tokens before launching the app.
-
-Native X11/WebKitGTK report `/tmp/ongleet-pr-auth-w6e3bu9h/report.json` passes
-two checks with zero survivors: arbitrary SDK environment reads and capability
-enforcement, GH_TOKEN precedence, no automatic credential persistence,
-disconnect/reconnect, and app restart while preserving an independently saved
-credential. Sixteen PR behavior checks pass, including GITHUB_TOKEN fallback,
-empty/unset variables, invalid environment tokens, and stale validation after
-tab disposal. Two Rust environment tests cover missing/empty values, name and
-size bounds, and non-UTF-8 rejection. Production frontend build and Rust check
-pass. Live GitHub token acceptance and Wayland environment UI remain untested.
-
-## Terminal detachment and delayed window close (2026-10-27)
-
-Build the production frontend and a bundled GUI (`tauri/custom-protocol`), then run:
-
-```bash
-mise exec -- python3 scripts/check-window-close.py \
-  --application /absolute/path/to/ongleet-gui \
-  --cli /absolute/path/to/ongleet \
-  --driver /absolute/path/to/WebKitWebDriver \
-  --xvfb /absolute/path/to/Xvfb
-```
-
-The harness creates a private X11 display and isolated metadata. It starts the
-GUI through a real controlling terminal, observes the shell returning, closes
-the terminal and verifies the GUI survives in an independent session. It then
-uses native WM_DELETE_WINDOW requests and WebKitGTK confirmation dialogs with a
-real contained terminal process. The two deadline checks take about four
-minutes: reopening must keep the same processes alive beyond the original
-deadline; a subsequent confirmed close must keep them running during the delay,
-then terminate the GUI and contained terminal and remove socket availability.
-Unconfirmed and cancelled close requests must leave the window visible. A
-rejected unconfirmed immediate Quit must preserve an existing shutdown timer.
-The report records surviving GUI/terminal PIDs; it does not certify every
-WebKit descendant or other display backends.
-
-Final native X11/Xvfb report
-`/tmp/ongleet-window-close-lgsf74p0/report.json` passes all six checks with no
-surviving tracked GUI/terminal PIDs. Production frontend build, bundled Rust
-build/check, formatting and the existing real-PTY confirmation/closure regression
-pass. Delayed window close on Wayland and separate Xorg remains unverified; the
-broader native compatibility gate remains open.
-
-## Ongleet identity migration (2026-10-27)
-
-The application, npm/Cargo packages, commands and diagnostic environment now use
-Ongleet. SQLite schema 8 migrates application namespaces and exact bare terminal
-executables, including archived payloads. Filesystem preflight rejects ambiguous
-sources, conflicting destinations and held legacy writer locks. Profile migration
-also retains prototype WebKit storage; a separate pending marker permits retry
-between profile component renames. YAML migration verifies semantic equivalence,
-keeps comments and backs up changed files. It reports custom legacy references
-without printing their contents. Credentials use copy-before-delete, destination
-comparison, serialized migration and a three-second service timeout.
-
-Isolated Rust fixtures cover fresh installation, prototype/DevCenter directories,
-repeated execution, partial moves, conflicts, writer locks, SQLite rollback,
-namespace preservation, archives and restored Codex mapping files. The real
-Secret Service fixture verifies copied credentials, idempotence, destination
-conflicts and retained locked entries on a temporary private D-Bus/keyring.
-The full Rust suite passes 133 tests, with two private-keyring tests excluded
-from the ordinary run; the migration keyring test also passes separately.
-`npm run check:branding-storage` covers interrupted copies, conflicts and retries.
-The wrapper subprocess check uses a stand-in Codex, with no model API call.
-
-`scripts/check-branding.py` accepts a saved pre-rename bundled GUI and the new
-bundled GUI. The native Xvfb/WebKitGTK report
-`/tmp/ongleet-branding-native-xre1lcpu/report.json` passed six checks: persisted
-legacy browser values, copied draft/wrap/PR keys, actual Files draft and wrapping
-restoration, hide/reopen, displayed identity and restart persistence. It left no
-test-owned processes or terminal cgroup leaves after bounded asynchronous
-WebKit cleanup. The test retained original file contents on disk. PR
-acknowledgments were storage fixtures; this does not certify live GitHub behavior.
-The first attempts with development-server binaries could not initialize the UI;
-only bundled release results establish this evidence.
-
-The Debian artifact is inspected for new command names, a single desktop entry,
-and replacement metadata for `dev-center` and `devcenter`. APT replacement is simulated with a temporary
-copy of dpkg status and a synthetic installed legacy package; no package is
-installed on the personal system. The fixture excludes the unrelated broken
-`steam-installer` record to isolate replacement dependency resolution.
-
-Remaining native acceptance: this rename's upgrade path on Wayland, live Codex
-hook/resume delivery and live PR unread-review behavior. Build/test success and
-Xvfb evidence do not complete those stages or certify other compositors.
-
-Remaining legacy-brand occurrences are intentional: migration sources and their
-regression fixtures (`branding`, SQLite/archive tests, browser bootstrap and
-Secret Service), Debian replacement metadata, the saved legacy binary argument
-in `check-branding.py`, this migration documentation, and historical observations
-in `docs/reference/VALIDATION.md` and local memory. The checkout/repository name
-`devCenter` is unchanged. No executable or environment aliases are shipped.
-
-The installed legacy package was subsequently confirmed as `dev-center` by an
-actual dpkg collision on `/usr/bin/terminal-pty-helper`. Both spellings now appear
-in `Conflicts` and `Replaces`; the initial synthetic `devcenter` fixture alone
-did not establish replacement of the distributed legacy package.
-
-## Diff plugin (2026-10-28)
-
-`mise exec -- npm run check:diff` uses temporary real repositories and the pinned
-react-diff-view parser. It covers staged/unstaged cancellation, exclusion of
-untracked/ignored files, direct and merge-base comparisons, tags/hashes/revision
-expressions, fixed resolved endpoints, ambiguous merge bases, unrelated histories,
-additions/deletions/renames/type changes, permissions/symlinks/submodules/binaries,
-quoted UTF-8/control-character filenames and rejected non-UTF-8 paths, multiple
-hunks/missing newlines, unborn/bare repositories, linked worktrees/subdirectories, list/patch limits, stat-only
-index-byte preservation, and serialized supersession. Frontend build, plugin
-boundaries, changed-file formatting, bundled Rust build, manifest discovery test
-and both native process-service tests pass.
-
-Reproduce private X11/WebKitGTK acceptance with a bundled GUI:
+For general Diff checks, build the normal production frontend and bundled GUI:
 
 ```bash
 mise exec -- npm run build
-mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline --bin ongleet-gui
-mise exec -- python3 scripts/check-diff-native.py \
-  --application src-tauri/target/debug/ongleet-gui \
-  --driver /absolute/path/to/WebKitWebDriver --xvfb /absolute/path/to/Xvfb
-```
-
-Report `/tmp/ongleet-diff-native-5sowbrwy/report.json` passes eleven checks with
-zero application cleanup survivors, using private metadata/display and real Git
-repositories. It verifies all three modes, unified rendering, long-line overflow,
-DOM selection, manual/activation/focus-event refresh, selected-file retention and
-fallback, retained stale results on invalid refs, actual Quit/restart settings
-restoration and fresh reads, byte-identical index and expected tracked contents,
-hiding/closing during active Git work, reaping and a surviving sibling PTY.
-A test-only Git wrapper delays execution for the cancellation scenarios.
-The screenshot was visually inspected. No desktop clipboard was touched.
-
-The selection fixture initially exposed Git's automatic stat-cache index refresh;
-Diff now supplies `diff.autoRefreshIndex=false` per invocation and uses bounded
-numstat metadata to filter stat-only false positives without writing the index.
-Another native iteration exposed delayed configuration notifications replacing a
-new inline edit; self-save notifications and duplicate metadata are now ignored.
-Earlier failing reports are not passing acceptance evidence.
-
-Remaining acceptance: Wayland, physical keyboard navigation and clipboard copying,
-real window-manager focus transitions (the harness dispatches the focus event),
-session switching, archive/reload during active Git work, inaccessible folders and
-missing Git in native UI, linked-worktree native rendering, and global process
-saturation. Existing SDK disposal/process tests support the shared mechanisms but
-do not establish those Diff-specific native scenarios. Builds alone do not close
-these stages.
-
-### Continuous Diff page (2026-10-28)
-
-The updated real-Git checks pass automatic feature-branch merge-base comparisons,
-default-branch/detached-HEAD latest commits, initial commits, and reference suggestions,
-alongside the existing path, metadata, bounds and cancellation checks. The frontend
-build and offline native custom-protocol build pass.
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-oifh5rgf/report.json`
-passes twelve checks with zero application cleanup survivors. It exercises the
-automatic latest-commit default, absence of repository settings from the toolbar,
-continuous multi-file patches, nested folder collapse/expand and file navigation,
-long-line scrolling, DOM selection, manual/activation/focus-event refresh,
-explicit reference modes, stale-error retention, successful settings across restart,
-Git index/content preservation, and cancellation on hiding/closure while preserving
-a sibling terminal. Reference suggestion popup interaction, the configuration modal,
-physical input/copy, Wayland and real compositor focus transitions remain untested
-for this layout. This evidence does not close the remaining terminal-stack gates.
-
-### Diff sidebar resizing and card borders (2026-10-28)
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-m5cnhwtv/report.json`
-passes fourteen checks with zero application cleanup survivors. Native pointer
-input resizes the Diff file tree; localStorage restores its width after frontend
-reload and application restart, and keyboard arrows adjust the persisted width.
-The long-line fixture scrolls inside the card content while its right border
-remains within the viewer. The prior comparison, navigation, persistence and
-cancellation checks also pass. Frontend and offline native builds, real-Git checks
-and diff whitespace checks pass. Wayland/physical-input validation, double-click
-reset and responsive width clamping remain untested natively.
-
-### Fixed Diff filter and visible borders (2026-10-28)
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-tuhn8ddx/report.json`
-passes fifteen checks with zero application cleanup survivors. An overflowing tree
-fixture scrolls independently while the filename filter keeps its position and
-its right edge stays inside the sidebar. The long-line patch keeps its right card
-border inside the viewer. This run also covers the compact comparison toolbar and
-loading spinner through the existing comparison/cancellation scenarios. Frontend
-and offline native builds pass; physical input and Wayland remain untested.
-
-### Viewed files and change counts (2026-10-28)
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-4dyg2_1z/report.json`
-passes sixteen checks with zero application cleanup survivors. Native clicks mark
-files viewed and fold their patches, reopen them without clearing the mark, and
-collapse them independently. An unchanged refresh retains review state; editing
-the fixture clears its viewed mark and expands the updated patch. Tab titles and
-session tags both update from two changed files to one. Prior mode, refresh,
-restart, sidebar persistence, selection, border and cancellation checks pass.
-Review state is attachment-local and is not restored after application restart.
-
-The frontend/native builds, real-Git tests, tag-isolation/cancellation tests and
-whitespace checks pass. The tag tests preserve unrelated and sibling Diff tags,
-replace a prior count with zero, and leave tags unchanged after cancellation.
-Physical keyboard/checkbox interaction, Wayland and multiple live Diff tabs remain
-untested natively; tags show the last successful comparison without background
-polling. Global input/select/textarea focus now colors existing borders; the
-native run exercises Diff controls, not every application form.
-
-### Diff tree ellipses and row borders (2026-10-28)
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-py6zux83/report.json`
-passes seventeen checks with zero application cleanup survivors. The fixture now
-includes a nested long directory and filename. The selected filename remains on
-one line with CSS ellipsis and a full-path tooltip; its existing one-pixel border
-stays inside the row, and the tree has no horizontal overflow. Folder labels also
-use ellipses while retaining disclosure controls. Prior review, count, refresh,
-restart and cancellation checks pass. Frontend/native builds and whitespace
-checks pass. Physical-input/Wayland appearance remains untested.
-
-### Current file while scrolling (2026-10-28)
-
-Private WebKitGTK/Xvfb report `/tmp/ongleet-diff-native-q864cbif/report.json`
-passes eighteen checks with zero application cleanup survivors. With two tall
-patch containers, scrolling within each file keeps its header at the top of the
-viewer and updates the tree's current-file highlight. Layout changes are observed
-without polling; hidden tabs remove their observers and pending animation frames.
-The prior ellipsis, review, count, refresh, restart and cancellation checks also
-pass. Frontend/native builds and whitespace checks pass. Physical scrolling and
-Wayland remain untested.
-
-### Diff tree following and panel order (2026-10-28)
-
-Private X11/WebKitGTK report
-`/tmp/ongleet-diff-native-gypx3_k6/report.json` passes 20 checks with zero
-application cleanup survivors. Diff panels match the folder-first tree order,
-including nested folders and root-level files. Scrolling follows the highlighted
-tree row in both directions, opens collapsed ancestors and preserves the diff
-viewer's scroll position. The harness waits for all patches before measuring
-long-line overflow. Real-Git checks, frontend build and bundled native build pass.
-Wayland and physical-input acceptance for these changes remain untested.
-
-### Appearance presets (2026-10-28)
-
-Preference and actual pinned Ghostty WASM checks cover six launch palettes,
-default foreground/background, all 16 ANSI colors and explicit RGB preservation.
-Canvas-call checks cover renderer theme decorations and hidden-terminal repaint;
-CodeMirror state checks preserve the draft, selection and undo/redo through all
-presets, including its light/dark facet. These are engine/state checks, not native
-acceptance. See `scripts/check-appearance.mjs`, `scripts/check-theme-engine.mjs`
-and [the compatibility limitation](APPEARANCE.md#terminal-compatibility-limit).
-
-The native checks below supersede the initial missing-tool blocker. Full live
-default/ANSI cell recoloring is still unfinished: the 0.4.0 runtime setter only
-warns and its WASM rejects OSC palette updates. No terminal architecture or
-process lifecycle changes were made to work around that limit.
-
-### Native appearance and regression acceptance after installing tools (2026-10-28)
-
-Installed tools: WebKitWebDriver 2.52.6, Weston 14.0.2, Xvfb 21.1.22. Runs use
-private headless Weston Wayland/XWayland displays or private Xvfb, unique app
-data/config/cache, fixture files and test-owned PTYs. No installed-app data or
-desktop clipboard is used. The native-validation frontend was bundled into the
-debug executable; the production frontend was rebuilt afterward.
-
-| Suite                                            | Evidence                                                  | Result                                                                                             |
-| ------------------------------------------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Appearance, private Wayland                      | `/tmp/ongleet-appearance-native-4qs5hrzb/report.json`     | Five acceptance groups pass; zero cleanup survivors.                                               |
-| Appearance, private XWayland                     | `/tmp/ongleet-appearance-native-tx8cngct/report.json`     | Five acceptance groups pass; zero cleanup survivors; settled screenshots recorded.                 |
-| Terminal, private XWayland                       | `/tmp/terminal-native-validation-p0dnr_hh/report.json`    | Twelve checks pass; zero cleanup survivors.                                                        |
-| Terminal, private Wayland                        | `/tmp/terminal-native-validation-qdqvyndz/report.json`    | Twelve checks pass; zero cleanup survivors.                                                        |
-| Files/editor/archive, private XWayland           | `/tmp/ongleet-editor-validation-hmt15zif/report.json`     | Twenty-three checks pass; zero cleanup survivors.                                                  |
-| Diff, private Xvfb                               | `/tmp/ongleet-diff-native-pd2ch9g5/report.json`           | Twenty checks pass; zero cleanup survivors.                                                        |
-| Clipboard/selection, private Xvfb                | `/tmp/ongleet-clipboard-validation-utpi5ylw/report.json`  | Twelve checks pass; zero cleanup survivors.                                                        |
-| Startup, private XWayland                        | `/tmp/terminal-startup-validation-gn0rty1f/`              | Both startup/error-isolation groups pass with eleven retained sibling PTYs.                        |
-| Lifecycle/projects/actions/CLI, private XWayland | `/tmp/terminal-lifecycle-validation-18epjt9n/report.json` | Fifteen checks pass; one WebKit child remained at immediate cleanup and was killed by the harness. |
-
-Appearance coverage includes all six presets during output, inherited/overridden
-terminal preferences, unchanged runtime IDs and terminal PIDs, hidden output and
-reveal, new terminals, CodeMirror drafts/undo/redo, fresh-process preference/draft
-restoration and Restore defaults. Computed editor/Diff colors were checked under
-Light+ and One Dark; settled editor and Diff screenshots were inspected. This is
-not complete visual acceptance of PR/configuration/archive/error surfaces or
-physical keyboard focus.
-
-The terminal suites cover reload with the same shell PID, independent tabs,
-OSC 8 opening through a private handler, split UTF-8 and exited replay, repeated
-reload during hidden output, curses function keys/mouse/resize, alternate screen,
-350,000 lines of hidden output, bounded scrollback, replay overflow and ten
-emulator reuse cycles. Clipboard mutation remains deliberately disabled in those
-broad suites; the separate twelve-check private clipboard run covers paste,
-primary selection, Unicode/wide copying and bounds without changing desktop data.
-Live Codex was explicitly excluded. Physical input, GNOME/IBus composition and
-live GitHub are not established by installing display automation tools.
-
-A subsequent Wayland repeat `/tmp/terminal-native-validation-i816elxh/report.json`
-passed nine checks, then timed out selecting a tab during the flood scenario.
-It had zero cleanup survivors. WebDriver's Enter-based tab selection was replaced
-with direct DOM tab activation; native PTY keyboard tests remain separate. The
-cleanup harness now allows five seconds for WebKit children to exit before
-recording survivors. The final serial Wayland repeat `/tmp/terminal-native-validation-qdqvyndz/report.json` passed all twelve checks with zero cleanup survivors. These changes do not certify physical tab keyboard behavior.
-
-Older fixtures were updated for explicit SQLite columns, current scoped action
-menus, dynamic Files tab titles, topbar Archives/Quit and the delayed-close
-confirmation. Direct DOM menu activation is used where WebDriver pointer focus
-can dismiss a menu; physical menu interaction remains a separate check.
-
-Reproduction after building the native-validation bundle:
-
-```bash
-mise exec -- python scripts/check-appearance-native.py --backend wayland
-mise exec -- python scripts/check-appearance-native.py --backend xwayland
-mise exec -- python scripts/with-private-display.py xwayland python scripts/check-native.py --backend x11 --skip-codex
-mise exec -- python scripts/with-private-display.py wayland python scripts/check-native.py --backend wayland --skip-codex
-mise exec -- python scripts/with-private-display.py xwayland python scripts/check-file-editor.py --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui --cli src-tauri/target/debug/ongleet
-mise exec -- python scripts/check-diff-native.py --driver /usr/bin/WebKitWebDriver --xvfb /usr/bin/Xvfb --application src-tauri/target/debug/ongleet-gui
-mise exec -- python scripts/check-clipboard.py
-```
-
-### Additional TODO acceptance: Diff, CLI input and selection retention (2026-10-28)
-
-The expanded Diff suite passes twenty-two checks on private Weston Wayland
-(`/tmp/ongleet-diff-native-58q0iqo1/report.json`) and private Xvfb
-(`/tmp/ongleet-diff-native-2r2cmbx6/report.json`), both with zero cleanup survivors.
-New checks reload the WebView during a deliberately stalled Git process, switch
-sessions during Git work, and archive the Diff tab while Git is active. Old Git
-children are reaped, comparisons restart successfully, archiving retains its
-archive entry and sibling terminal PIDs stay alive. This closes those specific
-TODO gaps. Physical keyboard/copy and actual window-focus transitions remain open.
-
-The clipboard harness accepts `--cli /absolute/path/to/ongleet` to send commands
-through the real private application socket into a raw PTY. Literal Unicode and
-shell-looking text arrive exactly once, `--enter` alone adds carriage return,
-input exceeding 8 KiB including Enter is rejected without a partial write, and
-unknown tab IDs cannot deliver bytes to a live sibling.
-
-The standard CLI/clipboard run `/tmp/ongleet-clipboard-validation-r8e1j_h9/report.json` passes all fifteen checks with zero cleanup survivors.
-
-The optional `--check-navigation` regression check **fails** on current Ghostty
-0.4.0. `/tmp/ongleet-clipboard-validation-gma97pvc/report.json` records independent
-tab and session cases: a wide Unicode selection loses both text and its range
-after navigation; runtime IDs and primary ownership remain intact. All fifteen
-CLI/clipboard checks finish successfully in that same run, but the explicit
-navigation assertions make the suite fail. Cleanup has zero survivors and both
-private selections are restored. Ghostty's document click handler clears a
-selection on clicks outside its canvas; no product behavior was changed to hide
-this failure. Selection retention stays open in TODOs. No physical desktop input
-or compositor clipboard claim follows from this private Xvfb reproduction.
-
-```bash
-mise exec -- python scripts/with-private-display.py wayland python scripts/check-diff-native.py --backend wayland --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui
-mise exec -- python scripts/check-diff-native.py --driver /usr/bin/WebKitWebDriver --application src-tauri/target/debug/ongleet-gui
-mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongleet
-# Known failing selection-retention check:
-mise exec -- python scripts/check-clipboard.py --cli src-tauri/target/debug/ongleet --check-navigation
-```
-
-### Transport pressure and runtime/CLI acceptance (2026-10-28)
-
-`terminal_session::tests::input_queue_pressure_rejects_overflow_and_close_cancels_pending_writes`
-uses a real contained raw PTY whose child never reads. It fills the kernel input
-buffer until a write remains blocked, accepts one queued write, verifies the next
-write is rejected promptly while the process remains running, and closes the
-terminal. Both pending completions return errors, resources complete cleanup, and
-new input after close is rejected. Input over 8 KiB is also rejected. No production
-transport code changed. All fourteen `terminal_session::tests` pass serially with
-writable test cgroup delegation; the sandbox cannot create these cgroups.
-
-Private XWayland report `/tmp/ongleet-transport-native-s6bxpis4/report.json` passes
-eight acceptance groups with zero cleanup survivors. Private Wayland repeat
-`/tmp/ongleet-transport-native-boh1id7j/report.json` passes the same eight groups
-with zero cleanup survivors. The native SDK rejects input,
-resize, ACK, status, save-history and close requests for an unknown runtime, another
-tab's runtime in both directions, and a stale runtime after closing/reopening the
-same stable tab ID. Valid runtimes still deliver exact Unicode bytes; invalid ACKs
-are rejected. Sibling runtime IDs remain intact and both processes remain running.
-
-The real private CLI socket reports running terminals, persists tab reorder without
-replacing their runtimes, reports exit code 23 and disabled restart eligibility,
-and rejects input to exited, stopped and closed definitions without implicitly
-launching/reopening them. A stopped open terminal is distinct from a closed tab:
-`tab list` reports `stopped` and `closed`, respectively. The restarted definition
-receives a fresh runtime, accepts valid input and rejects its old runtime ID.
-
-This closes the specific transport-pressure/runtime-ID and remaining CLI
-status/order/stopped/exited input TODOs. CLI output snapshots, comprehensive resource
-and memory acceptance, physical input and selection retention remain separate open
-work. This test does not establish behavior under every scheduler/load condition.
-
-```bash
-mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline --bin ongleet-gui terminal_session::tests -- --test-threads=1
-mise exec -- python scripts/with-private-display.py xwayland python scripts/check-transport-native.py
-mise exec -- python scripts/with-private-display.py wayland python scripts/check-transport-native.py
-```
-
-### Selection retention across navigation fixed (2026-10-28)
-
-This supersedes the earlier known-failing navigation result. The pinned Ghostty
-0.4.0 selection manager installs a document-level click listener that clears its
-selection whenever a user clicks outside that terminal's canvas. The selection
-adapter now detaches only that listener while attached and restores it on cleanup.
-Canvas gestures, terminal keyboard handling, raw output, PTYs and rendering stay
-with the existing adapters; there is no copy/restore of terminal selection state.
-
-The formerly failing private Xvfb command
-`check-clipboard.py --cli src-tauri/target/debug/ongleet --check-navigation`
-now passes all seventeen checks in
-`/tmp/ongleet-clipboard-validation-rmvlonjm/report.json`, with zero cleanup survivors
-and both private selections restored. Wide Unicode selection text and coordinates
-survive independent tab and session switches, with the same runtime ID and primary
-ownership. New pointer selection, middle-click primary paste, mouse reporting,
-clipboard bounds and raw CLI input retain their previous passing behavior.
-
-`check:terminal-selection` now exercises the actual pinned SelectionManager and
-WASM using DOM event targets: outside clicks no longer clear the selection, canvas
-mousedown still starts a new selection, subscription cleanup completes and disposal
-restores the original handler. Input/link, rendering, reuse and plugin boundary
-checks also pass. The native-validation frontend/native build passed. Private
-Xvfb evidence does not certify physical desktop gestures, wrapping/scrollback
-retention under every output pattern, or cross-compositor primary ownership.
-
-After this adapter change, the broader terminal suites pass all twelve checks on
-private Wayland (`/tmp/terminal-native-validation-1oo6_1w7/report.json`) and private
-XWayland (`/tmp/terminal-native-validation-guhfs1z2/report.json`). Their cleanup
-results are retained in the reports; physical desktop input and live Codex remain
-outside these runs.
-
-### Appearance surfaces and explicit focus limitation (2026-10-29)
-
-Expanded `check-appearance-native.py --surfaces` runs checked Light+ and One Dark
-on private Wayland and XWayland. Initial completed reports are
-`/tmp/ongleet-appearance-native-__6ig2hh/report.json` (Wayland) and
-`/tmp/ongleet-appearance-native-7zgq6fzd/report.json` (XWayland), each with seven
-completed visual/state groups and zero application cleanup survivors.
-
-Coverage includes default-action controls, invalid YAML with save rejection,
-new-project controls and disabled Save, populated archive rows/actions, a populated
-PR panel with reviews/checks, PR configuration validation, and network-failure
-presentation that retains the previous PR data. Dialog foreground/background and
-error backgrounds are checked against each preset. Screenshots of those surfaces
-were inspected; invalid YAML and invalid PR association never replace the saved
-fixture settings. GitHub uses a dummy environment token and the native-validation
-HTTP fixture, enabled before creating the PR tab. Authentication does not read or
-write personal Secret Service credentials, and no live GitHub acceptance is claimed.
-
-Native focus is **unavailable**, not passed: both headless WebViews report
-`document.hasFocus() === false` and the active input does not match `:focus`.
-Thus its ordinary border is not evidence of a product focus-style defect. Explicit
-focus requests to the test-owned private XWayland window also failed to establish
-WebView focus; the unsuccessful helper was removed. Native keyboard focus, modal
-Tab navigation and physical focus indicators remain in TODOs for a real desktop.
-No desktop window was targeted. An interrupted early focus-helper fixture was
-cleaned up using only its unique process marker; no surviving processes remained.
-
-The harness now records focus evidence and an `unavailable` list separately from
-completed visual checks. Expanded runs return exit 2 while focus is unavailable;
-a visual assertion failure still fails the run. The default five-group appearance
-suite is unchanged. This avoids declaring the entire appearance acceptance stage
-complete from visual checks alone.
-
-```bash
-mise exec -- python scripts/check-appearance-native.py --backend xwayland --surfaces
-mise exec -- python scripts/check-appearance-native.py --backend wayland --surfaces
-```
-
-Final reruns after removing the focus helper are
-`/tmp/ongleet-appearance-native-nnjwffxu/report.json` (XWayland) and
-`/tmp/ongleet-appearance-native-jsy0a2k5/report.json` (Wayland). Each records seven
-completed groups, two unavailable focus checks, overall `blocked`, and zero
-application cleanup survivors. The runner explicitly accepts exit 2 for that
-known focus limitation; it does not convert blocked focus checks into passes.
-
-## Diff navigation retention (2026-10-29)
-
-Private WebKitGTK/X11 report `ongleet-diff-native-o6k1uyxg` passes tab and session navigation with the second file selected and a nonzero viewer scroll position, including the debounced visibility refresh. The full Diff harness passes with no cleanup survivors. The regression scenarios use enlarged file content to provide deterministic scroll geometry. Physical desktop and Wayland navigation were not exercised by this run.
-
-Native WebKitGTK/X11 report `ongleet-diff-native-57rr9kk8` additionally passes refresh after growing an earlier patch by 200 lines: the current file, viewport offset and unchanged patch DOM identity survive. The complete harness passes with no cleanup survivors. Refresh anchors to file-relative pixels; edits inside the currently read file do not yet preserve a specific source line. Production assets were restored.
-
-## Diff syntax highlighting (2026-11-03)
-
-Private Xvfb/WebKitGTK run `ongleet-diff-native-mfq_bl9p` passed four focused
-checks with no cleanup survivors. A real Git TypeScript patch verified lazy
-language loading, separate added/deleted syntax, multiline comments, literal
-`<tag>&` text, and retained diff backgrounds. Computed colors changed live when
-switching from Original to Light+, and the selected theme and highlighted patch
-returned after WebView reload. The Git index remained unchanged. Both dark and
-light screenshots were visually inspected. This run did not exercise Wayland or
-every supported language; omitted source before a hunk cannot supply parser context.
-
-Reproduce after building the native-validation frontend and bundled native app:
-
-```bash
-mise exec -- /usr/bin/python3 scripts/check-diff-native.py --syntax-only \
+mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py \
   --application src-tauri/target/debug/ongleet-gui --driver /usr/bin/WebKitWebDriver
 ```
 
-The first attempt stopped on an incorrect test dialog selector after observing
-syntax rendering; the corrected run above passed. Production frontend assets were
-restored afterward. Build, real-Git diff checks and syntax mapping checks passed.
-
-## Broad regression sweep (2026-11-03)
-
-All thirteen npm `check:*` groups passed. Production/native-validation frontend
-builds, Rust formatting/checking and 137 default Rust tests passed. Both normally
-ignored credential tests also passed, each on a fresh private D-Bus/keyring
-(total: 139 Rust tests). The first sandboxed Rust attempt failed a socket-peer
-permission check; the normal local-socket run passed. Source formatting passed;
-repository-wide `format:check` reported only the ignored generated
-`.playwright-mcp/page-2026-10-27T20-35-19-474Z.yml` artifact.
-
-Current native evidence on private displays, with isolated metadata:
-
-| Area                      | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Terminal Wayland/XWayland | PTY/reload, UTF-8, mouse/curses, 350,000-line hidden floods, resize and reuse passed (`nbj7b88j`, `odspnvg9`).                                                                                                                                                                                                                                                                                                                                 |
-| Idle                      | Five terminals, including scrolled history: zero frames/draws/status polls during three seconds; GUI CPU 0.67%, WebProcess 0% (`8fohim6s`). Finite sample only.                                                                                                                                                                                                                                                                                |
-| Diff                      | 25 general checks passed (`f8p_k8zr`); four syntax/theme/reload checks passed on each backend (`3_590aof`, `9aq64pbc`).                                                                                                                                                                                                                                                                                                                        |
-| Files/editor              | 23 refresh, save, draft, conflict/merge, restoration and archive checks passed (`6p264nv5`).                                                                                                                                                                                                                                                                                                                                                   |
-| Clipboard and transport   | 17 private clipboard/navigation/CLI-input checks (`a389o71y`) and eight transport/ownership/saturation checks (`we9f20o_`) passed.                                                                                                                                                                                                                                                                                                             |
-| Startup and Codex hooks   | Pending/failed-start isolation with eleven sibling PTYs passed (`qskwlzwj`); real wrapper/activity hooks passed (`vgnd8y5t`); wrapper subprocess suite passed. No live model task was submitted.                                                                                                                                                                                                                                               |
-| PR authentication         | Six capability/HTTP-limit/token/restart/hidden-polling checks passed (`8atxe0_4`); environment-token checks passed (`7cocaqkt`). Real private Secret Service, fixture GitHub responses.                                                                                                                                                                                                                                                        |
-| Legacy upgrade            | Six actual old-profile migration checks passed (`4c4poo7o`).                                                                                                                                                                                                                                                                                                                                                                                   |
-| Delayed close             | Six checks, including both real two-minute waits, passed (`u5b9abvt`).                                                                                                                                                                                                                                                                                                                                                                         |
-| Lifecycle/plugins         | 21 behavior checks passed (`rbqx2az9`), but immediate cleanup found one WebKit child and killed it. The subsequent bounded-cleanup mixed run timed out in WebDriver while clicking close confirmation (`96xd5pgl`); its harness killed the remaining owned processes. A separate 15-check lifecycle run with a five-second natural-cleanup grace period passed with zero survivors (`4xnratrw`). Mixed-run timeout/cleanup remains unresolved. |
-| Appearance/input/windows  | Seven visual/state assertions passed per backend (`rl8i3pc7`, `27eyba_e`); native keyboard focus was unavailable. Keyboard and minimize/restart scenarios stopped at the same focus prerequisite and are not counted as passed.                                                                                                                                                                                                                |
-
-Several harnesses assumed the old Files browser, Diff sidebar/labels, inline PR
-authentication or global footer controls. Updated them to exercise the current
-persistent explorer, shared resizer, configuration dialog and session controls.
-The lifecycle harness now allows five seconds for asynchronous child shutdown
-and fails a successful behavior run if processes still survive. It preserves an
-original scenario failure instead of masking it with a cleanup assertion.
-
-A test build was initially replaced by credential-test compilation; the affected
-startup failures were rerun against copied immutable bundled executables. Logs
-and run summaries remain under `/tmp/ongleet-full-validation*`; individual native
-reports use the suffixes above. Production frontend assets were restored.
-
-This sweep does not certify physical keyboard/IME/focus behavior, other
-compositors/separate Xorg, live GitHub/live Codex conversations, clean-system
-package installation, sudden power loss or unattended crash/memory behavior.
-Existing acceptance items remain open; passing selected checks does not close
-the terminal-stack gate.
-
-## Discoverable tab interactions (2026-11-04)
-
-The Rust suite passes (143 passed, two existing ignored tests). Broker tests cover
-concurrent replies, attachment ownership, late/duplicate replies, per-target/global
-limits, schemas, encoded result limits and caller/target/reload cancellation.
-Frontend build, plugin boundaries, real-Git Diff checks and terminal engine,
-reuse, input, selection and rendering checks pass. The review model checks atomic
-batches, stale revisions, changed-patch resets and manual unviewed collapse retention.
-
-Isolated Xvfb/WebKitGTK report `/tmp/ongleet-diff-native-nne3so8x/report.json`
-passes CLI-to-plugin and plugin-to-plugin discovery/state/actions, cross-session
-hidden targets, Diff UI synchronization/pagination/batch/revision checks, Files
-folder/selection state and unavailable PR summaries. Real PTY checks cover Unicode
-and wide-cell scrollback, active alternate-screen reads, requested-line and 48 KiB
-UTF-8 truncation, unchanged selection/viewport and 8 KiB acknowledged input.
-Native transport checks reject invalid, non-JSON and oversized results, enforce
-four pending target requests, abort timed-out handlers, describe ambiguous action
-timeouts, cancel on close/reload, reject closed targets and restore live terminal state after reattachment.
-The report records zero cleanup survivors. This does not validate live GitHub PR
-refreshes, Wayland interaction acceptance or physical keyboard input.
-
-Reproduce with isolated app data and a private Xvfb display:
+Use `--syntax-only`, `--comments-only`, `--selection-only` or `--checkboxes-only`
+for focused Diff scenarios. Appearance uses the native-validation build:
 
 ```bash
-mise exec -- npm run build -- --mode native-validation
-mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol --offline
-mise exec -- /usr/bin/python3 scripts/check-diff-native.py --interactions-only \
-  --application src-tauri/target/debug/ongleet-gui \
-  --cli src-tauri/target/debug/ongleet --driver /usr/bin/WebKitWebDriver
-mise exec -- node scripts/check-tab-interactions.mjs
-mise exec -- npm run build
+mise exec -- python scripts/check-appearance-native.py --backend wayland --surfaces
+mise exec -- python scripts/check-appearance-native.py --backend xwayland --surfaces
 ```
 
-### Files open-path acceptance (2026-11-04)
+Appearance fixtures use dummy authentication. Headless focus can return exit 2;
+do not count unavailable focus checks as passes. Restore production frontend
+assets after native-validation builds.
 
-Private Xvfb/WebKitGTK report
-`/tmp/ongleet-diff-native-ld39o4eu/report.json` passes the interaction suite,
-including Files `open-path` through CLI and SDK in a hidden tab. Checks cover
-manifest discovery, missing/relative/directory paths, unchanged selection on
-failure, editor-confirmation rejection, editor and binary-details UI updates,
-unchanged explorer folder, dirty-state reporting and unsaved draft restoration.
-Cleanup records zero survivors. Plugin boundaries, production frontend build and
-seven editor-merge checks pass. Wayland acceptance for this action remains untested.
-Reproduce with the discoverable-interactions command above.
+## Manual checklist
 
-## Diff discussions — 2026-11-04
+1. Test shell controls, Unicode, multiline selection/paste and
+   `scripts/terminal-probe.py` modes `unicode`, `flood`, `screen`. Exercise Codex
+   editing, approvals, interrupts and resize without submitting unintended tasks.
+2. Navigate, fold and reorder during output. Verify stable PIDs/screens/selection,
+   immediate input focus and nonzero dimensions. Check literal arguments, explicit
+   shell mode, environment and directory overrides separately.
+3. Cancel, then confirm destructive closure. Verify sibling survival, cgroup
+   cleanup and untouched working directories. Test missing executables/directories
+   without recreating paths.
+4. Reload during live, hidden and exited output. Check reply suppression, no live
+   process relaunch, continuing output and overflow warnings. Reload does not
+   restore terminal selection or scroll position.
+5. Hide/reopen must retain PIDs. Quit/restart must create fresh PIDs only for
+   previously running tabs. Check writer/socket ownership and saved configuration.
+6. Test YAML errors atomically, editor draft/conflict guards, archive restore/purge,
+   Note revisions and Diff selection/discussions. Metadata stores explicit
+   environment overrides; terminal history remains separate from SQLite.
 
-Implemented persistent file/line threads, User/Agent origin labels, replies,
-thread deletion, original code anchors, orphan recovery, independent comment
-pagination, and revision-bound creation. UI and tab interactions use the same
-store. Sends validate current same-session `send-text` availability and acknowledge
-only terminal writes, without automatic retries.
-
-Validation passed:
-
-- `mise exec -- npm run build` (plugin boundaries, TypeScript, production bundle).
-- `mise exec -- npm run check:diff` (real Git, syntax, discussion persistence,
-  old/new anchors, shifted lines, rename, missing files, comparison switches,
-  ambiguous context, failed patches, hunk boundaries, reply order, invalid IDs,
-  UTF-8 bounds, storage failure, send target filtering and ambiguous send failure
-  without retries).
-- `mise exec -- node scripts/check-tab-interactions.mjs`.
-- Offline `cargo build` with `tauri/custom-protocol`.
-- Private Xvfb/WebKitGTK discussion acceptance:
-  `/tmp/ongleet-diff-native-ozh49y78/report.json`, nine checks, zero survivors.
-  The normal bundled application renders inline API-created threads, exposes UI
-  replies through state, reports storage failure without mutation, persists
-  reload/navigation/tab closure, shows orphan discussions after code removal,
-  supports hidden-tab replies, and handles UI file creation/thread deletion.
-  A raw Python PTY received the exact generated message plus CR. Confirmed CLI
-  session closure, GUI archive and startup stale-session cleanup remove records.
-- Existing native interaction regression:
-  `/tmp/ongleet-diff-native-tc5wartc/report.json`, ten checks, zero survivors.
-  This suite requires `npm run build -- --mode native-validation` followed by
-  the offline custom-protocol GUI build. It covers CLI/SDK hidden-tab access,
-  Files safeguards, terminal bounds, saturation, ambiguous action errors,
-  detach/reload and closed-target behavior. The normal bundle intentionally
-  lacks its SDK validation bridge; an initial run stopped waiting for that bridge.
-
-Reproduce discussion acceptance after building the normal bundle and GUI:
+## Diagnostics
 
 ```bash
-mise exec -- python3 scripts/check-diff-native.py \
-  --application src-tauri/target/debug/ongleet-gui \
-  --driver /usr/bin/WebKitWebDriver --comments-only
+ONGLEET_DEBUG=1 mise exec -- npm run tauri -- dev
 ```
 
-Discussion-specific Wayland, physical keyboard/focus, and live agent processing
-remain untested. Ambiguous delivery without retries has shared send-path coverage
-and general native interaction failure coverage; an actual comment-send timeout
-was not injected into the PTY test. Closing the application preserves records by
-design; full process Quit/restart persistence was not separately exercised here.
-
-## Send selected code — 2026-11-04
-
-Files and Diff provide **Send selection…**, a snapshot preview, and an optional
-comment/question. One eligible same-session tab receives a direct named send
-button; multiple recipients require an explicit choice. Sends revalidate current
-`send-text` availability and submit with Enter. Selected text and the question
-are preserved in full or rejected above the 8 KiB terminal limit; only nearby
-context is shortened. Failed sends retain the preview/question and are not
-retried. Files captures the current CodeMirror buffer, revision, path and range,
-including an explicit unsaved-buffer label. Diff captures selected code cells
-with file/old/new line locations and comparison revisions, excluding gutters,
-controls and discussion text. Empty and cross-file selections are rejected.
-
-Passed `npm run build`, `npm run check:selection-send`, `npm run check:diff`,
-`node scripts/check-tab-interactions.mjs`, and the offline custom-protocol GUI
-build through `mise exec --`. Shared sender tests verify exact payload formatting,
-optional questions, unsaved provenance, Unicode/context bounds, recipient scope,
-availability changes and ambiguous failures without retries.
-
-Native production-bundle evidence:
-`/tmp/ongleet-diff-native-thq9n1ru/report.json`, six checks, zero cleanup survivors.
-Private Xvfb/WebKitGTK and raw PTYs verify empty/cross-file rejection, exact partial
-Diff selection and new-side attribution, nearby diff context and question,
-multiple-recipient choice, sole-recipient direct addressing, and the exact unsaved
-editor selection with path/range/revision/context. Sending leaves disk contents
-and the editor draft unchanged. The inserted/deleted Diff gutters now expose
-comment/selection metadata only on the side that has a line.
-
-Reproduce after the normal frontend and custom-protocol GUI builds:
-
-```bash
-mise exec -- python3 scripts/check-diff-native.py \
-  --application src-tauri/target/debug/ongleet-gui \
-  --driver /usr/bin/WebKitWebDriver --selection-only
-```
-
-Wayland, physical keyboard/focus navigation and live agent interpretation remain
-untested for this flow. PTY acknowledgment establishes delivery, not agent
-processing. No terminal input or lifecycle implementation changed.
-
-## Multiple notes per tab (2026-11-04)
-
-Private Xvfb/WebKitGTK report
-`/tmp/ongleet-diff-native-vcm59k8w/report.json` passes three Note acceptance
-checks with zero cleanup survivors. The sidebar creates and selects notes; actual
-React input handlers rename notes and autosave independent Markdown contents.
-CLI state reads by note ID without changing selection. Revision-checked create,
-rename, select and text actions update the UI and reject stale writes and unknown
-IDs. Reload retains all names, contents and the selected note. Session archival
-and CLI restoration retain all three fixture notes, verified after a frontend
-reload. `notes.png` was inspected; the name field stays compact and the editor
-fills the available height with theme colors.
-
-`npm run check:note` passes version-1 migration, initial note creation, selection
-and name persistence, queued notebook writes, independent contents, revision
-conflicts, failed-save recovery, Unicode bounds and aggregate-limit rejection.
-The production build, formatting and Rust suite pass (144 passed, two ignored).
-Earlier native attempts exposed a build-target race, WebDriver clear/blur
-behavior, and missing frontend refresh after direct native restoration; the
-final fixture uses serialized builds, explicit DOM input events, CLI restoration
-and a frontend reload. Immediate agent interaction availability after restoration
-without reload, physical keyboard acceptance and Wayland remain unverified.
-
-Reproduce with the native-validation frontend and bundled GUI:
-
-```bash
-mise exec -- /usr/bin/python3 scripts/check-diff-native.py --notes-only \
-  --application src-tauri/target/debug/ongleet-gui \
-  --cli src-tauri/target/debug/ongleet --driver /usr/bin/WebKitWebDriver
-```
-
-Restore production frontend assets with `mise exec -- npm run build` afterward.
-
-## Diff discussion UI — 2026-11-05
-
-Line-number controls now replace the repeated per-line Comment buttons; a plus
-appears on hover or keyboard focus without increasing row height. New line
-composers render in the selected line's widget. File discussion threads appear
-under the file header, above the patch, with a new file composer after existing
-file threads. Discussion messages use separate cards with author/time metadata,
-readable spacing, secondary send controls, and a full-width reply field.
-
-The horizontal patch scrollbar has a bounded 10px track so its native hit area
-does not intercept the last line's gutter. Initial native checks exposed this
-interception; adding padding alone did not fix it. An additional fixture run
-stopped during startup; a later file-creation check correctly rejected a stale
-revision while navigation was refreshing. The harness now waits for the new
-successful observation before creating that UI comment.
-
-`mise exec -- npm run build`, `npm run check:diff`, the tab-interaction model
-checks and the offline custom-protocol GUI build pass. Private Xvfb/WebKitGTK
-report `/tmp/ongleet-diff-native-vt2w5hyf/report.json` passes ten checks with zero
-cleanup survivors, including hover hit testing, unchanged compact row height,
-line composer placement/creation, file thread placement above the patch, readable
-message cards, replies, exact PTY sends, persistence, orphan access and GUI/CLI
-cleanup. Native screenshots `gutter-hover.png`, `inline-composer.png` and
-`discussion-cards.png` capture the revised UI; composer and discussion screenshots
-were inspected. Wayland and physical keyboard/compositor focus remain untested
-for these changes.
-
-## Shared checkboxes — 2026-11-05
-
-The checkbox audit found two application-owned inputs (Diff comparison and
-Viewed), three CodeMirror search inputs, and the editor's existing checkbox-style
-menu item. Both application-owned inputs now use `components/Checkbox.tsx`.
-`components/checkbox.css` supplies the same 16px themed square, visible unchecked
-border, SVG checkmark, disabled state and inset keyboard-focus treatment to all
-checkbox inputs, including CodeMirror's generated controls. The wrap menu item
-keeps its menu semantics. Removed Viewed-specific drawing rules, excluded
-checkboxes from toolbar/search text-input sizing, and documented shared-component
-usage in the engineering guide.
-
-The production build, Diff checks, tab-interaction model checks and offline
-custom-protocol GUI build pass. Private native Xvfb/WebKitGTK report
-`/tmp/ongleet-diff-native-ydsxeylq/report.json` passes six checks with zero cleanup
-survivors. It verifies unchecked/checked indicators, consistent dimensions,
-comparison label and Space-key toggling, Viewed folding/unfolding, visible
-keyboard focus, disabled click rejection, and all six appearance presets. The
-CodeMirror search controls retain case-sensitive matching and Space-key behavior.
-Dark and Light+ screenshots were captured; the Light+ screenshot was inspected.
-Earlier harness assertions were corrected to allow the focused control's accent
-border and to refresh frontend state after direct backend tab creation.
-
-Reproduce after the normal frontend and custom-protocol GUI builds:
-
-```bash
-mise exec -- python3 scripts/check-diff-native.py \
-  --application src-tauri/target/debug/ongleet-gui \
-  --driver /usr/bin/WebKitWebDriver --checkboxes-only
-```
-
-Wayland, physical keyboard/compositor focus and forced-colors mode remain
-untested. Keyboard evidence here uses WebDriver on the private native display.
-
-## Event-driven PTY waits — 2026-11-05
-
-Removed per-terminal 25 ms child-exit checks, 50 ms PTY readiness timeouts,
-and one-second ACK-wait timeouts. The reaper blocks in child.wait(); PTY
-read/write waits poll indefinitely with separate eventfd cancellation signals.
-Natural exit cancels input while preserving bounded final-output draining;
-explicit close wakes both I/O workers and the ACK condition variable.
-
-The full offline Rust suite passes with host cgroup access: 146 passed, two
-existing ignored tests. Real PTY regressions cover idle-reader shutdown, blocked
-input and queued-write cancellation, ACK backpressure, exact output bytes,
-exit-before-ACK notifications, replay, job-control descendants and owner death.
-An additional socket-based cancellation test covers concurrent waiters,
-idempotent cancellation and cancellation before a later wait.
-
-The first PTY run exposed portable-pty's writer destructor injecting a newline
-and EOF during faster exit handling. Writes now use a plain owned duplicate of
-the nonblocking master descriptor; the exact-byte regression passes. Formatting
-and git diff whitespace checks pass. The initial sandbox test run could not
-create cgroups; the successful full run used host access.
-
-No WebKitGTK/Wayland desktop acceptance or before/after live CPU measurement
-was performed for this change. Running instances retain their old executable
-until rebuilt and restarted; this evidence does not establish a CPU reduction
-for the reported 30–50% episode.
-
-## Throttled terminal history snapshots — 2026-11-05
-
-History snapshots now wait five seconds after the first unsaved output/resize,
-including hidden terminals. Continued output does not reset that deadline.
-Idle clean terminals have no history timer; clean lifecycle flushes avoid
-scrollback scans and unchanged snapshot text avoids backend writes. EOF and the
-existing beforeQuit hook flush immediately. Output received during persistence
-remains dirty and schedules another snapshot. Failed persistence retains dirty
-state for retry. Explicit terminal closure retains immediate process cleanup.
-The snapshot's existing line/code-unit limits and replay guards remain intact.
-
-Passed production build (plugin boundaries, TypeScript and Vite),
-`npm run check:terminal-history`, `npm run check:terminal-reuse`, and
-`npm run check:rendering`, all through mise. The history regression uses a
-controlled clock to check continuous-output deadlines, idle scan suppression,
-unchanged text, immediate flush, concurrent flushes, trailing in-flight output,
-failed-save retry and disposal. Native WebKitGTK lifecycle/restart acceptance
-and live before/after CPU measurement were not performed for this change.
-The longer periodic interval increases the unsaved-history window on abrupt
-application death; normal lifecycle flushes bypass it.
-
-## Agent text submission (2026-11-05)
-
-Live development-instance validation used ABG → Main → Codex (terminal tab 2).
-A 7,275-byte multiline `send-text` payload remained in the composer with raw
-input and a delayed Enter. Negotiated bracketed paste followed by a separate
-Enter submitted the same-sized fixture, and Codex returned `ONG_BRACKET_OK`.
-The fixture requested no tools or file changes. Sending the previously pending
-Diff comment through tab 5's `send-comment` action then started Codex without
-manual Enter; Codex posted the requested 20-word reply in the original thread.
-
-`check:terminal-input` includes deterministic checks for paste framing, chunk
-bounds at the maximum payload size, text-write acknowledgement before Enter,
-submission delay, literal input without Enter, and failed writes without retry.
-The CLI preserves literal input semantics and separates optional Enter inside
-the bounded Rust writer queue. Live acceptance here covers Codex in the current
-development instance; other agent TUIs and display backends were not exercised.
+Enable diagnostics before launching; reopening an existing instance cannot change
+its environment. GTK key/focus traces go to stderr and may reveal typed input.
+Retain surrounding trace lines when reproducing warnings. `send_event` alone does
+not identify physical input. See [crash investigation](USAGE.md#investigating-native-crashes)
+for bounded log files and crash evidence.

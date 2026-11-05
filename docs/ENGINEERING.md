@@ -1,12 +1,27 @@
 # Engineering guide
 
-Read only sections relevant to the change. See [stack](STACK.md), [validation](VALIDATION.md) and [full contracts](reference/ENGINEERING.md) for detail.
+Read the sections relevant to your change. See [stack](STACK.md), [validation](VALIDATION.md) and [full contracts](reference/ENGINEERING.md) for detail.
 
 ## Terminal contracts
 
-Keep PTYs in Rust and controllers persistent across renders/navigation. Preserve raw bytes, bounded queues and ACK backpressure through frontend consumption. Hidden terminals must consume output without animation-frame dependencies. Keep idle terminals free of recurring render frames and frontend status polls. The pinned Ghostty adapters replace the private `startRenderLoop` and detach `SelectionManager.boundClickHandler` so outside clicks do not clear retained selections. Revalidate writes, cursor notifications, hover, selection, scrolling, visibility and listener cleanup when upgrading. Resize only from visible nonzero containers; dispose resources on explicit closure.
+Rust owns PTYs. Keep controllers across renders and navigation. Preserve raw
+bytes, bounded queues and ACK backpressure until frontend consumption. Hidden
+terminals must consume output without animation frames. Idle terminals must not
+run recurring render frames or frontend status polls.
 
-PTY readiness waits indefinitely on the PTY plus an eventfd cancellation signal; child exit uses a blocking reaper wait. Keep separate input/reader cancellation so natural exit drains final output, while explicit closure wakes both workers. ACK waits use condition-variable notifications without periodic timeouts. Own a plain duplicated PTY descriptor for writes: the portable-pty writer destructor injects newline/EOF bytes during cleanup.
+Pinned Ghostty adapters replace private `startRenderLoop` and detach
+`SelectionManager.boundClickHandler` to preserve selections after outside clicks.
+On upgrades, revalidate writes, cursor notifications, hover, selection, scrolling,
+visibility and listener cleanup. Resize only visible, nonzero containers.
+Dispose resources on explicit closure.
+
+Wait on PTY readiness and an eventfd cancellation signal without polling. Use a
+blocking reaper for child exit. Separate input and reader cancellation: natural
+exit drains final output; explicit closure wakes both workers. ACK waits use
+condition-variable notifications without periodic timeouts.
+
+Write through a plain duplicated PTY descriptor. The portable-pty writer
+destructor injects newline/EOF bytes during cleanup.
 
 Terminal history snapshots run only after output or resize, with a five-second interval during continuous activity. Clean flushes skip scanning, and unchanged text skips persistence. Explicit lifecycle flushes bypass the interval; output arriving during an in-flight save stays dirty. Keep the existing 2,000-line/60,000-code-unit bounds and replay guards.
 
@@ -14,7 +29,7 @@ Use literal executable/argument arrays; shell syntax requires explicit shell mod
 
 Apply RIS only to new emulators after initial fit/redraw, before output attachment. Reload reattaches rather than relaunching. Suppress input/query replies/resizing during replay; report journal overflow. Ghostty frontend state is authoritative for snapshots: no second emulator or ANSI stripping.
 
-Use native clipboard and Ghostty paste APIs. Validate selection mutations only on a private display; clipboard formats alone do not establish safe restoration on Wayland. A running Vite server can hot-reload a live development instance when source files change, even when test metadata/display are isolated. Await the in-app destructive confirmation; synchronous `window.confirm` is unsafe under Tauri.
+Use native clipboard and Ghostty paste APIs. Validate selection mutations only on a private display; clipboard formats alone do not prove safe restoration on Wayland. A running Vite server can hot-reload a live development instance when source files change, even when test metadata/display are isolated. Await the in-app destructive confirmation; synchronous `window.confirm` is unsafe under Tauri.
 
 ## Metadata and actions
 
@@ -31,23 +46,21 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 
 ## Shared form controls
 
-Use `src/components/Controls.tsx` for application and plugin buttons, inputs,
-selects, textareas, dialogs, disclosures and tabs. These primitives forward native
-props and React 19 refs without adding DOM wrappers. `Tab`, `TabList` and
-`TabPanel` own their accessibility roles; callers supply labels, selection,
-relationships and navigation handlers. `Tab` defaults to a non-submitting button
-and derives its focus order from `aria-selected`; regular `Button` preserves
-native submit behavior. Shared control styles live in `src/style.css`; contextual
-classes handle compact toolbars, icon buttons and other layout variants.
-Keep native `option`, `label` and `form` elements inside these controls. Menus
-retain their existing roles, popover/disclosure behavior and shared buttons.
-Third-party editor/terminal DOM remains owned by its library.
+Use `src/components/Controls.tsx` for app and plugin buttons, inputs, selects, textareas, dialogs,
+disclosures and tabs. Primitives forward native props and React 19 refs without
+DOM wrappers. Shared styles live in `src/style.css`; contextual classes handle
+compact toolbars, icon buttons and layout variants.
 
-Use `src/components/Checkbox.tsx` for application-owned checkbox inputs. Its
-shared stylesheet supplies themed unchecked, checked, disabled and keyboard-focus
-states. CodeMirror owns its search-panel DOM; those generated checkboxes inherit
-the same global styles. Keep checkbox inputs out of text-input sizing rules.
-Checkbox-style menu items retain their menu roles and button behavior.
+`Tab`, `TabList` and `TabPanel` own accessibility roles. Callers supply labels,
+selection, relationships and navigation. `Tab` defaults to a non-submitting
+button; `aria-selected` sets focus order. Regular `Button` keeps native submit
+behavior. Keep native `option`, `label` and `form` elements. Menus keep their roles,
+popover/disclosure behavior and shared buttons. Libraries own editor/terminal DOM.
+
+Use `src/components/Checkbox.tsx` for app checkbox inputs. Shared styles cover
+unchecked, checked, disabled and keyboard-focus states, including CodeMirror's
+generated search checkboxes. Exclude checkboxes from text-input sizing rules.
+Checkbox-style menu items keep menu roles and button behavior.
 
 ## Code map
 
