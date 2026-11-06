@@ -758,6 +758,38 @@ dialog.project-editor > [role='status'] {
   flex: 0 1 220px;
   width: 220px;
 }
+.files-search-field {
+  position: relative;
+}
+.files-search-field[data-loading='true'] input {
+  padding-right: 32px;
+}
+.files-search-field[data-loading='true'] input::-webkit-search-cancel-button {
+  display: none;
+}
+.files-search-spinner {
+  position: absolute;
+  right: 11px;
+  top: calc(50% - 7px);
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid var(--subtleBorder2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: files-search-spin 0.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes files-search-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .files-search-spinner {
+    animation: none;
+  }
+}
 .files-load-more {
   min-height: 1px;
 }
@@ -1202,6 +1234,7 @@ button:focus-visible {
   flex-wrap: wrap;
 }
 .files-browser .files-path,
+.files-browser .files-search-field,
 .files-browser .files-search {
   flex: 1 1 100%;
   width: 100%;

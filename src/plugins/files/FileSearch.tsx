@@ -10,8 +10,10 @@ export function FileSearch({
   disabled,
   openFile,
   refresh,
+  onBusyChange,
 }: {
   refresh: object;
+  onBusyChange: (busy: boolean) => void;
   folder: string;
   query: string;
   showHidden: boolean;
@@ -25,11 +27,17 @@ export function FileSearch({
   const [busy, setBusy] = useState(false);
   const queue = useRef(Promise.resolve());
   useEffect(() => {
+    onBusyChange(busy);
+    return () => onBusyChange(false);
+  }, [busy, onBusyChange]);
+  useEffect(() => {
     let cancelled = false;
-    setResult(undefined);
     setError('');
     setBusy(!!query);
-    if (!query) return;
+    if (!query) {
+      setResult(undefined);
+      return;
+    }
     const timer = window.setTimeout(() => {
       queue.current = queue.current.then(async () => {
         if (cancelled) return;
@@ -51,7 +59,6 @@ export function FileSearch({
   if (!query) return null;
   return (
     <div className="files-search-results" aria-label="File search results" aria-busy={busy}>
-      {busy && <p role="status">Searching files…</p>}
       {error && (
         <p role="alert" className="error">
           {error}

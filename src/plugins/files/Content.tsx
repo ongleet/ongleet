@@ -50,6 +50,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
   });
   const [showHidden, setShowHidden] = useState(false);
   const [search, setSearch] = useState('');
+  const [searchBusy, setSearchBusy] = useState(false);
   const [order, setOrder] = useState<SortOrder>('nameAscending');
   const generation = useRef(0);
   const pending = useRef(false);
@@ -307,19 +308,28 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                   </svg>
                 </Button>
               </div>
-              <Input
-                className="files-search"
-                type="search"
-                aria-label="Search filenames and paths in all subfolders"
-                placeholder="Search all files by name or path…"
-                disabled={restoringEditor || opening.current}
-                maxLength={256}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.preventDefault();
-                }}
-              />
+              <div className="files-search-field" data-loading={!!search && searchBusy}>
+                <Input
+                  className="files-search"
+                  type="search"
+                  aria-label="Search filenames and paths in all subfolders"
+                  placeholder="Search all files by name or path…"
+                  disabled={restoringEditor || opening.current}
+                  maxLength={256}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault();
+                  }}
+                />
+                {search && searchBusy && (
+                  <span
+                    className="files-search-spinner"
+                    role="status"
+                    aria-label="Searching files"
+                  />
+                )}
+              </div>
               <Select
                 aria-label="Sort order (folders first)"
                 value={order}
@@ -347,6 +357,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
               {listing && (
                 <FileSearch
                   refresh={listing}
+                  onBusyChange={setSearchBusy}
                   folder={listing.folder}
                   query={search}
                   showHidden={showHidden}
