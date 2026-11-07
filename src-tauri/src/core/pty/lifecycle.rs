@@ -2,6 +2,18 @@ use super::SessionRegistry;
 use crate::terminal_session::{Attachment, Launch, Output, Status, TerminalSession};
 use tauri::ipc::Channel;
 
+// Wrapper errors include missing Codex on PATH. Retain the existing intent to
+// run, so the next application startup can retry after the environment is fixed.
+pub(crate) fn retry_codex_on_start(tab: &crate::session::PluginTab, status: &Status) -> bool {
+    tab.resume_on_start
+        && tab
+            .config
+            .get("executable")
+            .and_then(|value| value.as_str())
+            == Some("ong-codex")
+        && matches!(status, Status::Exited { code } if *code != 0)
+}
+
 impl SessionRegistry {
     pub fn connect(
         &mut self,
@@ -123,12 +135,14 @@ impl SessionRegistry {
         let mut session = match TerminalSession::spawn(id, launch, output) {
             Ok(session) => session,
             Err(error) => {
+                // A failed spawn is not an explicit stop. Record this start
+                // request so a later application launch can retry it.
                 self.tab_session_mut(tab_id)?
                     .tabs
                     .iter_mut()
                     .find(|t| t.id == tab_id)
                     .unwrap()
-                    .resume_on_start = false;
+                    .resume_on_start = true;
                 self.persist()?;
                 return Err(error);
             }
@@ -200,7 +214,7 @@ impl SessionRegistry {
                 .iter_mut()
                 .find(|t| t.id == tab_id)
                 .unwrap();
-            if tab.resume_on_start {
+            if tab.resume_on_start && !retry_codex_on_start(tab, &status) {
                 tab.resume_on_start = false;
                 self.persist()?;
             }
@@ -243,17 +257,21 @@ impl SessionRegistry {
         // Explicit Stop and tab close clear the flag through their own paths.
         let mut exited = Vec::new();
         for (tab, session) in &mut self.terminals {
-            if matches!(session.status()?, Status::Exited { .. }) {
-                exited.push(*tab);
+            let status = session.status()?;
+            if matches!(status, Status::Exited { .. }) {
+                exited.push((*tab, status));
             }
         }
-        for id in exited {
-            self.tab_session_mut(id)?
+        for (id, status) in exited {
+            let tab = self
+                .tab_session_mut(id)?
                 .tabs
                 .iter_mut()
                 .find(|t| t.id == id)
-                .unwrap()
-                .resume_on_start = false;
+                .unwrap();
+            if !retry_codex_on_start(tab, &status) {
+                tab.resume_on_start = false;
+            }
         }
         self.persist()?;
         let ids: Vec<_> = self.terminals.values().map(|s| s.id).collect();

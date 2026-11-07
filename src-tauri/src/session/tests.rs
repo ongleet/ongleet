@@ -734,6 +734,147 @@ fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_res
 }
 
 #[test]
+fn failed_terminal_spawn_keeps_startup_intent_across_restart() {
+    let data = Directory::new();
+    let directory = Directory::new();
+    let tab;
+    {
+        let mut registry = SessionRegistry::open(&data.0).unwrap();
+        registry
+            .create("Retry launch".into(), directory.path())
+            .unwrap();
+        tab = registry.sessions[0].tabs[0].id;
+        registry
+            .configure_tab(
+                tab,
+                TabConfig {
+                    executable: Some(
+                        directory
+                            .0
+                            .join("missing-command")
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let (channel, _) = output();
+        assert!(registry.start(tab, 80, 24, channel).is_err());
+        registry.shutdown(true).unwrap();
+    }
+    let mut restored = SessionRegistry::open(&data.0).unwrap();
+    assert!(restored.sessions[0].tabs[0].resume_on_start);
+    assert!(restored.terminals.is_empty());
+    // Explicitly closing the failed opening still cancels its startup intent.
+    restored.close_tab(tab, false).unwrap();
+    restored.shutdown(true).unwrap();
+    drop(restored);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    assert!(!restored.sessions[0].tabs[0].resume_on_start);
+}
+
+#[test]
+fn codex_launch_failure_retries_saved_conversation_after_restart_unless_explicitly_stopped() {
+    use std::os::unix::fs::PermissionsExt;
+    for explicitly_stop in [false, true] {
+        let data = Directory::new();
+        let commands = Directory::new();
+        let tab;
+        {
+            let mut registry = SessionRegistry::open(&data.0).unwrap();
+            registry
+                .create("Codex retry".into(), commands.path())
+                .unwrap();
+            let session = registry.sessions[0].id;
+            tab = registry.sessions[0].tabs[0].id;
+            let mapping = data.0.join(format!("codex-sessions/{session}/{tab}.json"));
+            fs::create_dir_all(mapping.parent().unwrap()).unwrap();
+            fs::write(
+                &mapping,
+                r#"{"launch":"previous","conversation":"saved-conversation"}"#,
+            )
+            .unwrap();
+            registry
+                .configure_tab(
+                    tab,
+                    TabConfig {
+                        executable: Some("ong-codex".into()),
+                        args: vec!["--no-restart".into()],
+                        env: BTreeMap::from([("PATH".into(), commands.path())]),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let (channel, receive) = output();
+            let terminal = registry.start(tab, 80, 24, channel).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut bytes = Vec::new();
+            loop {
+                if let Ok(Output::Data { seq, bytes: chunk }) =
+                    receive.recv_timeout(Duration::from_millis(20))
+                {
+                    bytes.extend(chunk);
+                    registry.terminals[&tab].acknowledge(seq).unwrap();
+                }
+                if matches!(registry.status(terminal).unwrap(), Status::Exited { .. })
+                    && String::from_utf8_lossy(&bytes).contains("Cannot start Codex")
+                {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{}",
+                    String::from_utf8_lossy(&bytes)
+                );
+            }
+            assert!(registry.sessions[0].tabs[0].resume_on_start);
+            if explicitly_stop {
+                registry.close_terminal_session(terminal, true).unwrap();
+            }
+            registry.shutdown(true).unwrap();
+        }
+        let fake = commands.0.join("codex");
+        fs::write(&fake, "#!/bin/sh\nprintf 'ARG:%s\\n' \"$@\"\n").unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
+        let mut restored = SessionRegistry::open(&data.0).unwrap();
+        let retry = restored.sessions[0].tabs[0].resume_on_start;
+        assert_eq!(retry, !explicitly_stop);
+        let (channel, receive) = output();
+        let attachment = restored.connect(tab, 80, 24, channel, retry).unwrap();
+        if explicitly_stop {
+            assert!(attachment.is_none());
+            assert!(restored.terminals.is_empty());
+        } else {
+            let terminal = attachment.unwrap().id;
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let mut bytes = Vec::new();
+            loop {
+                if let Ok(Output::Data { seq, bytes: chunk }) =
+                    receive.recv_timeout(Duration::from_millis(20))
+                {
+                    bytes.extend(chunk);
+                    restored.terminals[&tab].acknowledge(seq).unwrap();
+                }
+                let status = restored.status(terminal).unwrap();
+                if matches!(status, Status::Exited { code: 0 })
+                    && String::from_utf8_lossy(&bytes).contains("ARG:saved-conversation")
+                {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{}",
+                    String::from_utf8_lossy(&bytes)
+                );
+            }
+            assert!(!restored.sessions[0].tabs[0].resume_on_start);
+        }
+        restored.shutdown(true).unwrap();
+    }
+}
+
+#[test]
 fn sqlite_stop_and_natural_exit_are_not_relaunched_and_missing_directories_are_retained() {
     let data = Directory::new();
     let directory = Directory::new();

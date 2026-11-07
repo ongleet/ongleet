@@ -27,6 +27,13 @@ Terminal history snapshots run only after output or resize, with a five-second i
 
 Use literal executable/argument arrays; shell syntax requires explicit shell mode. Re-exec `/proc/<app-pid>/exe`, never a replaced pathname. Join delegated cgroup v2 before user exec; require pidfds and `cgroup.kill`. Confirmed close immediately kills the leaf and waits; keep the death watchdog outside it. Deliberate cgroup migration/external services are outside containment.
 
+One watchdog process is started lazily per application instance. The terminal
+bootstrap passes its own pidfd over a private socket and waits for watchdog
+registration before joining its cgroup and executing user code. The watchdog
+blocks on the application and terminal pidfds; it owns no PTY descriptors.
+Application death kills all registered groups. If the watchdog dies first, the
+application kills its tracked groups and rejects further launches until restart.
+
 Apply RIS only to new emulators after initial fit/redraw, before output attachment. Reload reattaches rather than relaunching. Suppress input/query replies/resizing during replay; report journal overflow. Ghostty frontend state is authoritative for snapshots: no second emulator or ANSI stripping.
 
 Use native clipboard and Ghostty paste APIs. Validate selection mutations only on a private display; clipboard formats alone do not prove safe restoration on Wayland. A running Vite server can hot-reload a live development instance when source files change, even when test metadata/display are isolated. Await the in-app destructive confirmation; synchronous `window.confirm` is unsafe under Tauri.
@@ -41,7 +48,7 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 - Merge inherited environment, project root `env`, then action overrides. Existing processes/configurations stay independent. Only the `actions` YAML schema is supported; configuration lives outside project roots.
 - External commands launch explicitly, independently of tabs/PTYs. Reap bounded children, discard output and report failures. Preserve literal placeholders; shell context uses quoted reserved environment variables.
 - Files folder updates preserve `editorFile`; Back clears only that field. Restore disk contents without silently discarding live edits. Drafts persist in WebView localStorage with their original revision, scoped by tab/path; missing files recover drafts without recreation. Explicit discard clears drafts; close/Quit retain them. Conflicting saves offer cancel, revision-checked force save, or a bounded worker-based three-way merge into the editor, rebasing onto current disk contents without writing.
-- Window close confirms, flushes plugins and hides for two minutes before cleanup/exit; reopening cancels the deadline. Explicit Quit confirms and exits immediately; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart only the last recorded running set; stopped/closed/exited tabs never auto-start.
+- Window close confirms, flushes plugins and hides for two minutes before cleanup/exit; reopening cancels the deadline. Explicit Quit confirms and exits immediately; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart the last recorded running set and eligible failed launches/nonzero `ong-codex` exits. Explicitly stopped/closed tabs and other exited commands never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
 ## Shared form controls

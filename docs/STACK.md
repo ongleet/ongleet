@@ -10,6 +10,7 @@ terminal engine or daemon.
 - Ghostty parses raw bytes and owns screen state. TypeScript supplies rendering/input/selection. Validate browser behavior in WebKitGTK; engine tests alone are insufficient.
 - Vite bundles local WASM through `?url`; no runtime CDN. `write(Uint8Array)` parses synchronously in 0.4.0, so ACK follows parsing rather than waiting for an animation frame. Recheck on upgrade.
 - Require delegated systemd cgroup v2, `cgroup.kill` and pidfds. Bootstrap through `/proc/<app-pid>/exe`. No process-group fallback; non-systemd Linux, restricted containers and macOS are unsupported.
+- One separate watchdog process per application instance monitors all terminals using pidfds. Each terminal retains its own cgroup; registration completes before user exec. Watchdog failure stops the terminal groups and prevents further launches until application restart.
 
 ## Bounds and recovery
 

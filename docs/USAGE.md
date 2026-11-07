@@ -291,6 +291,8 @@ While the tab stays open, `ong-codex` supervises Codex and automatically resumes
 
 Five consecutive runs lasting less than ten seconds stop the restart loop with an error. An executable launch failure also stops it. Exiting before a conversation ID is recorded (for example during startup or an update) no longer prevents restarting. This does not recover unsent drafts or in-flight work, and cannot restart a killed wrapper or a stopped application.
 
+Failed terminal launches and nonzero `ong-codex` exits retain their existing startup eligibility. The next application launch retries eligible open tabs with their saved commands and conversation mappings; no timed retry loop is added for a missing executable. Explicit Stop, closing a tab, and successful wrapper exits clear startup eligibility. Tabs already marked stopped by an older version must be reopened once to become eligible again.
+
 Arguments are optional: use `args: ["--", "--model", "MODEL"]` to forward Codex options. To deliberately replace a conversation, run the standalone helper with the same session/tab IDs and `--fresh` while that tab is stopped. A configured `args: ["--fresh"]` deliberately starts a fresh conversation on every launch. A missing/unavailable Codex conversation reports Codex's error instead of silently starting a new one. Malformed mapping files also fail without resetting the file; move the damaged file aside explicitly to recover.
 
 For use outside a configured tab, build the standalone helper with `mise exec -- cargo build --manifest-path src-tauri/Cargo.toml --offline --bin ong-codex`, then run `src-tauri/target/debug/ong-codex --session-id 12 --tab-id 34`. It uses the standard app data directory and current working directory. Use the same XDG data and Codex home settings to find the same mapping/history. This standalone command does not start the GUI or automatically restore app process containment.
@@ -331,7 +333,7 @@ Ordinary React renders do not recreate the terminal. Closing the window hides it
 
 Each terminal joins a private cgroup before the requested executable runs. Confirmed tab/session closure and explicit Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. Window closure starts the same cleanup after its two-minute delay. Once cleanup starts, there is no graceful shutdown interval: save application work before confirming.
 
-A per-session watchdog also cleans up after application death or command-leader exit. It ends with its session; there is no persistent daemon. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
+One shared watchdog per Ongleet instance cleans up each terminal's cgroup after command-leader exit, or all terminal groups after application death. It starts with the first terminal and ends with the application; there is no persistent daemon. If the watchdog dies unexpectedly, Ongleet stops its terminal groups and requires an application restart before launching more terminals. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
 
 The control socket is mode 0600 under `/run/user/<uid>` (required owner-only), validates peer UID on both ends, and accepts versioned bounded JSON requests. Ubuntu packaging provides the desktop launcher; launching the same executable already performs activation.
 

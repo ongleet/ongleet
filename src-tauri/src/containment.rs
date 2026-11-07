@@ -1,10 +1,9 @@
 //! Linux cgroup-v2 containment. This is lifecycle ownership, not a security sandbox.
 use std::{
-    ffi::CString,
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     os::{
-        fd::{AsRawFd, FromRawFd},
+        fd::AsRawFd,
         unix::{
             fs::{DirBuilderExt, MetadataExt},
             net::{UnixListener, UnixStream},
@@ -17,6 +16,8 @@ use std::{
 };
 
 pub const HELPER_FLAG: &str = "--internal-terminal-helper";
+#[path = "containment/watchdog.rs"]
+mod watchdog;
 
 fn nonce() -> Result<String, String> {
     let mut bytes = [0u8; 16];
@@ -33,6 +34,7 @@ pub struct Containment {
 
 impl Containment {
     pub fn create() -> Result<Self, String> {
+        let watchdog = watchdog::shared()?;
         let uid = unsafe { libc::geteuid() };
         let root = PathBuf::from(format!(
             "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
@@ -47,7 +49,11 @@ impl Containment {
                 .write(true)
                 .open(directory.join("cgroup.kill"))
             {
-                Ok(kill) => Ok(Self { directory, kill }),
+                Ok(kill) => {
+                    let group = Self { directory, kill };
+                    watchdog.track(&group)?;
+                    Ok(group)
+                }
                 Err(error) => {
                     let _ = fs::remove_dir(&directory);
                     Err(error.to_string())
@@ -99,6 +105,7 @@ impl Drop for Containment {
     fn drop(&mut self) {
         let _ = self.stop();
         let _ = fs::remove_dir(&self.directory);
+        watchdog::untrack(&self.directory);
     }
 }
 
@@ -124,7 +131,7 @@ impl Handshake {
     pub fn socket(&self) -> PathBuf {
         self.directory.join("ready.sock")
     }
-    pub fn wait(&self) -> Result<(), String> {
+    pub fn wait(&self, containment: &Containment) -> Result<(), String> {
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut stream = loop {
             match self.listener.accept() {
@@ -141,6 +148,14 @@ impl Handshake {
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
             .map_err(|e| e.to_string())?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .map_err(|e| e.to_string())?;
+        // The bootstrap sends its own pidfd while blocked outside the cgroup.
+        // Passing that descriptor avoids a PID-reuse race during registration.
+        let mut descriptors = watchdog::receive_fds(&stream, 1)?;
+        watchdog::shared()?.register(containment, &descriptors.remove(0))?;
+        stream.write_all(b"GO").map_err(|e| e.to_string())?;
         let mut message = String::new();
         Read::by_ref(&mut stream)
             .take(4096)
@@ -181,6 +196,13 @@ pub fn executable() -> Result<PathBuf, String> {
 
 pub fn run_helper_if_requested() -> bool {
     let args: Vec<_> = std::env::args_os().collect();
+    if args.get(1).is_some_and(|value| value == watchdog::FLAG) {
+        let result = watchdog::run(&args);
+        if let Err(error) = &result {
+            eprintln!("Terminal watchdog failed: {error}");
+        }
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
     if args.get(1).is_none_or(|value| value != HELPER_FLAG) {
         return false;
     }
@@ -213,63 +235,20 @@ fn helper(args: &[std::ffi::OsString]) -> Result<(), String> {
         {
             return Err("Invalid launch parent".into());
         }
-        let parent = unsafe { libc::syscall(libc::SYS_pidfd_open, credentials.pid, 0) } as i32;
-        let leader = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) } as i32;
-        if parent < 0 || leader < 0 {
-            return Err("pidfd_open is required for terminal lifecycle ownership".into());
-        }
-        let parent = unsafe { File::from_raw_fd(parent) };
-        let leader = unsafe { File::from_raw_fd(leader) };
-        let kill = OpenOptions::new()
-            .write(true)
-            .open(directory.join("cgroup.kill"))
+        let leader = watchdog::pidfd(unsafe { libc::getpid() })?;
+        watchdog::send_fds(&stream, &[leader.as_raw_fd()])?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
             .map_err(|e| e.to_string())?;
-        let path =
-            CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|e| e.to_string())?;
-        let child = unsafe { libc::fork() };
-        if child < 0 {
-            return Err(std::io::Error::last_os_error().to_string());
+        let mut permission = [0; 2];
+        stream
+            .read_exact(&mut permission)
+            .map_err(|e| e.to_string())?;
+        if &permission != b"GO" {
+            return Err("Terminal watchdog registration was not acknowledged".into());
         }
-        if child == 0 {
-            // This short-lived watchdog is outside the terminal cgroup. It can
-            // kill the group after either exec'd leader exit or app death, then
-            // remove the empty group. No shell/configuration is involved.
-            unsafe {
-                libc::setsid();
-                libc::close(stream.as_raw_fd());
-                for fd in 0..3 {
-                    libc::close(fd);
-                }
-                let mut fds = [
-                    libc::pollfd {
-                        fd: parent.as_raw_fd(),
-                        events: libc::POLLIN,
-                        revents: 0,
-                    },
-                    libc::pollfd {
-                        fd: leader.as_raw_fd(),
-                        events: libc::POLLIN,
-                        revents: 0,
-                    },
-                ];
-                while libc::poll(fds.as_mut_ptr(), 2, -1) < 0 {
-                    if *libc::__errno_location() != libc::EINTR {
-                        libc::_exit(1);
-                    }
-                }
-                libc::write(kill.as_raw_fd(), b"1".as_ptr().cast(), 1);
-                for _ in 0..300 {
-                    if libc::rmdir(path.as_ptr()) == 0 || *libc::__errno_location() == libc::ENOENT
-                    {
-                        libc::_exit(0);
-                    }
-                    libc::usleep(10_000);
-                }
-                libc::_exit(1);
-            }
-        }
-        // Join before any user executable can run or fork. The watchdog does
-        // not inherit this membership and cannot keep PTY descriptors open.
+        // Join only after the app's shared watchdog owns the stable pidfd and
+        // cgroup kill handle. The bootstrap becomes the user process via exec.
         fs::write(directory.join("cgroup.procs"), b"0").map_err(|e| e.to_string())?;
         stream.write_all(b"READY\n").map_err(|e| e.to_string())?;
         // UnixStream is CLOEXEC: EOF proves successful exec, or an explicit
@@ -280,4 +259,9 @@ fn helper(args: &[std::ffi::OsString]) -> Result<(), String> {
         let _ = writeln!(stream, "ERROR: {error}");
     }
     result
+}
+
+#[cfg(test)]
+pub(crate) fn watchdog_pid() -> u32 {
+    watchdog::shared().unwrap().pid
 }

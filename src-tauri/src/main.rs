@@ -663,6 +663,10 @@ fn run() -> Result<(), String> {
     }
     branding::migrate_yaml(&control::paths::config_directory()?)?;
     actions::migrate_projects(&control::paths::config_directory()?)?;
+    // GTK's fallback Wayland app ID must match the installed desktop filename.
+    // Keep the GTK application non-unique so isolated XDG instances still work.
+    gtk::glib::set_prgname(Some("Ongleet"));
+    gtk::glib::set_application_name("Ongleet");
     tauri::Builder::default()
         .manage(AppRegistry(Arc::new(Mutex::new(registry))))
         .manage(Lifecycle::default())

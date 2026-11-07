@@ -118,10 +118,13 @@ impl SessionRegistry {
         for tab in tabs {
             if crate::plugins::has_runtime(&tab.kind) {
                 tab.resume_on_start = tab.is_open
-                    && self
-                        .terminals
-                        .get_mut(&tab.id)
-                        .is_some_and(|terminal| matches!(terminal.status(), Ok(Status::Running)));
+                    && match self.terminals.get_mut(&tab.id) {
+                        Some(terminal) => terminal.status().is_ok_and(|status| {
+                            matches!(status, Status::Running)
+                                || super::terminals::retry_codex_on_start(tab, &status)
+                        }),
+                        None => tab.resume_on_start,
+                    };
             }
         }
     }

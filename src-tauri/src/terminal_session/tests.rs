@@ -405,33 +405,59 @@ fn crash_owner_fixture() {
     let Ok(path) = std::env::var("TERMINAL_TEST_CRASH_STATE") else {
         return;
     };
-    let (output, receive) = channel();
-    let session = TerminalSession::spawn(32, launch(
+    let mut sessions = Vec::new();
+    let mut state = Vec::new();
+    for id in 32..35 {
+        let (output, receive) = channel();
+        let session = TerminalSession::spawn(id, launch(
             "import os,subprocess,time; child=subprocess.Popen(['/usr/bin/python3','-c','import time; time.sleep(60)'],start_new_session=True); print(child.pid,flush=True); time.sleep(60)"
         ), output).unwrap();
-    let Output::Data { bytes, .. } = receive.recv_timeout(Duration::from_secs(5)).unwrap() else {
-        panic!("Missing PID")
-    };
-    std::fs::write(
-        path,
-        serde_json::to_vec(&(
-            session.containment.directory(),
+        let Output::Data { bytes, .. } = receive.recv_timeout(Duration::from_secs(5)).unwrap()
+        else {
+            panic!("Missing PID")
+        };
+        state.push((
+            session.containment.directory().to_owned(),
             String::from_utf8(bytes)
                 .unwrap()
                 .trim()
                 .parse::<i32>()
                 .unwrap(),
-        ))
-        .unwrap(),
+        ));
+        sessions.push(session);
+    }
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&(state, crate::containment::watchdog_pid())).unwrap(),
     )
     .unwrap();
     loop {
-        std::thread::park();
+        if std::path::Path::new(&path).with_extension("probe").exists() {
+            let (output, _) = channel();
+            let rejected =
+                TerminalSession::spawn(35, launch("import time; time.sleep(60)"), output).is_err();
+            std::fs::write(
+                std::path::Path::new(&path).with_extension("rejected"),
+                rejected.to_string(),
+            )
+            .unwrap();
+            std::thread::park();
+        }
+        std::thread::park_timeout(Duration::from_millis(20));
     }
 }
 
 #[test]
 fn application_death_watchdog_kills_detached_children() {
+    check_shared_watchdog_cleanup(true);
+}
+
+#[test]
+fn watchdog_death_stops_all_terminals_and_refuses_unprotected_launches() {
+    check_shared_watchdog_cleanup(false);
+}
+
+fn check_shared_watchdog_cleanup(kill_owner: bool) {
     struct Owner(std::process::Child);
     impl Drop for Owner {
         fn drop(&mut self) {
@@ -439,8 +465,13 @@ fn application_death_watchdog_kills_detached_children() {
             let _ = self.0.wait();
         }
     }
-    let path = std::env::temp_dir().join(format!("terminal-crash-test-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!(
+        "terminal-crash-test-{}-{kill_owner}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("probe"));
+    let _ = std::fs::remove_file(path.with_extension("rejected"));
     let mut owner = Owner(
         std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -453,7 +484,7 @@ fn application_death_watchdog_kills_detached_children() {
             .unwrap(),
     );
     let deadline = Instant::now() + Duration::from_secs(10);
-    let (group, pid): (std::path::PathBuf, i32) = loop {
+    let (terminals, watchdog): (Vec<(std::path::PathBuf, i32)>, u32) = loop {
         if let Ok(bytes) = std::fs::read(&path) {
             if let Ok(value) = serde_json::from_slice(&bytes) {
                 break value;
@@ -462,18 +493,122 @@ fn application_death_watchdog_kills_detached_children() {
         assert!(Instant::now() < deadline, "Fixture never launched");
         std::thread::sleep(Duration::from_millis(20));
     };
-    owner.0.kill().unwrap();
-    owner.0.wait().unwrap();
-    assert_dead(pid);
+    if kill_owner {
+        owner.0.kill().unwrap();
+        owner.0.wait().unwrap();
+    } else {
+        assert_eq!(unsafe { libc::kill(watchdog as i32, libc::SIGKILL) }, 0);
+        assert!(owner.0.try_wait().unwrap().is_none());
+    }
+    for (_, pid) in &terminals {
+        assert_dead(*pid);
+    }
+    assert_dead(watchdog as i32);
     let deadline = Instant::now() + Duration::from_secs(5);
-    while group.exists() {
+    while terminals.iter().any(|(group, _)| group.exists()) {
         assert!(
             Instant::now() < deadline,
             "Watchdog did not remove empty cgroup"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+    if !kill_owner {
+        std::fs::write(path.with_extension("probe"), "probe").unwrap();
+        while !path.with_extension("rejected").exists() {
+            assert!(
+                Instant::now() < deadline,
+                "Owner did not check watchdog failure"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            std::fs::read_to_string(path.with_extension("rejected")).unwrap(),
+            "true"
+        );
+    }
     let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn concurrent_terminals_share_one_watchdog_and_close_independently() {
+    let barrier = Arc::new(std::sync::Barrier::new(4));
+    let mut terminals = std::thread::scope(|scope| {
+        let threads: Vec<_> = (100..104)
+            .map(|id| {
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    let (output, receive) = channel();
+                    let session = TerminalSession::spawn(
+                        id,
+                        launch("import os,time; print(os.getpid(),flush=True); time.sleep(60)"),
+                        output,
+                    )
+                    .unwrap();
+                    let Output::Data { seq, bytes } =
+                        receive.recv_timeout(Duration::from_secs(5)).unwrap()
+                    else {
+                        panic!("Missing PID")
+                    };
+                    session.acknowledge(seq).unwrap();
+                    let pid: i32 = String::from_utf8(bytes).unwrap().trim().parse().unwrap();
+                    (session, pid)
+                })
+            })
+            .collect();
+        threads
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let watchdog = crate::containment::watchdog_pid();
+    let mut watchdogs = std::collections::HashSet::new();
+    for task in std::fs::read_dir("/proc/self/task").unwrap().flatten() {
+        let Ok(children) = std::fs::read_to_string(task.path().join("children")) else {
+            continue;
+        };
+        for pid in children.split_whitespace() {
+            let Ok(args) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+                continue;
+            };
+            if args
+                .split(|byte| *byte == 0)
+                .any(|arg| arg == b"--internal-terminal-watchdog")
+            {
+                watchdogs.insert(pid.parse::<u32>().unwrap());
+            }
+        }
+    }
+    assert_eq!(watchdogs, std::collections::HashSet::from([watchdog]));
+    let watchdog_group = std::fs::read_to_string(format!("/proc/{watchdog}/cgroup")).unwrap();
+    for (session, pid) in &terminals {
+        let group_name = session
+            .containment
+            .directory()
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
+            .unwrap()
+            .contains(group_name));
+        assert!(!watchdog_group.contains(group_name));
+        assert!(
+            std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
+                .unwrap()
+                .trim()
+                .is_empty(),
+            "A per-terminal watchdog was forked"
+        );
+    }
+    let (mut first, pid) = terminals.remove(0);
+    first.close().unwrap();
+    assert_dead(pid);
+    for (session, _) in &mut terminals {
+        assert!(matches!(session.status().unwrap(), Status::Running));
+        session.close().unwrap();
+    }
+    assert_eq!(unsafe { libc::kill(watchdog as i32, 0) }, 0);
 }
 
 #[test]

@@ -295,7 +295,7 @@ impl TerminalSession {
         }
         let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
-        if let Err(error) = handshake.wait() {
+        if let Err(error) = handshake.wait(&containment) {
             let _ = containment.stop();
             let _ = child.kill();
             let _ = child.wait();

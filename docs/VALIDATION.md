@@ -28,6 +28,24 @@ Report IDs refer to temporary harness artifacts and may no longer exist.
 [Historical acceptance records](reference/VALIDATION.md) describe earlier states;
 current evidence above supersedes older pending or failing claims.
 
+On 2026-11-07, 153 Rust tests passed across all targets (two credential tests
+remained ignored). Recovery coverage includes missing-Codex recovery across
+registry restart with the original conversation ID, explicit-stop suppression,
+failed-spawn eligibility and normal-exit suppression. Shared-watchdog coverage
+includes concurrent terminal registration with exactly one watchdog, independent
+terminal closure, application death with three terminals and detached descendants,
+and watchdog death with cleanup and rejection of further launches.
+
+The rebuilt production binary also passed a private Weston Wayland check with
+three live terminals and one watchdog: no watchdog PTY descriptors, no CPU ticks
+during a 500 ms idle sample, independent terminal closure, and SIGKILL cleanup of
+remaining leaders, detached descendants, cgroups and the watchdog. The same checks
+passed with the executable extracted from the rebuilt Debian package. Artifacts:
+`/tmp/ongleet-shared-watchdog-native-syag0h_x/report.json` (release binary) and
+`/tmp/ongleet-shared-watchdog-native-ssp47n54/report.json` (Debian executable).
+This does not certify physical desktop interaction, long-running resource
+stability, or installation/upgrade behavior on the user's desktop.
+
 ## Remaining acceptance
 
 - Physical keyboard focus, modal navigation, clipboard/selection and Japanese/Chinese
