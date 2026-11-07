@@ -1,7 +1,7 @@
 //! Native adapters for the repository-local SDK.
 use crate::{session::Namespace, AppRegistry};
 use serde::{Deserialize, Serialize};
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Serialize)]
 pub struct SdkError {
@@ -199,6 +199,7 @@ pub async fn sdk_request(
     };
     let _diagnostic =
         crate::diagnostics::enabled().then(|| crate::diagnostics::Operation::start(operation, id));
+    let system = app.state::<crate::system::SystemServices>().inner().clone();
     let registry = state.0.clone();
     let (session_id, plugin) = {
         let guard = registry.lock().map_err(|e| SdkError::from(e.to_string()))?;
@@ -254,7 +255,7 @@ pub async fn sdk_request(
             let key = key.clone();
             return tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                super::credentials::execute(&plugin, &key, operation),
+                super::credentials::execute_with(system.secrets.as_ref(), &plugin, &key, operation),
             )
             .await
             .map_err(|_| SdkError::from("Credential storage unavailable: timed out".to_string()))?
@@ -309,9 +310,8 @@ pub async fn sdk_request(
                 .to_string()
                 .into());
         }
-        use gtk::gio::prelude::*;
-        let uri = gtk::gio::File::for_path(path).uri().to_string();
-        return super::desktop::open_terminal_link(uri)
+        let uri = system.desktop.file_uri(std::path::Path::new(&path));
+        return super::desktop::open_terminal_link(app.clone(), uri)
             .await
             .map(|_| serde_json::Value::Null)
             .map_err(SdkError::from);
@@ -351,11 +351,12 @@ pub async fn sdk_request(
             if job.is_some() {
                 let job = job.unwrap();
                 let result = match request {
-                    Request::Process { request } => {
-                        super::process::execute(request, job.cancel.clone()).and_then(|result| {
-                            serde_json::to_value(result).map_err(|e| e.to_string())
-                        })
-                    }
+                    Request::Process { request } => super::process::execute_with(
+                        system.processes.as_ref(),
+                        request,
+                        job.cancel.clone(),
+                    )
+                    .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string())),
                     Request::SearchFiles {
                         folder,
                         query,
@@ -413,9 +414,14 @@ pub async fn sdk_request(
                     }
                     let event = format!("fs-changed-{id}-{attachment}");
                     let notification = token.clone();
-                    let watch = super::fs::watch::Watch::start(path, token, move || {
-                        let _ = watch_app.emit(&event, &notification);
-                    })?;
+                    let watch = super::fs::watch::Watch::start(
+                        system.files.as_ref(),
+                        path,
+                        token,
+                        move || {
+                            let _ = watch_app.emit(&event, &notification);
+                        },
+                    )?;
                     guard.file_watches.insert(id, watch);
                     Ok(serde_json::Value::Null)
                 }
@@ -433,13 +439,21 @@ pub async fn sdk_request(
                     if let Some(watch) = guard.file_watches.get(&id).filter(|w| w.path == path) {
                         watch.acknowledge();
                     }
-                    serde_json::to_value(super::fs::editor::load(&path)?)
+                    serde_json::to_value(super::fs::editor::load_with(
+                        system.files.as_ref(),
+                        &path,
+                    )?)
                 }
                 Request::SaveText {
                     path,
                     text,
                     revision,
-                } => serde_json::to_value(super::fs::editor::save(&path, &text, &revision)?),
+                } => serde_json::to_value(super::fs::editor::save_with(
+                    system.files.as_ref(),
+                    &path,
+                    &text,
+                    &revision,
+                )?),
                 Request::AddSessionTag { tag } => {
                     let snapshot = guard.add_session_tag(session_id, tag)?;
                     serde_json::to_value(

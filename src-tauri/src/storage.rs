@@ -13,11 +13,7 @@ mod models;
 mod schema;
 use models::*;
 use schema::*;
-use std::{
-    fs::{self, File, OpenOptions},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::Path,
-};
+use std::{fs, path::Path};
 
 #[derive(Clone)]
 pub struct Metadata {
@@ -29,48 +25,33 @@ pub struct Metadata {
     pub tab_sequence: u64,
 }
 
-// Explicit unlock releases ownership even if another thread briefly forked a
-// CLOEXEC duplicate during PTY launch. Closing our descriptor alone can leave
-// that duplicate holding flock until its exec completes.
-struct MetadataLock(File);
-impl Drop for MetadataLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
-}
-
 pub struct MetadataStore {
     connection: Mutex<SqliteConnection>,
     // A second writer must not overwrite metadata or relaunch commands twice.
-    _lock: MetadataLock,
+    _lock: Box<dyn crate::system::FileLock>,
 }
 
 impl MetadataStore {
+    #[cfg(test)]
     pub fn open(directory: &Path) -> Result<Self, String> {
-        Self::open_inner(directory).map_err(|e| e.to_string())
+        Self::open_with(directory, crate::system::services().files.as_ref())
+    }
+    pub fn open_with(
+        directory: &Path,
+        files: &dyn crate::system::SystemFiles,
+    ) -> Result<Self, String> {
+        Self::open_inner(directory, files).map_err(|e| e.to_string())
     }
 
-    fn open_inner(directory: &Path) -> StorageResult<Self> {
+    fn open_inner(directory: &Path, files: &dyn crate::system::SystemFiles) -> StorageResult<Self> {
         fs::create_dir_all(directory)?;
-        fs::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
-        let lock = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(directory.join("metadata.lock"))?;
-        lock.try_lock().map_err(|e| {
-            format!(
-                "Cannot lock session metadata; another application instance may be running: {e}"
-            )
-        })?;
-        let lock = MetadataLock(lock);
+        files.private_permissions(directory, true)?;
+        let lock = files.try_lock(&directory.join("metadata.lock")).map_err(|e| format!("Cannot lock session metadata; another application instance may be running: {e}"))?;
         let path = directory.join("workspaces.sqlite3");
         let mut connection =
             SqliteConnection::establish(path.to_str().ok_or("Session database path is not UTF-8")?)
                 .map_err(|e| format!("Cannot open session database: {e}"))?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        files.private_permissions(&path, false)?;
         connection.batch_execute(
             "PRAGMA busy_timeout=500; PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;",
         )?;

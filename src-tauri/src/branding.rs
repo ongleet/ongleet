@@ -1,36 +1,18 @@
 //! One-time directory rename, preserving SQLite sidecars and Codex mappings.
 use crate::control::paths::LEGACY_ID;
-use std::{
-    fs::{self, File, OpenOptions},
-    os::unix::fs::OpenOptionsExt,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 mod yaml;
 pub use yaml::migrate as migrate_yaml;
 
-struct Lock(File);
-impl Drop for Lock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
-}
-
-fn lock(path: &Path) -> Result<Lock, String> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(path)
-        .map_err(|e| format!("Cannot lock migration: {e}"))?;
-    file.try_lock().map_err(|_| {
+fn lock_with(
+    files: &dyn crate::system::SystemFiles,
+    path: &Path,
+) -> Result<Box<dyn crate::system::FileLock>, String> {
+    files.try_lock(path).map_err(|_| {
         "Close the previous application instance before migrating Ongleet data".to_string()
-    })?;
-    Ok(Lock(file))
+    })
 }
-
 fn exists(path: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -59,10 +41,14 @@ fn check(source: &Path, target: &Path) -> Result<bool, String> {
 }
 
 /// Preflight every directory before moving any state. Renames preserve sidecars.
-pub fn migrate(data: &Path, config: &Path) -> Result<(), String> {
+pub fn migrate_with(
+    files: &dyn crate::system::SystemFiles,
+    data: &Path,
+    config: &Path,
+) -> Result<(), String> {
     fs::create_dir_all(data.parent().ok_or("Data directory has no parent")?)
         .map_err(|e| e.to_string())?;
-    let _migration = lock(&data.with_file_name(".ongleet-migration.lock"))?;
+    let _migration = lock_with(files, &data.with_file_name(".ongleet-migration.lock"))?;
     let mut moves = Vec::new();
     for target in [
         data.to_path_buf(),
@@ -159,16 +145,13 @@ pub fn migrate(data: &Path, config: &Path) -> Result<(), String> {
     ] {
         let old = data.with_file_name(name);
         if old.is_dir() {
-            writers.push(lock(&old.join("metadata.lock"))?);
+            writers.push(lock_with(files, &old.join("metadata.lock"))?);
         }
     }
     if !profile_moves.is_empty() && !resume_profile {
         use std::io::Write;
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&pending_profile)
+        files
+            .open_private(&pending_profile, crate::system::PrivateOpen::New)
             .and_then(|mut file| file.write_all(b"1"))
             .map_err(|e| e.to_string())?;
     }
@@ -451,4 +434,13 @@ mod prototype_profile_tests {
         );
         fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[cfg(test)]
+fn migrate(data: &Path, config: &Path) -> Result<(), String> {
+    migrate_with(crate::system::services().files.as_ref(), data, config)
+}
+#[cfg(test)]
+fn lock(path: &Path) -> Result<Box<dyn crate::system::FileLock>, String> {
+    lock_with(crate::system::services().files.as_ref(), path)
 }

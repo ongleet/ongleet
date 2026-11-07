@@ -1,14 +1,8 @@
-use crate::containment::{Containment, Handshake};
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use crate::system::{Cancellation, TerminalControl, TerminalService};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, VecDeque},
-    io::{Read, Write},
-    os::fd::{AsRawFd, FromRawFd},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Condvar, Mutex,
-    },
+    collections::VecDeque,
+    sync::{mpsc, Arc, Condvar, Mutex},
     time::Duration,
 };
 use tauri::ipc::Channel;
@@ -16,16 +10,7 @@ use tauri::ipc::Channel;
 const CHUNK: usize = 16 * 1024;
 const REPLAY_LIMIT: usize = 4 * 1024 * 1024;
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Launch {
-    pub executable: Option<String>,
-    pub args: Vec<String>,
-    pub cwd: String,
-    pub env: BTreeMap<String, String>,
-    pub cols: u16,
-    pub rows: u16,
-}
+pub use crate::system::Launch;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -131,10 +116,9 @@ struct Input {
     done: mpsc::Sender<Result<(), String>>,
 }
 
-// This boundary owns native resources; React only owns an emulator and attachment.
+// Coordinate workers and attachments; the system backend owns native resources.
 // Replay data is bounded and in-memory only; no terminal daemon is involved.
 struct Resources {
-    master: Option<Box<dyn MasterPty + Send>>,
     input: Option<mpsc::SyncSender<Input>>,
     status: Status,
     completed: bool,
@@ -147,102 +131,33 @@ pub struct TerminalSession {
     initial_cols: u16,
     initial_rows: u16,
     resources: Arc<(Mutex<Resources>, Condvar)>,
-    containment: Arc<Containment>,
-    cancel_input: Arc<IoCancel>,
-    cancel_read: Arc<IoCancel>,
+    control: Arc<dyn TerminalControl>,
+    cancel_input: Arc<dyn Cancellation>,
+    cancel_read: Arc<dyn Cancellation>,
     flow: Arc<(Mutex<Flow>, Condvar)>,
     closed: bool,
 }
 
-fn poll_handle(master: &dyn MasterPty) -> Result<std::fs::File, String> {
-    let fd = master
-        .as_raw_fd()
-        .ok_or("PTY file descriptor unavailable")?;
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
-    if duplicate < 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    Ok(unsafe { std::fs::File::from_raw_fd(duplicate) })
-}
-
-// A level-triggered eventfd stays readable after cancellation, waking every
-// current or future waiter without a check/sleep race. Never drain this fd.
-struct IoCancel {
-    cancelled: AtomicBool,
-    wake: std::fs::File,
-}
-
-impl IoCancel {
-    fn new() -> Result<Self, String> {
-        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-        Ok(Self {
-            cancelled: AtomicBool::new(false),
-            wake: unsafe { std::fs::File::from_raw_fd(fd) },
-        })
-    }
-
-    fn cancel(&self) {
-        if !self.cancelled.swap(true, Ordering::AcqRel) {
-            let value = 1u64;
-            loop {
-                let result =
-                    unsafe { libc::write(self.wake.as_raw_fd(), (&value as *const u64).cast(), 8) };
-                if result >= 0
-                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-                {
-                    break;
-                }
-            }
-        }
-    }
-
-    fn wait_io(&self, file: &std::fs::File, event: i16) -> Result<bool, String> {
-        let mut fds = [
-            libc::pollfd {
-                fd: file.as_raw_fd(),
-                events: event,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: self.wake.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
-        loop {
-            if self.cancelled.load(Ordering::Acquire) {
-                return Ok(false);
-            }
-            let result = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
-            if result < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error.to_string());
-            }
-            if fds[1].revents != 0 {
-                return Ok(false);
-            }
-            if fds[0].revents & libc::POLLNVAL != 0 {
-                return Err("PTY descriptor closed".into());
-            }
-            if fds[0].revents != 0 {
-                return Ok(true);
-            }
-        }
-    }
-}
-
 impl TerminalSession {
+    #[cfg(test)]
     pub fn spawn(id: u64, launch: Launch, output: Channel<Output>) -> Result<Self, String> {
+        let services = crate::system::services();
+        Self::spawn_with(
+            services.terminal.as_ref(),
+            services.paths.as_ref(),
+            id,
+            launch,
+            output,
+        )
+    }
+
+    pub fn spawn_with(
+        service: &dyn TerminalService,
+        paths: &dyn crate::system::SystemPaths,
+        id: u64,
+        mut launch: Launch,
+        output: Channel<Output>,
+    ) -> Result<Self, String> {
         if !std::path::Path::new(&launch.cwd).is_dir() {
             return Err("Working directory must be an existing directory".into());
         }
@@ -251,57 +166,20 @@ impl TerminalSession {
         }
         let executable = launch
             .executable
-            .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
+            .get_or_insert_with(|| paths.default_shell());
         if executable.is_empty() {
             return Err("Executable cannot be empty".into());
         }
-        let pair = native_pty_system()
-            .openpty(size(launch.cols, launch.rows))
-            .map_err(|e| e.to_string())?;
-        // Prepare all fallible PTY handles before creating the child.
-        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let read_poll = poll_handle(pair.master.as_ref())?;
-        let write_poll = poll_handle(pair.master.as_ref())?;
-        // portable-pty's writer Drop injects newline + VEOF. Own a plain fd
-        // instead: exit/close must not add bytes while the reader drains.
-        let mut writer = write_poll.try_clone().map_err(|e| e.to_string())?;
-        let cancel_input = Arc::new(IoCancel::new()?);
-        let cancel_read = Arc::new(IoCancel::new()?);
-        let containment = Arc::new(Containment::create()?);
-        let handshake = Handshake::new()?;
-        let mut cmd = CommandBuilder::new(crate::containment::executable()?);
-        cmd.arg(crate::containment::HELPER_FLAG);
-        cmd.arg(containment.directory());
-        cmd.arg(handshake.socket());
-        cmd.arg(executable);
-        cmd.args(launch.args);
-        cmd.cwd(launch.cwd);
-        // Make the sibling CLI available inside app-launched processes without
-        // changing the desktop environment or any shell configuration.
-        let application = std::env::current_exe().map_err(|e| e.to_string())?;
-        let directory = application
-            .parent()
-            .ok_or("Application directory is unavailable")?;
-        let inherited = std::env::var_os("PATH").unwrap_or_default();
-        let path = std::env::join_paths(
-            std::iter::once(directory.to_path_buf()).chain(std::env::split_paths(&inherited)),
-        )
-        .map_err(|e| format!("Cannot construct terminal PATH: {e}"))?;
-        cmd.env("PATH", path);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        for (key, value) in launch.env {
-            cmd.env(key, value);
-        }
-        let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-        drop(pair.slave);
-        if let Err(error) = handshake.wait(&containment) {
-            let _ = containment.stop();
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(error);
-        }
-        drop(handshake);
+        let cols = launch.cols;
+        let rows = launch.rows;
+        let crate::system::TerminalIo {
+            mut reader,
+            mut writer,
+            cancel_input,
+            cancel_read,
+            control,
+            wait,
+        } = service.spawn(launch)?;
         let flow = Arc::new((
             Mutex::new(Flow {
                 output: Some(output),
@@ -329,14 +207,14 @@ impl TerminalSession {
                             submit = false;
                             bytes = b"\r";
                         }
-                        if writer_cancel.cancelled.load(Ordering::Acquire) {
+                        if writer_cancel.is_cancelled() {
                             return Err("Terminal has exited".into());
                         }
                         match writer.write(bytes) {
                             Ok(0) => return Err("PTY input closed".into()),
                             Ok(n) => bytes = &bytes[n..],
                             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                if !writer_cancel.wait_io(&write_poll, libc::POLLOUT)? {
+                                if !writer.wait()? {
                                     return Err("Terminal has exited".into());
                                 }
                             }
@@ -350,7 +228,6 @@ impl TerminalSession {
             }
         });
         let reader_flow = flow.clone();
-        let reader_cancel = cancel_read.clone();
         let reader_thread = std::thread::spawn(move || {
             let mut drained = 0usize;
             let (lock, changed) = &*reader_flow;
@@ -397,7 +274,7 @@ impl TerminalSession {
                         state.dispatch();
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        match reader_cancel.wait_io(&read_poll, libc::POLLIN) {
+                        match reader.wait() {
                             Ok(true) => {}
                             Ok(false) => break,
                             Err(message) => {
@@ -428,7 +305,6 @@ impl TerminalSession {
         });
         let resources = Arc::new((
             Mutex::new(Resources {
-                master: Some(pair.master),
                 input: Some(input),
                 status: Status::Running,
                 completed: false,
@@ -437,22 +313,22 @@ impl TerminalSession {
             Condvar::new(),
         ));
         let reaper_resources = resources.clone();
-        let reaper_containment = containment.clone();
+        let reaper_control = control.clone();
         let reaper_flow = flow.clone();
         let reaper_cancel = cancel_input.clone();
         let reaper_read_cancel = cancel_read.clone();
         std::thread::spawn(move || {
-            // The dedicated reaper blocks in waitpid; cgroup cleanup on close
-            // kills the child and wakes it without periodic status checks.
-            let exit = child.wait().map_err(|error| error.to_string());
-            let cleanup = reaper_containment.stop();
+            // The dedicated reaper waits for process exit. Stopping the terminal
+            // wakes it without periodic status checks.
+            let exit = wait.wait();
+            let cleanup = reaper_control.stop();
             reaper_cancel.cancel();
-            let code = exit.as_ref().map(|e| e.exit_code()).unwrap_or(1);
+            let code = exit.as_ref().copied().unwrap_or(1);
             {
                 let mut resources = reaper_resources.0.lock().unwrap();
                 resources.status = Status::Exited { code };
                 resources.input.take();
-                resources.master.take();
+                reaper_control.release();
             }
             {
                 let mut flow = reaper_flow.0.lock().unwrap();
@@ -484,10 +360,10 @@ impl TerminalSession {
         Ok(Self {
             id,
             previous_history: String::new(),
-            initial_cols: launch.cols,
-            initial_rows: launch.rows,
+            initial_cols: cols,
+            initial_rows: rows,
             resources,
-            containment,
+            control,
             cancel_input,
             cancel_read,
             flow,
@@ -568,9 +444,7 @@ impl TerminalSession {
         if cols < 2 || rows == 0 || cols > 1000 || rows > 1000 {
             return Err("Terminal dimensions must be 2..1000 columns and 1..1000 rows".into());
         }
-        if let Some(master) = &self.resources.0.lock().map_err(|e| e.to_string())?.master {
-            master.resize(size(cols, rows)).map_err(|e| e.to_string())?;
-        }
+        self.control.resize(cols, rows)?;
         self.flow
             .0
             .lock()
@@ -593,7 +467,7 @@ impl TerminalSession {
         if self.closed {
             return Ok(());
         }
-        self.containment.stop()?;
+        self.control.stop()?;
         self.cancel_input.cancel();
         self.cancel_read.cancel();
         self.flow.0.lock().unwrap().closed = true;
@@ -623,15 +497,6 @@ impl TerminalSession {
 impl Drop for TerminalSession {
     fn drop(&mut self) {
         let _ = self.close();
-    }
-}
-
-fn size(cols: u16, rows: u16) -> PtySize {
-    PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
     }
 }
 

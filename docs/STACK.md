@@ -6,6 +6,12 @@ terminal engine or daemon.
 
 ## Runtime boundaries
 
+Feature code depends on the seven injected contracts in `system/mod.rs`.
+The private `system/linux/` implementation owns native mechanisms and resources;
+GUI, CLI and helper entry points share the same composition factory. No native
+backend types appear in feature code. See [engineering](ENGINEERING.md#native-service-boundary)
+for ownership, async contracts and the build-time boundary check.
+
 - Rust owns PTYs, process containment, metadata and shared UI/CLI operations. React retains one Ghostty controller per stable tab ID; navigation changes visibility, not process ownership.
 - Ghostty parses raw bytes and owns screen state. TypeScript supplies rendering/input/selection. Validate browser behavior in WebKitGTK; engine tests alone are insufficient.
 - Vite bundles local WASM through `?url`; no runtime CDN. `write(Uint8Array)` parses synchronously in 0.4.0, so ACK follows parsing rather than waiting for an animation frame. Recheck on upgrade.

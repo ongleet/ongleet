@@ -1,18 +1,11 @@
 //! User-private single-instance and control socket. Registry operations run off GTK.
-pub use crate::control::paths::{data_directory, socket_path};
 use crate::control::{
     client,
     protocol::{encode_response, Request, Response, RpcError, REQUEST_LIMIT, VERSION},
 };
 use crate::control_dispatch::{self, Effect};
 use std::{
-    fs,
     io::Write,
-    os::unix::{
-        fs::{FileTypeExt, MetadataExt, PermissionsExt},
-        net::UnixListener,
-    },
-    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -22,9 +15,12 @@ use std::{
 };
 use tauri::Manager;
 
-pub fn show(path: &Path) -> Result<(), String> {
-    let response =
-        client::call(path, crate::control::protocol::Command::Show).map_err(|e| e.message)?;
+pub fn show(
+    transport: &dyn crate::system::ControlTransport,
+    path: &crate::system::ControlEndpoint,
+) -> Result<(), String> {
+    let response = client::call(transport, path, crate::control::protocol::Command::Show)
+        .map_err(|e| e.message)?;
     if response.ok {
         Ok(())
     } else {
@@ -37,46 +33,30 @@ pub fn show(path: &Path) -> Result<(), String> {
 
 /// Return the shell prompt while the explicitly launched desktop app runs.
 /// Development builds and --foreground bypass this path in the caller.
-pub fn detach_terminal_launch(socket: &Path) -> Result<bool, String> {
-    use std::io::IsTerminal;
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
+pub fn detach_terminal_launch(
+    system: &crate::system::SystemServices,
+    socket: &crate::system::ControlEndpoint,
+) -> Result<bool, String> {
     use std::time::Instant;
-
-    if !std::io::stdin().is_terminal()
-        && !std::io::stdout().is_terminal()
-        && !std::io::stderr().is_terminal()
-    {
+    if !system.processes.has_terminal() {
         return Ok(false);
     }
-    let mut command = Command::new(format!("/proc/{}/exe", std::process::id()));
-    command.arg("--foreground").stdin(Stdio::null());
-    command.stdout(if std::io::stdout().is_terminal() {
-        Stdio::null()
-    } else {
-        Stdio::inherit()
-    });
-    command.stderr(if std::io::stderr().is_terminal() {
-        Stdio::null()
-    } else {
-        Stdio::inherit()
-    });
-    // Spawn a fresh GUI process before GTK/threads exist, with no controlling
-    // terminal. PTYs and their watchdogs remain owned by that application.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Cannot start application: {e}"))?;
+    let mut child = system
+        .processes
+        .spawn(
+            crate::system::ProcessLaunch {
+                executable: system.paths.executable()?,
+                args: vec!["--foreground".into()],
+                ..Default::default()
+            },
+            crate::system::ProcessMode::TerminalApplication,
+        )
+        .map_err(|e| format!("Cannot start application: {e}"))?
+        .child;
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if client::call_with_timeout(
+            system.transport.as_ref(),
             socket,
             crate::control::protocol::Command::Status,
             Duration::from_secs(1),
@@ -98,40 +78,30 @@ pub fn detach_terminal_launch(socket: &Path) -> Result<bool, String> {
 pub struct Instance {
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
-    path: PathBuf,
 }
 impl Instance {
     // The caller must already hold the exclusive SQLite writer lock. Only then
     // can a stale socket be removed without racing a live application instance.
-    pub fn start(path: PathBuf, app: tauri::AppHandle) -> Result<Self, String> {
-        match fs::symlink_metadata(&path) {
-            Ok(metadata)
-                if metadata.file_type().is_socket()
-                    && metadata.uid() == unsafe { libc::geteuid() } =>
-            {
-                fs::remove_file(&path).map_err(|e| e.to_string())?
-            }
-            Ok(_) => return Err("Refusing to replace an unexpected application socket path".into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-        let listener = UnixListener::bind(&path).map_err(|e| e.to_string())?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    pub fn start(
+        transport: &dyn crate::system::ControlTransport,
+        path: crate::system::ControlEndpoint,
+        app: tauri::AppHandle,
+    ) -> Result<Self, String> {
+        let listener = transport.listen(&path)?;
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
         let thread = std::thread::spawn(move || {
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-                        if client::verify_peer(&stream).is_err() {
+                    Ok(mut stream) => {
+                        let _ = stream.write_timeout(Duration::from_secs(2));
+                        if stream.verify_owner().is_err() {
                             continue;
                         }
                         let mut effect = Effect::None;
                         let result = (|| {
                             let bytes = client::read_message(
-                                &mut stream,
+                                stream.as_mut(),
                                 REQUEST_LIMIT,
                                 Duration::from_secs(2),
                             )?;
@@ -165,7 +135,7 @@ impl Instance {
                         };
                         let bytes = encode_response(&response);
                         let _ = stream.write_all(&bytes);
-                        let _ = stream.shutdown(std::net::Shutdown::Write);
+                        let _ = stream.finish_write();
                         match effect {
                             Effect::None => {}
                             Effect::Show => {
@@ -197,7 +167,6 @@ impl Instance {
         Ok(Self {
             stop,
             thread: Mutex::new(Some(thread)),
-            path,
         })
     }
 
@@ -208,7 +177,6 @@ impl Instance {
                 let _ = thread.join();
             }
         }
-        let _ = fs::remove_file(&self.path);
     }
 }
 impl Drop for Instance {

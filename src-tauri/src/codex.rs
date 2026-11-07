@@ -1,18 +1,9 @@
 //! Opt-in Codex conversation restoration. No daemon or global Codex config edits.
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{Read, Write},
-    os::{
-        fd::AsRawFd,
-        unix::{
-            fs::{DirBuilderExt, OpenOptionsExt},
-            process::CommandExt,
-            process::ExitStatusExt,
-        },
-    },
     path::{Path, PathBuf},
-    process::Command,
 };
 
 pub const WRAPPER_FLAG: &str = "--internal-codex-wrapper";
@@ -36,12 +27,8 @@ struct State {
     active_turn: bool,
 }
 
-fn nonce() -> Result<String, String> {
-    let mut bytes = [0; 16];
-    File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| e.to_string())?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+fn nonce(system: &crate::system::SystemServices) -> Result<String, String> {
+    system.files.nonce()
 }
 
 fn read_state(path: &Path) -> Result<State, String> {
@@ -73,18 +60,20 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-fn write_state(path: &Path, state: &State) -> Result<(), String> {
+fn write_state(
+    system: &crate::system::SystemServices,
+    path: &Path,
+    state: &State,
+) -> Result<(), String> {
     let bytes = serde_json::to_vec(state).map_err(|e| e.to_string())?;
     if bytes.len() > LIMIT as usize {
         return Err("Codex session file is too large".into());
     }
-    let temp = path.with_extension(format!("{}.tmp", nonce()?));
+    let temp = path.with_extension(format!("{}.tmp", nonce(system)?));
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temp)
+        let mut file = system
+            .files
+            .open_private(&temp, crate::system::PrivateOpen::New)
             .map_err(|e| e.to_string())?;
         file.write_all(&bytes).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
@@ -99,59 +88,61 @@ fn write_state(path: &Path, state: &State) -> Result<(), String> {
 
 // Serialize generation changes and hook writes, so a stale hook cannot race a
 // newer launch between reading its generation and replacing the file.
-fn locked<T>(path: &Path, operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    locked_for(path, std::time::Duration::ZERO, operation)
+fn locked<T>(
+    system: &crate::system::SystemServices,
+    path: &Path,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    locked_for(system, path, std::time::Duration::ZERO, operation)
 }
 fn locked_for<T>(
+    system: &crate::system::SystemServices,
     path: &Path,
     timeout: std::time::Duration,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    struct Lock(File);
-    impl Drop for Lock {
-        fn drop(&mut self) {
-            // Explicitly unlock even if a concurrent fork inherited the fd.
-            unsafe {
-                libc::flock(self.0.as_raw_fd(), libc::LOCK_UN);
-            }
-        }
-    }
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(path.with_extension("lock"))
-        .map_err(|e| e.to_string())?;
     let deadline = std::time::Instant::now() + timeout;
-    while unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        if std::time::Instant::now() >= deadline {
-            return Err("Codex session mapping is busy; retry the launch".into());
+    let _guard = loop {
+        match system.files.try_lock(&path.with_extension("lock")) {
+            Ok(lock) => break lock,
+            Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5))
+            }
+            Err(_) => return Err("Codex session mapping is busy; retry the launch".into()),
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    let _guard = Lock(lock);
+    };
     operation()
 }
 
-fn begin(path: &Path, fresh: bool) -> Result<State, String> {
-    locked(path, || {
+fn begin(
+    system: &crate::system::SystemServices,
+    path: &Path,
+    fresh: bool,
+) -> Result<State, String> {
+    locked(system, path, || {
         let old = read_state(path)?;
         let state = State {
-            launch: nonce()?,
+            launch: nonce(system)?,
             conversation: if fresh { None } else { old.conversation },
             ..State::default()
         };
-        write_state(path, &state)?;
+        write_state(system, path, &state)?;
         Ok(state)
     })
 }
 
-fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
-    record_with(path, launch, input, report_activity)
+fn record(
+    system: &crate::system::SystemServices,
+    path: &Path,
+    launch: &str,
+    input: impl Read,
+) -> Result<(), String> {
+    record_with(system, path, launch, input, |launch| {
+        report_activity(system, launch)
+    })
 }
 fn record_with(
+    system: &crate::system::SystemServices,
     path: &Path,
     launch: &str,
     input: impl Read,
@@ -165,7 +156,7 @@ fn record_with(
     if !valid_id(&event.session_id) {
         return Err("Invalid Codex session_id".into());
     }
-    let changed = locked_for(path, std::time::Duration::from_millis(500), || {
+    let changed = locked_for(system, path, std::time::Duration::from_millis(500), || {
         let mut state = read_state(path)?;
         if state.launch != launch || event.agent_id.is_some() {
             return Ok(false);
@@ -173,7 +164,7 @@ fn record_with(
         if !apply_event(&mut state, &event)? {
             return Ok(false);
         }
-        write_state(path, &state)?;
+        write_state(system, path, &state)?;
         Ok(true)
     })?;
     // Never hold the mapping lock while waiting for the GUI. Every notification
@@ -311,16 +302,17 @@ pub fn activity_for_launch(
     Ok((state.launch == launch).then_some(state.activity))
 }
 
-fn report_activity(launch: &str) {
+fn report_activity(system: &crate::system::SystemServices, launch: &str) {
     let result = (|| -> Result<(), String> {
         let data = PathBuf::from(required("ONGLEET_CODEX_DATA")?);
-        let socket = crate::control::paths::socket_path(&data)?;
+        let socket = system.paths.control_endpoint(&data)?;
         let id = |key| {
             required(key)?
                 .parse::<u64>()
                 .map_err(|_| format!("Invalid {key}"))
         };
         let response = crate::control::client::call_with_timeout(
+            system.transport.as_ref(),
             &socket,
             crate::control::protocol::Command::CodexActivity {
                 session_id: id("ONGLEET_SESSION_ID")?,
@@ -342,8 +334,12 @@ fn report_activity(launch: &str) {
     }
 }
 
-fn stopped(path: &Path, launch: &str) -> Result<(), String> {
-    let changed = locked_for(path, std::time::Duration::from_millis(500), || {
+fn stopped(
+    system: &crate::system::SystemServices,
+    path: &Path,
+    launch: &str,
+) -> Result<(), String> {
+    let changed = locked_for(system, path, std::time::Duration::from_millis(500), || {
         let mut state = read_state(path)?;
         if state.launch != launch {
             return Ok(false);
@@ -352,11 +348,11 @@ fn stopped(path: &Path, launch: &str) -> Result<(), String> {
         state.activity = Activity::Stopped;
         state.pending_questions.clear();
         state.pending_approvals.clear();
-        write_state(path, &state)?;
+        write_state(system, path, &state)?;
         Ok(true)
     })?;
     if changed {
-        report_activity(launch);
+        report_activity(system, launch);
     }
     Ok(())
 }
@@ -373,7 +369,7 @@ fn required(name: &str) -> Result<String, String> {
         .map_err(|_| format!("{name} is required; launch ong-codex from a configured terminal tab"))
 }
 
-fn session_path() -> Result<PathBuf, String> {
+fn session_path(system: &crate::system::SystemServices) -> Result<PathBuf, String> {
     let data = PathBuf::from(required("ONGLEET_CODEX_DATA")?);
     if !data.is_absolute() {
         return Err("Codex data directory must be absolute".into());
@@ -388,10 +384,9 @@ fn session_path() -> Result<PathBuf, String> {
     let directory = data
         .join("codex-sessions")
         .join(id("ONGLEET_SESSION_ID")?.to_string());
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&directory)
+    system
+        .files
+        .private_directory(&directory, true)
         .map_err(|e| e.to_string())?;
     Ok(directory.join(format!("{}.json", id("ONGLEET_TAB_ID")?)))
 }
@@ -451,7 +446,7 @@ fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
     args
 }
 
-pub fn run_if_requested() -> bool {
+pub fn run_if_requested(system: &crate::system::SystemServices) -> bool {
     let mut args = std::env::args().skip(1);
     let Some(flag) = args.next() else {
         return false;
@@ -459,43 +454,42 @@ pub fn run_if_requested() -> bool {
     if flag != WRAPPER_FLAG && flag != RECORD_FLAG {
         return false;
     }
-    run(&flag, args.collect());
+    run(system, &flag, args.collect());
     true
 }
 
-fn log_hook_error(error: &str) -> std::io::Result<PathBuf> {
+fn log_hook_error(system: &crate::system::SystemServices, error: &str) -> std::io::Result<PathBuf> {
     let path = std::env::temp_dir().join(format!(
         "ongleet-codex-hook-error-{}-{}.log",
         std::process::id(),
-        nonce().map_err(std::io::Error::other)?
+        nonce(system).map_err(std::io::Error::other)?
     ));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)?;
+    let mut file = system
+        .files
+        .open_private(&path, crate::system::PrivateOpen::New)?;
     // Bound diagnostics and never copy the hook's stdin or inherited environment.
     let entry = serde_json::json!({
         "timestampUnixSeconds": std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
         "pid": std::process::id(),
-        "executable": std::env::current_exe().ok(),
+        "executable": system.paths.application_executable().ok(),
         "error": error.chars().take(4096).collect::<String>(),
     });
     writeln!(file, "{entry}")?;
     Ok(path)
 }
 
-pub fn run(flag: &str, args: Vec<String>) {
+pub fn run(system: &crate::system::SystemServices, flag: &str, args: Vec<String>) {
     let result = (|| {
         let mut extra = args;
         if extra.first().is_some_and(|a| a == "--help" || a == "-h") {
             println!("ong-codex [--session-id ID --tab-id ID] [--fresh] [--no-restart] [-- CODEX_OPTIONS...]\nResume this tab's saved Codex conversation, or start one if absent.\nConfigured terminal tabs supply their IDs automatically.\n--fresh explicitly starts a new conversation.\nAutomatically restart after exit, resuming when an ID is saved; close the tab to stop. --no-restart runs once.\nConfigure the tab executable as ong-codex.\nThis wrapper passes --dangerously-bypass-hook-trust for this invocation; all enabled hooks may run without review. Global Codex config is not changed.");
             return Ok(());
         }
-        let path = session_path()?;
+        let path = session_path(system)?;
         if flag == RECORD_FLAG {
             return record(
+                system,
                 &path,
                 &required("ONGLEET_CODEX_LAUNCH")?,
                 std::io::stdin().lock(),
@@ -515,40 +509,36 @@ pub fn run(flag: &str, args: Vec<String>) {
             extra.remove(0);
         }
         let hook = required("ONGLEET_CODEX_HOOK_EXE")?;
-        let mut state = begin(&path, fresh)?;
+        let mut state = begin(system, &path, fresh)?;
         // Keep terminal-generated interrupts directed at Codex without killing
         // its supervisor. The child restores normal dispositions before exec.
-        unsafe {
-            libc::signal(libc::SIGINT, libc::SIG_IGN);
-            libc::signal(libc::SIGQUIT, libc::SIG_IGN);
-        }
+        system.processes.prepare_supervisor();
         let mut rapid_exits = 0;
         loop {
             if let Some(id) = &state.conversation {
                 eprintln!("Resuming Codex conversation {id}. If unavailable, use --fresh to start a new conversation.");
             }
-            report_activity(&state.launch);
+            report_activity(system, &state.launch);
             let started = std::time::Instant::now();
-            let mut command = Command::new("codex");
-            command
-                .args(codex_args(&state, &hook, &extra))
-                .env("ONGLEET_CODEX_LAUNCH", &state.launch);
-            unsafe {
-                command.pre_exec(|| {
-                    libc::signal(libc::SIGINT, libc::SIG_DFL);
-                    libc::signal(libc::SIGQUIT, libc::SIG_DFL);
-                    Ok(())
-                });
-            }
-            let status = command.status();
-            let _ = stopped(&path, &state.launch);
+            let status = system
+                .processes
+                .spawn(
+                    crate::system::ProcessLaunch {
+                        executable: "codex".into(),
+                        args: codex_args(&state, &hook, &extra),
+                        env: std::collections::BTreeMap::from([(
+                            "ONGLEET_CODEX_LAUNCH".into(),
+                            state.launch.clone(),
+                        )]),
+                        cwd: None,
+                    },
+                    crate::system::ProcessMode::Inherited,
+                )
+                .and_then(|mut resources| resources.child.wait());
+            let _ = stopped(system, &path, &state.launch);
             let status = status.map_err(|error| format!("Cannot start Codex: {error}"))?;
             if !restart {
-                std::process::exit(
-                    status
-                        .code()
-                        .unwrap_or_else(|| 128 + status.signal().unwrap_or(1)),
-                );
+                std::process::exit(status.exit_code);
             }
             rapid_exits = if started.elapsed() < std::time::Duration::from_secs(10) {
                 rapid_exits + 1
@@ -564,12 +554,12 @@ pub fn run(flag: &str, args: Vec<String>) {
                 eprintln!("Codex exited ({status}) without a saved conversation ID; starting a new conversation in 2 seconds. Close the tab to stop.");
             }
             std::thread::sleep(std::time::Duration::from_secs(2));
-            state = begin(&path, false)?;
+            state = begin(system, &path, false)?;
         }
     })();
     if let Err(error) = result {
         if flag == RECORD_FLAG && std::env::var("ONGLEET_DEBUG").as_deref() == Ok("1") {
-            match log_hook_error(&error) {
+            match log_hook_error(system, &error) {
                 Ok(path) => eprintln!("Codex hook error log: {}", path.display()),
                 Err(log_error) => eprintln!("Cannot write Codex hook error log: {log_error}"),
             }

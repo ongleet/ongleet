@@ -1,5 +1,5 @@
 use super::SessionRegistry;
-use std::{fs, io::Read, io::Write, os::unix::fs::OpenOptionsExt, path::PathBuf};
+use std::{fs, io::Read, io::Write, path::PathBuf};
 
 const LIMIT: usize = 256 * 1024;
 
@@ -46,23 +46,23 @@ impl SessionRegistry {
             return Err("Terminal history belongs to an unavailable process".into());
         }
         let path = self.history_path(tab_id)?;
-        write_history(&path, &text)
+        write_history_with(self.system.files.as_ref(), &path, &text)
     }
 }
 
-fn write_history(path: &std::path::Path, text: &str) -> Result<(), String> {
+fn write_history_with(
+    files: &dyn crate::system::SystemFiles,
+    path: &std::path::Path,
+    text: &str,
+) -> Result<(), String> {
     if text.len() > LIMIT {
         return Err("Terminal history exceeds 256 KiB".into());
     }
     let directory = path.parent().unwrap();
     fs::create_dir_all(directory).map_err(|e| e.to_string())?;
     let temporary = path.with_extension("tmp");
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(&temporary)
+    let mut file = files
+        .open_private(&temporary, crate::system::PrivateOpen::Replace)
         .map_err(|e| e.to_string())?;
     file.write_all(text.as_bytes())
         .and_then(|_| file.sync_all())
@@ -122,4 +122,9 @@ mod tests {
         assert!(registry.terminal_history(first).is_err());
         assert_eq!(fs::metadata(&path).unwrap().len(), (LIMIT + 1) as u64);
     }
+}
+
+#[cfg(test)]
+fn write_history(path: &std::path::Path, text: &str) -> Result<(), String> {
+    write_history_with(crate::system::services().files.as_ref(), path, text)
 }

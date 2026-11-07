@@ -275,7 +275,11 @@ pub fn handle(
             if !snapshot.projects.iter().any(|g| g.id == project_id) {
                 return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
-            let directory_config = crate::control::paths::config_directory().map_err(failed)?;
+            let directory_config = app
+                .state::<crate::system::SystemServices>()
+                .paths
+                .config_directory()
+                .map_err(failed)?;
             let next = registry
                 .create_from_first_action(Some(project_id), name, directory, &directory_config)
                 .map_err(failed)?;
@@ -353,12 +357,20 @@ pub fn handle(
         Command::TabTypes => crate::plugins::catalog(),
         Command::TabActions { session_id } => {
             let session = session(&snapshot, session_id)?;
-            let directory = crate::control::paths::config_directory().map_err(failed)?;
-            let actions: Vec<_> = crate::actions::load_project(&directory, session.project_id)
-                .map_err(failed)?
-                .into_iter()
-                .filter(|action| crate::plugins::available(&action.kind, action.config_version))
-                .collect();
+            let directory = app
+                .state::<crate::system::SystemServices>()
+                .paths
+                .config_directory()
+                .map_err(failed)?;
+            let actions: Vec<_> = crate::actions::load_project_with(
+                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &directory,
+                session.project_id,
+            )
+            .map_err(failed)?
+            .into_iter()
+            .filter(|action| crate::plugins::available(&action.kind, action.config_version))
+            .collect();
             json!({"sessionId": session_id, "projectId": session.project_id, "actions": actions})
         }
         Command::TabList { session_id } => {
@@ -385,12 +397,20 @@ pub fn handle(
             config,
         } => {
             let session = session(&snapshot, session_id)?;
-            let directory = crate::control::paths::config_directory().map_err(failed)?;
-            let action = crate::actions::load_project(&directory, session.project_id)
-                .map_err(failed)?
-                .into_iter()
-                .find(|a| a.id == action_id)
-                .ok_or_else(|| RpcError::new("not_found", "Action is unavailable"))?;
+            let directory = app
+                .state::<crate::system::SystemServices>()
+                .paths
+                .config_directory()
+                .map_err(failed)?;
+            let action = crate::actions::load_project_with(
+                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &directory,
+                session.project_id,
+            )
+            .map_err(failed)?
+            .into_iter()
+            .find(|a| a.id == action_id)
+            .ok_or_else(|| RpcError::new("not_found", "Action is unavailable"))?;
             let updated = registry
                 .create_plugin_tab(
                     session_id,
@@ -484,16 +504,35 @@ pub fn handle(
             let project = registry
                 .project(id)
                 .map_err(|_| RpcError::new("not_found", "Project ID is unavailable"))?;
-            let directory = crate::control::paths::config_directory().map_err(failed)?;
-            let yaml = crate::actions::read_project_yaml(&directory, id).map_err(failed)?;
+            let directory = app
+                .state::<crate::system::SystemServices>()
+                .paths
+                .config_directory()
+                .map_err(failed)?;
+            let yaml = crate::actions::read_project_yaml_with(
+                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &directory,
+                id,
+            )
+            .map_err(failed)?;
             json!({"project": project, "yaml": yaml})
         }
         Command::ProjectConfigure { id, yaml } => {
             registry
                 .project(id)
                 .map_err(|_| RpcError::new("not_found", "Project ID is unavailable"))?;
-            let directory = crate::control::paths::config_directory().map_err(failed)?;
-            crate::actions::save_project_yaml(&directory, id, &yaml).map_err(failed)?;
+            let directory = app
+                .state::<crate::system::SystemServices>()
+                .paths
+                .config_directory()
+                .map_err(failed)?;
+            crate::actions::save_project_yaml_with(
+                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &directory,
+                id,
+                &yaml,
+            )
+            .map_err(failed)?;
             changed = true;
             json!({"id": id})
         }

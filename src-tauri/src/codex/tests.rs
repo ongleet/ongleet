@@ -1,12 +1,20 @@
 use super::*;
-fn record(path: &Path, launch: &str, input: impl Read) -> Result<(), String> {
-    super::record_with(path, launch, input, |_| {})
+fn record(
+    _system: &crate::system::SystemServices,
+    path: &Path,
+    launch: &str,
+    input: impl Read,
+) -> Result<(), String> {
+    super::record_with(&crate::system::services(), path, launch, input, |_| {})
 }
 
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let directory = std::env::temp_dir().join(format!("ong-codex-{}", nonce().unwrap()));
+        let directory = std::env::temp_dir().join(format!(
+            "ong-codex-{}",
+            nonce(&crate::system::services(),).unwrap()
+        ));
         fs::create_dir(&directory).unwrap();
         Self(directory)
     }
@@ -29,17 +37,30 @@ fn event(id: &str) -> Vec<u8> {
 fn records_changed_conversations_and_resumes_only_the_matching_tab() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let first = begin(&path, false).unwrap();
+    let first = begin(&crate::system::services(), &path, false).unwrap();
     assert!(first.conversation.is_none());
-    record(&path, &first.launch, event("conversation-a").as_slice()).unwrap();
-    record(&path, &first.launch, event("conversation-b").as_slice()).unwrap();
     record(
+        &crate::system::services(),
+        &path,
+        &first.launch,
+        event("conversation-a").as_slice(),
+    )
+    .unwrap();
+    record(
+        &crate::system::services(),
+        &path,
+        &first.launch,
+        event("conversation-b").as_slice(),
+    )
+    .unwrap();
+    record(
+        &crate::system::services(),
         &path,
         &first.launch,
         br#"{"session_id":"conversation-b","hook_event_name":"UserPromptSubmit"}"#.as_slice(),
     )
     .unwrap();
-    let next = begin(&path, false).unwrap();
+    let next = begin(&crate::system::services(), &path, false).unwrap();
     assert_eq!(next.conversation.as_deref(), Some("conversation-b"));
     let args = codex_args(
         &next,
@@ -50,29 +71,56 @@ fn records_changed_conversations_and_resumes_only_the_matching_tab() {
         .windows(2)
         .any(|pair| pair == ["resume", "conversation-b"]));
     assert_eq!(&args[args.len() - 2..], ["--model", "example"]);
-    assert!(begin(&fixture.0.join("other-tab.json"), false)
+    assert!(begin(
+        &crate::system::services(),
+        &fixture.0.join("other-tab.json"),
+        false
+    )
+    .unwrap()
+    .conversation
+    .is_none());
+    assert!(begin(&crate::system::services(), &path, true)
         .unwrap()
         .conversation
         .is_none());
-    assert!(begin(&path, true).unwrap().conversation.is_none());
 }
 
 #[test]
 fn stale_or_invalid_hooks_cannot_replace_the_saved_conversation() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let old = begin(&path, false).unwrap();
-    let current = begin(&path, false).unwrap();
-    record(&path, &current.launch, event("current").as_slice()).unwrap();
-    record(&path, &old.launch, event("stale").as_slice()).unwrap();
-    assert!(record(&path, &current.launch, event("../bad").as_slice()).is_err());
+    let old = begin(&crate::system::services(), &path, false).unwrap();
+    let current = begin(&crate::system::services(), &path, false).unwrap();
+    record(
+        &crate::system::services(),
+        &path,
+        &current.launch,
+        event("current").as_slice(),
+    )
+    .unwrap();
+    record(
+        &crate::system::services(),
+        &path,
+        &old.launch,
+        event("stale").as_slice(),
+    )
+    .unwrap();
     assert!(record(
+        &crate::system::services(),
+        &path,
+        &current.launch,
+        event("../bad").as_slice()
+    )
+    .is_err());
+    assert!(record(
+        &crate::system::services(),
         &path,
         &current.launch,
         br#"{"session_id":"bad","hook_event_name":"SubagentStart"}"#.as_slice()
     )
     .is_err());
     assert!(record(
+        &crate::system::services(),
         &path,
         &current.launch,
         vec![b'x'; LIMIT as usize + 1].as_slice()
@@ -88,8 +136,9 @@ fn stale_or_invalid_hooks_cannot_replace_the_saved_conversation() {
 fn large_tool_data_is_skipped_while_activity_metadata_is_recorded() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let state = begin(&path, false).unwrap();
+    let state = begin(&crate::system::services(), &path, false).unwrap();
     record(
+        &crate::system::services(),
         &path,
         &state.launch,
         br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","turn_id":"turn"}"#
@@ -106,7 +155,13 @@ fn large_tool_data_is_skipped_while_activity_metadata_is_recorded() {
         "tool_use_id": "approval"
     }))
     .unwrap();
-    record(&path, &state.launch, payload.as_slice()).unwrap();
+    record(
+        &crate::system::services(),
+        &path,
+        &state.launch,
+        payload.as_slice(),
+    )
+    .unwrap();
     let saved = read_state(&path).unwrap();
     assert_eq!(saved.activity, Activity::Approval);
     assert!(saved.pending_approvals.contains("approval"));
@@ -117,7 +172,13 @@ fn large_tool_data_is_skipped_while_activity_metadata_is_recorded() {
         .contains("private-"));
     let mut malformed = payload;
     malformed.extend_from_slice(b" trailing garbage");
-    assert!(record(&path, &state.launch, malformed.as_slice()).is_err());
+    assert!(record(
+        &crate::system::services(),
+        &path,
+        &state.launch,
+        malformed.as_slice()
+    )
+    .is_err());
     assert_eq!(fs::read(&path).unwrap(), mapping);
 }
 
@@ -126,7 +187,7 @@ fn malformed_state_fails_without_resetting_the_file() {
     let fixture = Fixture::new();
     let path = fixture.path();
     fs::write(&path, b"broken").unwrap();
-    assert!(begin(&path, false).is_err());
+    assert!(begin(&crate::system::services(), &path, false).is_err());
     assert_eq!(fs::read(&path).unwrap(), b"broken");
 }
 
@@ -189,9 +250,10 @@ fn activity_tracks_questions_approvals_and_ignores_unrelated_completions() {
 fn permission_hooks_without_call_ids_track_waits_until_the_tool_completes() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let launch = begin(&path, false).unwrap();
+    let launch = begin(&crate::system::services(), &path, false).unwrap();
     let send = |value: serde_json::Value| {
         record(
+            &crate::system::services(),
             &path,
             &launch.launch,
             serde_json::to_vec(&value).unwrap().as_slice(),
@@ -223,17 +285,38 @@ fn permission_hooks_without_call_ids_track_waits_until_the_tool_completes() {
 fn activity_reports_only_current_main_agent_and_keeps_mappings_separate() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let old = begin(&path, false).unwrap();
-    let launch = begin(&path, false).unwrap();
+    let old = begin(&crate::system::services(), &path, false).unwrap();
+    let launch = begin(&crate::system::services(), &path, false).unwrap();
     let notifications = std::cell::Cell::new(0);
     let notify = |_: &str| notifications.set(notifications.get() + 1);
     let input = serde_json::to_vec(&serde_json::json!({"session_id":"conversation", "hook_event_name":"UserPromptSubmit", "turn_id":"turn"})).unwrap();
-    record_with(&path, &old.launch, input.as_slice(), notify).unwrap();
+    record_with(
+        &crate::system::services(),
+        &path,
+        &old.launch,
+        input.as_slice(),
+        notify,
+    )
+    .unwrap();
     assert_eq!(notifications.get(), 0);
     let subagent = br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","agent_id":"child","turn_id":"turn"}"#;
-    record_with(&path, &launch.launch, subagent.as_slice(), notify).unwrap();
+    record_with(
+        &crate::system::services(),
+        &path,
+        &launch.launch,
+        subagent.as_slice(),
+        notify,
+    )
+    .unwrap();
     assert_eq!(notifications.get(), 0);
-    record_with(&path, &launch.launch, input.as_slice(), notify).unwrap();
+    record_with(
+        &crate::system::services(),
+        &path,
+        &launch.launch,
+        input.as_slice(),
+        notify,
+    )
+    .unwrap();
     assert_eq!(notifications.get(), 1);
     assert_eq!(read_state(&path).unwrap().activity, Activity::Working);
     let other = fixture.0.join("codex-sessions/1");
@@ -285,14 +368,14 @@ fn activity_hook_configuration_is_scoped_and_bounded() {
 fn hook_notifications_release_mapping_lock_before_waiting_for_gui() {
     let fixture = Fixture::new();
     let path = fixture.path();
-    let state = begin(&path, false).unwrap();
+    let state = begin(&crate::system::services(), &path, false).unwrap();
     let prompt =
         br#"{"session_id":"conversation","hook_event_name":"UserPromptSubmit","turn_id":"turn"}"#;
-    record_with(&path, &state.launch, prompt.as_slice(), |_| {
+    record_with(&crate::system::services(), &path, &state.launch, prompt.as_slice(), |_| {
         let path = path.clone();
         let launch = state.launch.clone();
         std::thread::spawn(move || {
-            record_with(&path, &launch, br#"{"session_id":"conversation","hook_event_name":"PreToolUse","turn_id":"turn","tool_name":"request_user_input","tool_use_id":"question"}"#.as_slice(), |_| {})
+            record_with(&crate::system::services(), &path, &launch, br#"{"session_id":"conversation","hook_event_name":"PreToolUse","turn_id":"turn","tool_name":"request_user_input","tool_use_id":"question"}"#.as_slice(), |_| {})
         }).join().unwrap().unwrap();
     }).unwrap();
     assert_eq!(read_state(&path).unwrap().activity, Activity::Question);

@@ -64,7 +64,7 @@ fn socket_reader_bounds_bytes_and_wait_time_on_real_unix_streams() {
         time::{Duration, Instant},
     };
     let (mut reader, mut writer) = UnixStream::pair().unwrap();
-    client::verify_peer(&reader).unwrap();
+    crate::system::ControlConnection::verify_owner(&reader).unwrap();
     writer.write_all(b"abcdef").unwrap();
     writer.shutdown(Shutdown::Write).unwrap();
     assert_eq!(

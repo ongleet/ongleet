@@ -173,11 +173,15 @@ pub fn project_path(directory: &Path, id: u64) -> std::path::PathBuf {
         .join("actions.yaml")
 }
 
-pub fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
+pub fn load_project_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+    id: u64,
+) -> Result<Vec<Action>, String> {
     let path = project_path(directory, id);
     let result = (|| {
         if !path.exists() {
-            let seed = read_default_yaml(directory)?;
+            let seed = read_default_yaml_with(files, directory)?;
             parse_project_config(&seed)?;
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             match std::fs::OpenOptions::new()
@@ -201,32 +205,52 @@ pub fn format(config: Config) -> Result<String, String> {
     Ok(yaml)
 }
 
-pub fn read_project_yaml(directory: &Path, id: u64) -> Result<String, String> {
+pub fn read_project_yaml_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+    id: u64,
+) -> Result<String, String> {
     let path = project_path(directory, id);
     if !path.exists() {
-        load_project(directory, id)?;
+        load_project_with(files, directory, id)?;
     }
     // Read existing malformed YAML too, so the editor can repair it.
     read_config(&path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-pub fn save_project_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
-    save_yaml(&project_path(directory, id), text)
+pub fn save_project_yaml_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+    id: u64,
+    text: &str,
+) -> Result<(), String> {
+    save_yaml_with(files, &project_path(directory, id), text)
 }
 
-pub fn read_default_yaml(directory: &Path) -> Result<String, String> {
+pub fn read_default_yaml_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+) -> Result<String, String> {
     let path = directory.join("actions.yaml");
     if !path.try_exists().map_err(|e| e.to_string())? {
-        save_yaml(&path, DEFAULTS)?;
+        save_yaml_with(files, &path, DEFAULTS)?;
     }
     read_config(&path)
 }
 
-pub fn save_default_yaml(directory: &Path, text: &str) -> Result<(), String> {
-    save_yaml(&directory.join("actions.yaml"), text)
+pub fn save_default_yaml_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+    text: &str,
+) -> Result<(), String> {
+    save_yaml_with(files, &directory.join("actions.yaml"), text)
 }
 
-fn save_yaml(path: &Path, text: &str) -> Result<(), String> {
+fn save_yaml_with(
+    files: &dyn crate::system::SystemFiles,
+    path: &Path,
+    text: &str,
+) -> Result<(), String> {
     parse(text)?;
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -236,12 +260,8 @@ fn save_yaml(path: &Path, text: &str) -> Result<(), String> {
         .as_nanos();
     let temporary = parent.join(format!(".actions-{}-{stamp}.tmp", std::process::id()));
     let result = (|| {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)
+        let mut file = files
+            .open_private(&temporary, crate::system::PrivateOpen::New)
             .map_err(|e| e.to_string())?;
         file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
@@ -275,4 +295,30 @@ impl Action {
     pub fn terminal_config(&self) -> TabConfig {
         serde_json::from_value(self.config.clone()).unwrap()
     }
+}
+
+#[cfg(test)]
+pub(crate) fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
+    load_project_with(crate::system::services().files.as_ref(), directory, id)
+}
+#[cfg(test)]
+pub(crate) fn read_project_yaml(directory: &Path, id: u64) -> Result<String, String> {
+    read_project_yaml_with(crate::system::services().files.as_ref(), directory, id)
+}
+#[cfg(test)]
+fn read_default_yaml(directory: &Path) -> Result<String, String> {
+    read_default_yaml_with(crate::system::services().files.as_ref(), directory)
+}
+#[cfg(test)]
+pub(crate) fn save_project_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {
+    save_project_yaml_with(
+        crate::system::services().files.as_ref(),
+        directory,
+        id,
+        text,
+    )
+}
+#[cfg(test)]
+fn save_default_yaml(directory: &Path, text: &str) -> Result<(), String> {
+    save_default_yaml_with(crate::system::services().files.as_ref(), directory, text)
 }

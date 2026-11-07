@@ -1,16 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#[cfg(not(target_os = "linux"))]
-compile_error!("Ongleet currently supports Linux only");
 
 mod actions;
 mod branding;
 mod codex;
-mod containment;
 mod control;
 #[path = "control/dispatch.rs"]
 mod control_dispatch;
 mod core;
 mod diagnostics;
+mod system;
 use crate::core::desktop as desktop_input;
 mod input_diagnostics;
 mod instance;
@@ -27,7 +25,6 @@ use std::sync::{
 use tauri::{Emitter, Manager, State};
 use terminal_session::Status;
 
-#[derive(Default)]
 struct AppRegistry(Arc<Mutex<SessionRegistry>>);
 
 struct Lifecycle {
@@ -56,54 +53,93 @@ impl Default for Lifecycle {
 }
 
 #[tauri::command]
-fn actions(state: State<AppRegistry>, session_id: u64) -> Result<Vec<actions::Action>, String> {
+fn actions(
+    services: State<'_, system::SystemServices>,
+    state: State<AppRegistry>,
+    session_id: u64,
+) -> Result<Vec<actions::Action>, String> {
     let group = state
         .0
         .lock()
         .map_err(|e| e.to_string())?
         .session_project(session_id)?;
-    actions::load_project(&control::paths::config_directory()?, group)
+    actions::load_project_with(
+        services.files.as_ref(),
+        &services.paths.config_directory()?,
+        group,
+    )
 }
 
 #[tauri::command]
-fn project_config(state: State<AppRegistry>, id: u64) -> Result<String, String> {
+fn project_config(
+    services: State<'_, system::SystemServices>,
+    state: State<AppRegistry>,
+    id: u64,
+) -> Result<String, String> {
     state.0.lock().map_err(|e| e.to_string())?.project(id)?;
-    let directory = control::paths::config_directory()?;
-    actions::load_project(&directory, id)?;
+    let directory = services.paths.config_directory()?;
+    actions::load_project_with(services.files.as_ref(), &directory, id)?;
     Ok(actions::project_path(&directory, id)
         .to_string_lossy()
         .into())
 }
 
 #[tauri::command]
-fn project_actions(state: State<AppRegistry>, id: u64) -> Result<String, String> {
+fn project_actions(
+    services: State<'_, system::SystemServices>,
+    state: State<AppRegistry>,
+    id: u64,
+) -> Result<String, String> {
     state.0.lock().map_err(|e| e.to_string())?.project(id)?;
-    actions::read_project_yaml(&control::paths::config_directory()?, id)
+    actions::read_project_yaml_with(
+        services.files.as_ref(),
+        &services.paths.config_directory()?,
+        id,
+    )
 }
 
 #[tauri::command]
-fn save_project_actions(state: State<AppRegistry>, id: u64, yaml: String) -> Result<(), String> {
+fn save_project_actions(
+    services: State<'_, system::SystemServices>,
+    state: State<AppRegistry>,
+    id: u64,
+    yaml: String,
+) -> Result<(), String> {
     let registry = state.0.lock().map_err(|e| e.to_string())?;
     registry.project(id)?;
-    actions::save_project_yaml(&control::paths::config_directory()?, id, &yaml)
+    actions::save_project_yaml_with(
+        services.files.as_ref(),
+        &services.paths.config_directory()?,
+        id,
+        &yaml,
+    )
 }
 
 #[tauri::command]
-fn default_actions() -> Result<String, String> {
-    actions::read_default_yaml(&control::paths::config_directory()?)
+fn default_actions(services: State<'_, system::SystemServices>) -> Result<String, String> {
+    actions::read_default_yaml_with(services.files.as_ref(), &services.paths.config_directory()?)
 }
 
 #[tauri::command]
-fn default_config() -> Result<String, String> {
-    Ok(control::paths::config_directory()?
+fn default_config(services: State<'_, system::SystemServices>) -> Result<String, String> {
+    Ok(services
+        .paths
+        .config_directory()?
         .join("actions.yaml")
         .to_string_lossy()
         .into())
 }
 
 #[tauri::command]
-fn save_default_actions(yaml: String) -> Result<(), String> {
-    actions::save_default_yaml(&control::paths::config_directory()?, &yaml)
+fn save_default_actions(
+    services: State<'_, system::SystemServices>,
+    yaml: String,
+) -> Result<(), String> {
+    actions::save_default_yaml_with(
+        services.files.as_ref(),
+        &services.paths.config_directory()?,
+        &yaml,
+    )
 }
 
 #[tauri::command]
@@ -159,11 +195,12 @@ fn close_project(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String>
 
 #[tauri::command]
 fn create_tab(
+    services: State<'_, system::SystemServices>,
     state: State<AppRegistry>,
     session_id: u64,
     action_id: String,
 ) -> Result<Snapshot, String> {
-    let template = actions(state.clone(), session_id)?
+    let template = actions(services, state.clone(), session_id)?
         .into_iter()
         .find(|t| t.id == action_id)
         .ok_or("Action is unavailable")?;
@@ -201,19 +238,22 @@ fn create_custom_tab(
 
 #[tauri::command]
 async fn run_external_action(
+    services: State<'_, system::SystemServices>,
     app: tauri::AppHandle,
     state: State<'_, AppRegistry>,
     session_id: u64,
     action_id: String,
 ) -> Result<u32, String> {
-    let directory = control::paths::config_directory()?;
+    let directory = services.paths.config_directory()?;
+    let services = services.inner().clone();
     let registry = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let prepared = registry
             .lock()
             .map_err(|e| e.to_string())?
             .prepare_external(session_id, &action_id, &directory)?;
-        actions::external::launch(
+        actions::external::launch_with(
+            &services,
             prepared,
             Arc::new(move |exit| {
                 let _ = app.emit("external-action-exited", exit);
@@ -366,12 +406,13 @@ fn sessions(state: State<AppRegistry>) -> Result<Snapshot, String> {
 
 #[tauri::command]
 fn create_session(
+    services: State<'_, system::SystemServices>,
     state: State<AppRegistry>,
     name: String,
     directory: String,
     project_id: Option<u64>,
 ) -> Result<Snapshot, String> {
-    let directory_config = control::paths::config_directory()?;
+    let directory_config = services.paths.config_directory()?;
     state
         .0
         .lock()
@@ -538,7 +579,10 @@ fn close_after_delay(
         .get_webview_window("main")
         .ok_or("Main window unavailable")?;
     window.state::<window_state::WindowState>().save();
-    window.hide().map_err(|e| e.to_string())?;
+    window
+        .state::<system::SystemServices>()
+        .desktop
+        .hide(&window)?;
     lifecycle.visible.store(false, Ordering::Release);
     lifecycle.cancel_close();
     let generation = lifecycle.close_generation.load(Ordering::Acquire);
@@ -579,49 +623,58 @@ fn close_after_delay(
 }
 
 #[tauri::command]
-fn defaults() -> Result<(String, String), String> {
+fn defaults(services: State<'_, system::SystemServices>) -> Result<(String, String), String> {
     Ok((
         std::env::var("HOME").map_err(|e| e.to_string())?,
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()),
+        services.paths.default_shell(),
     ))
 }
 
 fn main() {
-    if codex::run_if_requested() {
+    let services = system::services();
+    if codex::run_if_requested(&services) {
         return;
     }
-    if containment::run_helper_if_requested() {
+    if system::run_helper_if_requested() {
         return;
     }
-    if let Err(error) = run() {
+    if let Err(error) = run(services) {
         eprintln!("{error}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), String> {
+fn run(services: system::SystemServices) -> Result<(), String> {
     let context = tauri::generate_context!();
-    let directory = instance::data_directory(control::paths::APPLICATION_ID)?;
-    let socket = instance::socket_path(&directory)?;
+    let directory = services
+        .paths
+        .data_directory(control::paths::APPLICATION_ID)?;
+    let socket = services.paths.control_endpoint(&directory)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args == ["--help"] {
         println!("Ongleet\n  (no arguments)  Start or show the application\n  --show          Show a running instance; fail if unavailable\n  --foreground    Keep the GUI attached to the launching terminal\n  --migrate       Migrate config/data and database schema without opening a window");
         return Ok(());
     }
     if args == ["--migrate"] {
-        branding::migrate(&directory, &control::paths::config_directory()?)?;
-        if let Err(error) = tauri::async_runtime::block_on(core::credentials::migrate()) {
+        branding::migrate_with(
+            services.files.as_ref(),
+            &directory,
+            &services.paths.config_directory()?,
+        )?;
+        if let Err(error) = tauri::async_runtime::block_on(core::credentials::migrate_with(
+            services.secrets.as_ref(),
+        )) {
             if error.starts_with("Conflicting") {
                 return Err(error);
             }
             eprintln!("{error}");
         }
-        let _store = storage::MetadataStore::open(&directory)?;
-        branding::migrate_yaml(&control::paths::config_directory()?)?;
-        actions::migrate_projects(&control::paths::config_directory()?)?;
+        let _store = storage::MetadataStore::open_with(&directory, services.files.as_ref())?;
+        branding::migrate_yaml(&services.paths.config_directory()?)?;
+        actions::migrate_projects(&services.paths.config_directory()?)?;
         println!(
             "Ongleet config: {}\nOngleet database: {}",
-            control::paths::config_directory()?.display(),
+            services.paths.config_directory()?.display(),
             directory.join("workspaces.sqlite3").display()
         );
         return Ok(());
@@ -629,28 +682,37 @@ fn run() -> Result<(), String> {
     if !args.is_empty() && args != ["--show"] && args != ["--foreground"] {
         return Err("Unknown arguments; use --help".into());
     }
-    if instance::show(&socket).is_ok() {
+    if instance::show(services.transport.as_ref(), &socket).is_ok() {
         return Ok(());
     }
     if args == ["--show"] {
         return Err("Application unavailable; --show never starts it".into());
     }
-    if args != ["--foreground"] && !tauri::is_dev() && instance::detach_terminal_launch(&socket)? {
+    if args != ["--foreground"]
+        && !tauri::is_dev()
+        && instance::detach_terminal_launch(&services, &socket)?
+    {
         return Ok(());
     }
-    branding::migrate(&directory, &control::paths::config_directory()?)?;
-    if let Err(error) = tauri::async_runtime::block_on(core::credentials::migrate()) {
+    branding::migrate_with(
+        services.files.as_ref(),
+        &directory,
+        &services.paths.config_directory()?,
+    )?;
+    if let Err(error) =
+        tauri::async_runtime::block_on(core::credentials::migrate_with(services.secrets.as_ref()))
+    {
         if error.starts_with("Conflicting") {
             return Err(error);
         }
         eprintln!("{error}");
     }
-    let registry = match SessionRegistry::open(&directory) {
+    let registry = match SessionRegistry::open_with(&directory, services.clone()) {
         Ok(registry) => registry,
         Err(error) => {
             // A simultaneous launch may own the lock before its socket is ready.
             for _ in 0..40 {
-                if instance::show(&socket).is_ok() {
+                if instance::show(services.transport.as_ref(), &socket).is_ok() {
                     return Ok(());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(25));
@@ -658,16 +720,18 @@ fn run() -> Result<(), String> {
             return Err(error);
         }
     };
-    if let Err(error) = diagnostics::init(&directory) {
+    if let Err(error) =
+        diagnostics::init(services.files.clone(), services.paths.as_ref(), &directory)
+    {
         eprintln!("Could not initialize diagnostic log: {error}");
     }
-    branding::migrate_yaml(&control::paths::config_directory()?)?;
-    actions::migrate_projects(&control::paths::config_directory()?)?;
+    branding::migrate_yaml(&services.paths.config_directory()?)?;
+    actions::migrate_projects(&services.paths.config_directory()?)?;
     // GTK's fallback Wayland app ID must match the installed desktop filename.
     // Keep the GTK application non-unique so isolated XDG instances still work.
-    gtk::glib::set_prgname(Some("Ongleet"));
-    gtk::glib::set_application_name("Ongleet");
+    services.desktop.initialize();
     tauri::Builder::default()
+        .manage(services.clone())
         .manage(AppRegistry(Arc::new(Mutex::new(registry))))
         .manage(Lifecycle::default())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -680,10 +744,14 @@ fn run() -> Result<(), String> {
                 .0
                 .lock()
                 .map_err(|e| std::io::Error::other(e.to_string()))?
-                .set_actions_directory(control::paths::config_directory()?);
+                .set_actions_directory(services.paths.config_directory()?);
             app.manage(
-                instance::Instance::start(socket, app.handle().clone())
-                    .map_err(std::io::Error::other)?,
+                instance::Instance::start(
+                    services.transport.as_ref(),
+                    socket,
+                    app.handle().clone(),
+                )
+                .map_err(std::io::Error::other)?,
             );
             Ok(())
         })

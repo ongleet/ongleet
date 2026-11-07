@@ -72,14 +72,18 @@ impl SessionRegistry {
             serde_json::from_value(tab.config.clone()).map_err(|e| e.to_string())?;
         let (mut executable, mut args) = if let Some(command) = &config.shell_command {
             (
-                Some(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())),
+                Some(self.system.paths.default_shell()),
                 vec!["-lc".into(), command.clone()],
             )
         } else {
             (config.executable.clone(), config.args.clone())
         };
         let mut env = if let Some(directory) = &self.actions_directory {
-            let yaml = crate::actions::read_project_yaml(directory, session.project_id)?;
+            let yaml = crate::actions::read_project_yaml_with(
+                self.system.files.as_ref(),
+                directory,
+                session.project_id,
+            )?;
             crate::actions::parse_project_config(&yaml)?.env
         } else {
             std::collections::BTreeMap::new()
@@ -98,7 +102,9 @@ impl SessionRegistry {
                 .as_ref()
                 .ok_or("Codex resume requires persisted application data")?;
             executable = Some(
-                crate::containment::executable()?
+                self.system
+                    .paths
+                    .executable()?
                     .to_string_lossy()
                     .into_owned(),
             );
@@ -109,7 +115,9 @@ impl SessionRegistry {
             );
             env.insert(
                 "ONGLEET_CODEX_HOOK_EXE".into(),
-                crate::containment::executable()?
+                self.system
+                    .paths
+                    .executable()?
                     .to_string_lossy()
                     .into_owned(),
             );
@@ -132,7 +140,13 @@ impl SessionRegistry {
         } else {
             String::new()
         };
-        let mut session = match TerminalSession::spawn(id, launch, output) {
+        let mut session = match TerminalSession::spawn_with(
+            self.system.terminal.as_ref(),
+            self.system.paths.as_ref(),
+            id,
+            launch,
+            output,
+        ) {
             Ok(session) => session,
             Err(error) => {
                 // A failed spawn is not an explicit stop. Record this start

@@ -1,18 +1,17 @@
 //! Bounded, opt-in breadcrumbs for native crashes. Never log request bodies or URLs.
 use std::{
-    fs::{File, OpenOptions},
+    fs::File,
     io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
-use webkit2gtk::WebViewExt;
 
 const LIMIT: u64 = 4 * 1024 * 1024;
 static LOG: OnceLock<Mutex<Log>> = OnceLock::new();
 struct Log {
+    files: std::sync::Arc<dyn crate::system::SystemFiles>,
     file: File,
     path: PathBuf,
     bytes: u64,
@@ -23,14 +22,19 @@ pub fn enabled() -> bool {
     std::env::var_os("ONGLEET_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
-pub fn init(directory: &Path) -> std::io::Result<()> {
+pub fn init(
+    files: std::sync::Arc<dyn crate::system::SystemFiles>,
+    paths: &dyn crate::system::SystemPaths,
+    directory: &Path,
+) -> std::io::Result<()> {
     if !enabled() {
         return Ok(());
     }
     let path = directory.join("debug.log");
     rotate(&path)?;
-    let file = open(&path)?;
+    let file = open(files.as_ref(), &path)?;
     let _ = LOG.set(Mutex::new(Log {
+        files,
         file,
         path: path.clone(),
         bytes: 0,
@@ -41,7 +45,7 @@ pub fn init(directory: &Path) -> std::io::Result<()> {
         "startup version={} pid={} executable={:?}",
         env!("CARGO_PKG_VERSION"),
         std::process::id(),
-        std::env::current_exe().ok()
+        paths.application_executable().ok()
     ));
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -59,14 +63,8 @@ fn rotate(path: &Path) -> std::io::Result<()> {
     }
 }
 
-fn open(path: &Path) -> std::io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)
+fn open(files: &dyn crate::system::SystemFiles, path: &Path) -> std::io::Result<File> {
+    files.open_private(path, crate::system::PrivateOpen::Diagnostic)
 }
 
 pub fn record(message: std::fmt::Arguments<'_>) {
@@ -90,7 +88,9 @@ impl Log {
             if rotate(&self.path).is_err() {
                 return;
             }
-            let Ok(file) = open(&self.path) else { return };
+            let Ok(file) = open(self.files.as_ref(), &self.path) else {
+                return;
+            };
             self.file = file;
             self.bytes = 0;
         }
@@ -105,40 +105,10 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
     if !enabled() {
         return Ok(());
     }
-    for (_, window) in app.webview_windows() {
-        window.with_webview(|platform| {
-            let webview = platform.inner();
-            webview.connect_load_changed(|_, event| record(format_args!("webview load={event:?}")));
-            webview.connect_load_failed(|_, event, _, error| {
-                record(format_args!(
-                    "webview load_failed stage={event:?} domain={:?}",
-                    error.domain()
-                ));
-                false
-            });
-            webview.connect_web_process_terminated(|_, reason| {
-                record(format_args!("webview process_terminated reason={reason:?}"))
-            });
-            webview.connect_resource_load_started(|_, _, _| {
-                record(format_args!("webview resource_started"))
-            });
-        })?;
-    }
-    let mut ticks = 0u64;
-    gtk::glib::timeout_add_seconds_local(30, move || {
-        ticks += 1;
-        // Only selected process counters, never environment or terminal contents.
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            for line in status
-                .lines()
-                .filter(|line| line.starts_with("VmRSS:") || line.starts_with("Threads:"))
-            {
-                record(format_args!("heartbeat tick={ticks} {line}"));
-            }
-        }
-        gtk::glib::ControlFlow::Continue
-    });
-    record(format_args!("native diagnostics installed"));
+    app.state::<crate::system::SystemServices>()
+        .desktop
+        .install_diagnostics(app, std::sync::Arc::new(record_native))
+        .map_err(std::io::Error::other)?;
     Ok(())
 }
 
@@ -181,7 +151,8 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join("debug.log");
         let mut log = Log {
-            file: open(&path).unwrap(),
+            files: crate::system::services().files,
+            file: open(crate::system::services().files.as_ref(), &path).unwrap(),
             path: path.clone(),
             bytes: 0,
             started: Instant::now(),
@@ -203,11 +174,29 @@ mod tests {
             .ends_with("last breadcrumb\n"));
         // Restart preserves the final breadcrumbs from the preceding run.
         rotate(&path).unwrap();
-        drop(open(&path).unwrap());
+        drop(open(crate::system::services().files.as_ref(), &path).unwrap());
         assert!(std::fs::read_to_string(&backup)
             .unwrap()
             .ends_with("last breadcrumb\n"));
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
         std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+fn record_native(event: crate::system::NativeDiagnostic) {
+    use crate::system::NativeDiagnostic;
+    match event {
+        NativeDiagnostic::Load(event) => record(format_args!("webview load={event}")),
+        NativeDiagnostic::LoadFailed { stage, domain } => record(format_args!(
+            "webview load_failed stage={stage} domain={domain}"
+        )),
+        NativeDiagnostic::Terminated(reason) => {
+            record(format_args!("webview process_terminated reason={reason}"))
+        }
+        NativeDiagnostic::ResourceStarted => record(format_args!("webview resource_started")),
+        NativeDiagnostic::Heartbeat { tick, counter } => {
+            record(format_args!("heartbeat tick={tick} {counter}"))
+        }
+        NativeDiagnostic::Installed => record(format_args!("native diagnostics installed")),
     }
 }

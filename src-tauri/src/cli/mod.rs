@@ -5,7 +5,6 @@ use crate::control::{
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    process::{Command as ProcessCommand, Stdio},
     time::{Duration, Instant},
 };
 
@@ -424,15 +423,23 @@ fn parse_with_context(
     Ok(Invocation::Request(command))
 }
 
-fn execute(invocation: Invocation) -> Result<Response, RpcError> {
-    let data = paths::data_directory(paths::APPLICATION_ID)
+fn execute(
+    system: &crate::system::SystemServices,
+    invocation: Invocation,
+) -> Result<Response, RpcError> {
+    let data = system
+        .paths
+        .data_directory(paths::APPLICATION_ID)
         .map_err(|e| RpcError::new("unavailable", e))?;
-    let socket = paths::socket_path(&data).map_err(|e| RpcError::new("permission_denied", e))?;
+    let socket = system
+        .paths
+        .control_endpoint(&data)
+        .map_err(|e| RpcError::new("permission_denied", e))?;
     match invocation {
         Invocation::Help(_) => unreachable!(),
-        Invocation::Request(command) => client::call(&socket, command),
+        Invocation::Request(command) => client::call(system.transport.as_ref(), &socket, command),
         Invocation::Start(executable) => {
-            match client::call(&socket, Command::Status) {
+            match client::call(system.transport.as_ref(), &socket, Command::Status) {
                 Ok(response) => return Ok(response),
                 Err(error) if error.code == "unavailable" => {}
                 Err(error) => return Err(error),
@@ -440,33 +447,27 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
             let executable = if let Some(path) = executable {
                 path
             } else {
-                std::env::current_exe()
-                    .map_err(|e| RpcError::new("operation_failed", e.to_string()))?
-                    .parent()
-                    .unwrap()
-                    .join("ongleet-gui")
+                system
+                    .paths
+                    .sibling_executable("ongleet-gui")
+                    .map_err(|e| RpcError::new("operation_failed", e))?
             };
-            let mut command = ProcessCommand::new(executable);
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            // Detach only the explicitly requested GUI application, not a daemon.
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() < 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
-            let mut child = command.spawn().map_err(|e| {
-                RpcError::new("operation_failed", format!("Cannot start application: {e}"))
-            })?;
+            let mut child = system
+                .processes
+                .spawn(
+                    crate::system::ProcessLaunch {
+                        executable,
+                        ..Default::default()
+                    },
+                    crate::system::ProcessMode::Detached,
+                )
+                .map_err(|e| {
+                    RpcError::new("operation_failed", format!("Cannot start application: {e}"))
+                })?
+                .child;
             let deadline = Instant::now() + Duration::from_secs(15);
             loop {
-                match client::call(&socket, Command::Status) {
+                match client::call(system.transport.as_ref(), &socket, Command::Status) {
                     Ok(response) => return Ok(response),
                     Err(error) if error.code == "unavailable" => {}
                     Err(error) => return Err(error),
@@ -486,7 +487,7 @@ fn execute(invocation: Invocation) -> Result<Response, RpcError> {
     }
 }
 
-pub fn run() -> i32 {
+pub fn run(system: &crate::system::SystemServices) -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let json = args.iter().any(|arg| arg == "--json");
     let invocation = match parse(args) {
@@ -497,7 +498,7 @@ pub fn run() -> i32 {
         print!("{text}");
         return 0;
     }
-    match execute(invocation) {
+    match execute(system, invocation) {
         Ok(response) if response.ok => {
             println!("{}", output::success(&response, json));
             0

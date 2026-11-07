@@ -53,7 +53,7 @@ through authenticated gh CLI is supported.
 ## Code map
 
 - Frontend: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.
-- Terminal: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/render-visibility.ts`; Rust `terminal_session.rs`, `containment.rs`.
+- Terminal: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/render-visibility.ts`; Rust `terminal_session.rs`, `system/linux/terminal.rs`, `system/linux/containment.rs`.
 - Backend: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.
 - Lifecycle/CLI: Rust `main.rs`, `instance.rs`, `control/`, `cli/`, `bin/`; Codex wrapper: `codex.rs`, `bin/ong-codex.rs`.
 - Validation: `docs/VALIDATION.md`, `scripts/check-*.py`, `scripts/check-*.mjs`, `scripts/terminal-probe.py`.

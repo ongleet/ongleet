@@ -1,9 +1,6 @@
 //! Bounded UTF-8 editing with optimistic conflict detection and atomic replacement.
 use serde::Serialize;
-use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -24,12 +21,11 @@ pub struct Document {
     pub bom: bool,
 }
 
-fn read(path: &Path) -> Result<(Vec<u8>, std::fs::Metadata), String> {
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
-        .open(path)
-        .map_err(|e| e.to_string())?;
+fn read(
+    files: &dyn crate::system::SystemFiles,
+    path: &Path,
+) -> Result<(Vec<u8>, std::fs::Metadata), String> {
+    let file = files.open_editor(path).map_err(|e| e.to_string())?;
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() {
         return Err("Only regular files can be edited".into());
@@ -46,22 +42,8 @@ fn read(path: &Path) -> Result<(Vec<u8>, std::fs::Metadata), String> {
     }
     Ok((bytes, metadata))
 }
-fn revision(bytes: &[u8], metadata: &std::fs::Metadata) -> String {
-    let mut hash = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hash);
-    (
-        metadata.dev(),
-        metadata.ino(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.mode(),
-        metadata.uid(),
-        metadata.gid(),
-    )
-        .hash(&mut hash);
-    format!("{:016x}", hash.finish())
-}
 fn document(
+    files: &dyn crate::system::SystemFiles,
     path: &Path,
     bytes: &[u8],
     metadata: &std::fs::Metadata,
@@ -89,21 +71,29 @@ fn document(
     Ok(Some(Document {
         path: path.to_str().ok_or("File path is not UTF-8")?.into(),
         text: text.replace("\r\n", "\n"),
-        revision: revision(bytes, metadata),
+        revision: files.revision(bytes, metadata),
         line_ending: line_ending.into(),
         bom,
     }))
 }
-pub fn load(path: &str) -> Result<Option<Document>, String> {
+pub fn load_with(
+    files: &dyn crate::system::SystemFiles,
+    path: &str,
+) -> Result<Option<Document>, String> {
     let _guard = EDIT_LOCK.lock().map_err(|e| e.to_string())?;
     if !Path::new(path).is_absolute() {
         return Err("Choose an absolute file path".into());
     }
     let path = std::fs::canonicalize(path).map_err(|e| e.to_string())?;
-    let (bytes, metadata) = read(&path)?;
-    document(&path, &bytes, &metadata)
+    let (bytes, metadata) = read(files, &path)?;
+    document(files, &path, &bytes, &metadata)
 }
-pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document, String> {
+pub fn save_with(
+    files: &dyn crate::system::SystemFiles,
+    path: &str,
+    text: &str,
+    expected_revision: &str,
+) -> Result<Document, String> {
     let _guard = EDIT_LOCK.lock().map_err(|e| e.to_string())?;
     let path = Path::new(path);
     if !path.is_absolute() {
@@ -112,19 +102,16 @@ pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document,
     if text.len() > LIMIT {
         return Err("Text editor limit is 1 MiB".into());
     }
-    let (bytes, metadata) = read(path)?;
-    if revision(&bytes, &metadata) != expected_revision {
+    let (bytes, metadata) = read(files, path)?;
+    if files.revision(&bytes, &metadata) != expected_revision {
         return Err(
             "File changed on disk. Reload it before saving; your edits have been kept.".into(),
         );
     }
-    if metadata.uid() != unsafe { libc::geteuid() }
-        || metadata.nlink() != 1
-        || metadata.mode() & 0o222 == 0
-    {
+    if !files.editable(&metadata) {
         return Err("Saving requires a writable file owned by you with a single hard link".into());
     }
-    let original = document(path, &bytes, &metadata)?.ok_or("File is not UTF-8 text")?;
+    let original = document(files, path, &bytes, &metadata)?.ok_or("File is not UTF-8 text")?;
     let mut output = if original.bom {
         "\u{feff}".to_owned()
     } else {
@@ -139,7 +126,7 @@ pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document,
         return Err("Text editor limit is 1 MiB".into());
     }
     // Validate input before writing (including unsupported control characters).
-    document(path, output.as_bytes(), &metadata)?.ok_or("Content is not supported text")?;
+    document(files, path, output.as_bytes(), &metadata)?.ok_or("Content is not supported text")?;
     let parent = path.parent().ok_or("File has no parent directory")?;
     let temporary = parent.join(format!(
         ".ongleet-edit-{}-{}",
@@ -148,34 +135,22 @@ pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document,
     ));
     let mut created = false;
     let result = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)
+        let mut file = files
+            .open_private(&temporary, crate::system::PrivateOpen::New)
             .map_err(|e| e.to_string())?;
         created = true;
         file.write_all(output.as_bytes())
             .map_err(|e| e.to_string())?;
-        if file.metadata().map_err(|e| e.to_string())?.gid() != metadata.gid()
-            && unsafe { libc::fchown(file.as_raw_fd(), !0, metadata.gid()) } != 0
-        {
-            return Err(format!(
-                "Cannot preserve file group: {}",
-                std::io::Error::last_os_error()
-            ));
-        }
-        // Preserve ordinary access permissions; do not create a privileged executable.
-        file.set_permissions(std::fs::Permissions::from_mode(metadata.mode() & 0o777))
-            .map_err(|e| e.to_string())?;
+        files.preserve_attributes(&file, &metadata)?;
         file.sync_all().map_err(|e| e.to_string())?;
-        let (current, current_metadata) = read(path)?;
-        if revision(&current, &current_metadata) != expected_revision {
+        let (current, current_metadata) = read(files, path)?;
+        if files.revision(&current, &current_metadata) != expected_revision {
             return Err("File changed on disk while saving; your edits have been kept".into());
         }
         std::fs::rename(&temporary, path).map_err(|e| e.to_string())?;
         let metadata = file.metadata().map_err(|e| e.to_string())?;
-        document(path, output.as_bytes(), &metadata)?.ok_or("Content is not supported text".into())
+        document(files, path, output.as_bytes(), &metadata)?
+            .ok_or("Content is not supported text".into())
     })();
     if created {
         let _ = std::fs::remove_file(&temporary);
@@ -186,6 +161,7 @@ pub fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     #[test]
     fn save_rejects_read_only_hardlinked_and_retargeted_files_without_modification() {
         let root =
@@ -238,4 +214,18 @@ mod tests {
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[cfg(test)]
+fn load(path: &str) -> Result<Option<Document>, String> {
+    load_with(crate::system::services().files.as_ref(), path)
+}
+#[cfg(test)]
+fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document, String> {
+    save_with(
+        crate::system::services().files.as_ref(),
+        path,
+        text,
+        expected_revision,
+    )
 }

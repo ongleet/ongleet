@@ -1,17 +1,19 @@
 #[path = "../codex.rs"]
 #[allow(dead_code)]
 mod codex;
-#[path = "../containment.rs"]
 #[allow(dead_code)]
-mod containment;
+#[path = "../system/mod.rs"]
+mod system;
+
 #[allow(dead_code)]
 #[path = "../control/mod.rs"]
 mod control;
 fn main() {
-    if codex::run_if_requested() {
+    let services = system::services();
+    if codex::run_if_requested(&services) {
         return;
     }
-    if !containment::run_helper_if_requested() {
+    if !system::run_helper_if_requested() {
         std::process::exit(2);
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::time::Instant;
 use tauri::ipc::InvokeResponseBody;
 
@@ -286,7 +287,7 @@ fn detached_descendants_die_and_resources_release_without_status_polling() {
     let mut session = TerminalSession::spawn(30, launch(
             "import os,time\nif os.fork()==0:\n os.setsid()\n if os.fork()==0:\n  print(os.getpid(),flush=True); time.sleep(60)\n os._exit(0)\ntime.sleep(.2); os._exit(9)"
         ), output).unwrap();
-    let group = session.containment.directory().to_owned();
+    let group = session.control.group_directory();
     let bytes = drain(&session, &receive);
     let pid = String::from_utf8(bytes).unwrap().trim().parse().unwrap();
     let (lock, notify) = &*session.resources;
@@ -295,7 +296,7 @@ fn detached_descendants_die_and_resources_release_without_status_polling() {
         .wait_timeout_while(resources, Duration::from_secs(5), |r| !r.completed)
         .unwrap();
     assert!(resources.completed);
-    assert!(resources.master.is_none() && resources.input.is_none());
+    assert!(session.control.released() && resources.input.is_none());
     assert!(matches!(resources.status, Status::Exited { code: 9 }));
     drop(resources);
     assert_dead(pid);
@@ -417,7 +418,7 @@ fn crash_owner_fixture() {
             panic!("Missing PID")
         };
         state.push((
-            session.containment.directory().to_owned(),
+            session.control.group_directory(),
             String::from_utf8(bytes)
                 .unwrap()
                 .trim()
@@ -428,7 +429,7 @@ fn crash_owner_fixture() {
     }
     std::fs::write(
         &path,
-        serde_json::to_vec(&(state, crate::containment::watchdog_pid())).unwrap(),
+        serde_json::to_vec(&(state, crate::system::watchdog_pid())).unwrap(),
     )
     .unwrap();
     loop {
@@ -561,7 +562,7 @@ fn concurrent_terminals_share_one_watchdog_and_close_independently() {
             .map(|t| t.join().unwrap())
             .collect::<Vec<_>>()
     });
-    let watchdog = crate::containment::watchdog_pid();
+    let watchdog = crate::system::watchdog_pid();
     let mut watchdogs = std::collections::HashSet::new();
     for task in std::fs::read_dir("/proc/self/task").unwrap().flatten() {
         let Ok(children) = std::fs::read_to_string(task.path().join("children")) else {
@@ -582,13 +583,8 @@ fn concurrent_terminals_share_one_watchdog_and_close_independently() {
     assert_eq!(watchdogs, std::collections::HashSet::from([watchdog]));
     let watchdog_group = std::fs::read_to_string(format!("/proc/{watchdog}/cgroup")).unwrap();
     for (session, pid) in &terminals {
-        let group_name = session
-            .containment
-            .directory()
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap();
+        let group = session.control.group_directory();
+        let group_name = group.file_name().unwrap().to_str().unwrap();
         assert!(std::fs::read_to_string(format!("/proc/{pid}/cgroup"))
             .unwrap()
             .contains(group_name));
@@ -703,37 +699,6 @@ fn close_wakes_idle_reader_without_output_or_input() {
     assert!(receive.recv_timeout(Duration::from_millis(100)).is_err());
     session.close().unwrap();
     assert!(session.resources.0.lock().unwrap().completed);
-}
-
-#[test]
-fn io_cancellation_wakes_all_waiters_and_remains_signalled() {
-    use std::os::unix::net::UnixStream;
-    let (socket, _peer) = UnixStream::pair().unwrap();
-    let file = std::fs::File::from(std::os::fd::OwnedFd::from(socket));
-    let cancel = Arc::new(IoCancel::new().unwrap());
-    let (done, receive) = mpsc::channel();
-    let mut workers = Vec::new();
-    for _ in 0..2 {
-        let file = file.try_clone().unwrap();
-        let cancel = cancel.clone();
-        let done = done.clone();
-        workers.push(std::thread::spawn(move || {
-            done.send(cancel.wait_io(&file, libc::POLLIN)).unwrap();
-        }));
-    }
-    assert!(receive.recv_timeout(Duration::from_millis(100)).is_err());
-    cancel.cancel();
-    cancel.cancel();
-    for _ in 0..2 {
-        assert!(!receive
-            .recv_timeout(Duration::from_secs(2))
-            .unwrap()
-            .unwrap());
-    }
-    for worker in workers {
-        worker.join().unwrap();
-    }
-    assert!(!cancel.wait_io(&file, libc::POLLIN).unwrap());
 }
 
 #[test]

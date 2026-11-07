@@ -1,7 +1,5 @@
-use gio::prelude::*;
-use gtk::{gdk, gio};
 use serde::Serialize;
-use std::{sync::mpsc, time::Duration};
+use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(tag = "kind", content = "text", rename_all = "camelCase")]
@@ -17,49 +15,17 @@ pub async fn terminal_clipboard(
     app: tauri::AppHandle,
     primary: Option<bool>,
 ) -> Result<Paste, String> {
-    let (send, receive) = mpsc::sync_channel(1);
-    app.run_on_main_thread(move || {
-        let clipboard = gtk::Clipboard::get(if primary.unwrap_or(false) {
-            &gdk::SELECTION_PRIMARY
-        } else {
-            &gdk::SELECTION_CLIPBOARD
-        });
-        if primary.unwrap_or(false) {
-            clipboard.request_text(move |_, text| {
-                let _ = send.send(clipboard_text(text.as_deref().unwrap_or_default()));
-            });
-            return;
-        }
-        clipboard.request_uris(move |clipboard, uris| {
-            if !uris.is_empty() {
-                let result = file_paths(uris.iter().map(|uri| uri.as_str())).map(Paste::Text);
-                let _ = send.send(result);
-                return;
-            }
-            clipboard.request_contents(&gdk::Atom::intern("TARGETS"), move |clipboard, data| {
-                let image = data
-                    .targets()
-                    .unwrap_or_default()
-                    .iter()
-                    .any(|target| target.name().starts_with("image/"));
-                if image {
-                    let _ = send.send(Ok(Paste::Image));
-                } else {
-                    clipboard.request_text(move |_, text| {
-                        let _ = send.send(clipboard_text(text.as_deref().unwrap_or_default()));
-                    });
-                }
-            });
-        });
-    })
-    .map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        receive
-            .recv_timeout(Duration::from_secs(3))
-            .map_err(|_| "Clipboard request timed out".to_string())?
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    use crate::system::ClipboardContent;
+    match app
+        .state::<crate::system::SystemServices>()
+        .desktop
+        .clipboard(app.clone(), primary.unwrap_or(false))
+        .await?
+    {
+        ClipboardContent::Text(text) => clipboard_text(&text),
+        ClipboardContent::Image => Ok(Paste::Image),
+        ClipboardContent::Files(paths) => quote_paths(paths.into_iter()).map(Paste::Text),
+    }
 }
 
 fn clipboard_text(text: &str) -> Result<Paste, String> {
@@ -75,31 +41,19 @@ pub async fn write_primary_selection(app: tauri::AppHandle, text: String) -> Res
     if text.len() > 65500 {
         return Err("Primary selection exceeds the terminal input limit".into());
     }
-    let (send, receive) = mpsc::sync_channel(1);
-    app.run_on_main_thread(move || {
-        gtk::Clipboard::get(&gdk::SELECTION_PRIMARY).set_text(&text);
-        let _ = send.send(());
-    })
-    .map_err(|error| error.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || {
-        receive
-            .recv_timeout(Duration::from_secs(3))
-            .map_err(|_| "Primary selection request timed out".to_string())
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    app.state::<crate::system::SystemServices>()
+        .desktop
+        .write_primary(app.clone(), text)
+        .await
 }
 
-fn file_paths<'a>(uris: impl Iterator<Item = &'a str>) -> Result<String, String> {
-    let mut paths = Vec::new();
+fn quote_paths(paths: impl Iterator<Item = std::path::PathBuf>) -> Result<String, String> {
+    let mut quoted_paths = Vec::new();
     let mut length = 0;
-    for uri in uris {
-        if paths.len() >= 32 || !uri.starts_with("file://") {
+    for path in paths {
+        if quoted_paths.len() >= 32 {
             return Err("Paste supports at most 32 local files".into());
         }
-        let path = gio::File::for_uri(uri)
-            .path()
-            .ok_or("Clipboard file is not local")?;
         let path = path.to_str().ok_or("Clipboard path is not valid UTF-8")?;
         if path.chars().any(char::is_control) {
             return Err("Clipboard path contains control characters".into());
@@ -109,13 +63,13 @@ fn file_paths<'a>(uris: impl Iterator<Item = &'a str>) -> Result<String, String>
         if length > 65500 {
             return Err("Clipboard paths exceed the terminal input limit".into());
         }
-        paths.push(quoted);
+        quoted_paths.push(quoted);
     }
-    Ok(paths.join(" "))
+    Ok(quoted_paths.join(" "))
 }
 
 #[tauri::command]
-pub async fn open_terminal_link(uri: String) -> Result<(), String> {
+pub async fn open_terminal_link(app: tauri::AppHandle, uri: String) -> Result<(), String> {
     if uri.len() > 8192 || uri.chars().any(char::is_control) {
         return Err("Invalid terminal link".into());
     }
@@ -123,18 +77,19 @@ pub async fn open_terminal_link(uri: String) -> Result<(), String> {
         return Err("Only HTTP(S) and local file links are supported".into());
     }
     if uri.starts_with("file://") {
-        let file = gio::File::for_uri(&uri);
-        let path = file.path().ok_or("File link is not local")?;
+        let path = app
+            .state::<crate::system::SystemServices>()
+            .desktop
+            .local_file(&uri)
+            .ok_or("File link is not local")?;
         if !path.exists() {
             return Err("Linked file does not exist".into());
         }
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>)
-            .map_err(|error| format!("Cannot open terminal link: {error}"))
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    app.state::<crate::system::SystemServices>()
+        .desktop
+        .open_uri(uri)
+        .await
 }
 
 #[cfg(test)]
@@ -151,4 +106,21 @@ mod tests {
         assert!(file_paths(["file:///tmp/bad%0Apath"].into_iter()).is_err());
         assert!(file_paths(std::iter::repeat_n("file:///tmp/image.png", 33)).is_err());
     }
+}
+
+#[cfg(test)]
+fn file_paths<'a>(uris: impl Iterator<Item = &'a str>) -> Result<String, String> {
+    let system = crate::system::services();
+    let paths = uris
+        .map(|uri| {
+            if !uri.starts_with("file://") {
+                return Err("Paste supports at most 32 local files".to_string());
+            }
+            system
+                .desktop
+                .local_file(uri)
+                .ok_or_else(|| "Clipboard file is not local".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    quote_paths(paths.into_iter())
 }

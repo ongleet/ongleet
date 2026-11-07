@@ -1,39 +1,39 @@
-use gtk::{gdk, glib, prelude::*};
-use std::time::Instant;
 use tauri::Manager;
-
-/// Opt-in native diagnostics; key values can reveal typed input.
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
-    if std::env::var_os("ONGLEET_DEBUG").as_deref() != Some(std::ffi::OsStr::new("1")) {
+    if !crate::diagnostics::enabled() {
         return Ok(());
     }
-    let started = Instant::now();
-    for (label, window) in app.webview_windows() {
-        let native = window.gtk_window()?;
-        eprintln!(
-            "[native-input] enabled window={label:?} active={} visible={}",
-            native.is_active(),
-            native.is_visible()
-        );
-        // GTK's generic event signal precedes the specific key signals used by Tao.
-        native.connect_event(move |window, event| {
-            if let Some(key) = event.downcast_ref::<gdk::EventKey>() {
-                eprintln!(
-                    "[native-input] elapsed_ms={} window={label:?} event={:?} active={} focused={} visible={} gdk_time={} hardware_code={} keyval={:?} group={} modifiers={:?} send_event={}",
-                    started.elapsed().as_millis(), event.event_type(),
-                    window.is_active(), window.has_toplevel_focus(), window.is_visible(),
-                    key.time(), key.hardware_keycode(), key.keyval(), key.group(),
-                    key.state(), event.is_send_event(),
-                );
-            } else if matches!(event.event_type(), gdk::EventType::FocusChange) {
-                eprintln!(
-                    "[native-input] elapsed_ms={} window={label:?} event=focus active={} focused={} visible={} send_event={}",
-                    started.elapsed().as_millis(), window.is_active(),
-                    window.has_toplevel_focus(), window.is_visible(), event.is_send_event(),
-                );
-            }
-            glib::Propagation::Proceed
-        });
-    }
+    app.state::<crate::system::SystemServices>()
+        .desktop
+        .install_input_diagnostics(app, std::sync::Arc::new(record))
+        .map_err(std::io::Error::other)?;
     Ok(())
+}
+
+fn record(event: crate::system::NativeInputDiagnostic) {
+    use crate::system::NativeInputDiagnostic;
+    match event {
+        NativeInputDiagnostic::Enabled {
+            label,
+            active,
+            visible,
+        } => eprintln!("[native-input] enabled window={label:?} active={active} visible={visible}"),
+        NativeInputDiagnostic::Event(event) => {
+            let crate::system::NativeInputEvent {
+                elapsed_ms,
+                label,
+                event,
+                active,
+                focused,
+                visible,
+                send_event,
+                key,
+            } = event;
+            if let Some(key) = key {
+                eprintln!("[native-input] elapsed_ms={elapsed_ms} window={label:?} event={event} active={active} focused={focused} visible={visible} gdk_time={} hardware_code={} keyval={} group={} modifiers={} send_event={send_event}", key.time, key.hardware_code, key.keyval, key.group, key.modifiers);
+            } else {
+                eprintln!("[native-input] elapsed_ms={elapsed_ms} window={label:?} event=focus active={active} focused={focused} visible={visible} send_event={send_event}");
+            }
+        }
+    }
 }

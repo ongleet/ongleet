@@ -6,9 +6,13 @@ mod control;
 #[allow(dead_code)]
 #[path = "../control/paths.rs"]
 mod paths;
+#[allow(dead_code)]
+#[path = "../system/mod.rs"]
+mod system;
 
 fn main() {
-    if codex::run_if_requested() {
+    let services = system::services();
+    if codex::run_if_requested(&services) {
         return;
     }
     let result = (|| -> Result<(), String> {
@@ -29,14 +33,14 @@ fn main() {
         if std::env::var_os("ONGLEET_CODEX_DATA").is_none() {
             std::env::set_var(
                 "ONGLEET_CODEX_DATA",
-                paths::data_directory(paths::APPLICATION_ID)?,
+                services.paths.data_directory(paths::APPLICATION_ID)?,
             );
         }
         std::env::set_var(
             "ONGLEET_CODEX_HOOK_EXE",
-            std::env::current_exe().map_err(|e| e.to_string())?,
+            services.paths.application_executable()?,
         );
-        codex::run(codex::WRAPPER_FLAG, args);
+        codex::run(&services, codex::WRAPPER_FLAG, args);
         Ok(())
     })();
     if let Err(error) = result {

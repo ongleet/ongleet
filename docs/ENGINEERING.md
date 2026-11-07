@@ -2,6 +2,44 @@
 
 Read the sections relevant to your change. See [stack](STACK.md), [validation](VALIDATION.md) and [full contracts](reference/ENGINEERING.md) for detail.
 
+## Native service boundary
+
+Each GUI, CLI and helper entry point constructs `system::SystemServices` once.
+The registry receives it through `SessionRegistry::open_with`; storage and
+standalone operations receive the service they use. Tauri commands obtain the
+same services from application state. Production features must never call the
+factory. Test-only fixture constructors may compose real Linux services.
+
+`src-tauri/src/system/mod.rs` defines the object-safe contracts: `SystemPaths`,
+`TerminalService`, `ProcessService`, `ControlTransport`, `SystemFiles`,
+`SecretStore` and `DesktopService`. Async methods return `SystemFuture`; errors
+remain strings. Connections, listeners, locks and file watches are opaque owned
+resources. Control endpoint representation is private to the backend. Desktop
+contracts accept Tauri window/application handles, never GTK or WebKit objects.
+
+The private `system/linux/` backend owns descriptors, PTYs, process groups,
+cgroups, pidfds, watchdog registration, Unix sockets and peer credentials,
+private permissions, inotify, Secret Service and GTK/WebKit integration. Native
+resources remain lazy: composing services starts neither a watchdog nor a
+credential connection. Linux dependencies are target-conditional; other targets
+still fail compilation explicitly. There is no alternate backend or confinement
+fallback.
+
+Features retain launch decisions, process deadlines/output bounds, Codex arguments
+and restart policy, secret identities/migration policy, editor conflict checks,
+window persistence, confirmations, delayed closure and diagnostic formatting.
+Native diagnostics cross the boundary as typed events and counters. Terminal workers retain
+bounded queues, ACK/replay/history and separate paste/Enter delivery. The backend
+returns independent reader/writer cancellations, shared resize/stop control and
+a consumed wait handle. Natural exit drains final output; explicit closure wakes
+both I/O workers and waits for cleanup.
+
+`npm run check:system-boundaries` rejects native APIs and Linux system paths in
+production code outside `system/linux/`, backend selection outside `system/mod.rs`
+and feature calls to the factory. The frontend build runs this check. Test-only
+Rust items and fixture modules are excluded; native integration tests keep real
+PTYs, sockets, files and cgroups.
+
 ## Terminal contracts
 
 Rust owns PTYs. Keep controllers across renders and navigation. Preserve raw
@@ -73,7 +111,7 @@ Checkbox-style menu items keep menu roles and button behavior.
 
 - UI/plugins: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.
 - Terminal frontend: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/terminal-rendering.ts`, `src/render-visibility.ts`.
-- Rust PTY/containment: `src-tauri/src/terminal_session.rs`, `containment.rs`.
+- Rust PTY/containment: `src-tauri/src/terminal_session.rs`, `src-tauri/src/system/linux/terminal.rs`, `src-tauri/src/system/linux/containment.rs`.
 - Plugin SDK/core services: `src/sdk/`, `src/plugins/*/manifest.json`, `src-tauri/src/core/`; see [plugin development](PLUGINS.md).
 - Registry/storage/actions: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.
 - Lifecycle/control: Rust `main.rs`, `instance.rs`, `control/`, `cli/`, `bin/`. Codex: `codex.rs`, `bin/ong-codex.rs`.
@@ -90,6 +128,7 @@ Run checks appropriate to the change through mise:
 mise exec -- npm run check:host
 mise exec -- npm run build
 mise exec -- npm run check:plugins
+mise exec -- npm run check:system-boundaries
 mise exec -- npm run check:editor-merge
 mise exec -- npm run check:wasm
 mise exec -- npm run check:terminal-history

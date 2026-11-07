@@ -46,6 +46,49 @@ passed with the executable extracted from the rebuilt Debian package. Artifacts:
 This does not certify physical desktop interaction, long-running resource
 stability, or installation/upgrade behavior on the user's desktop.
 
+## System service extraction (2026-11-07)
+
+After extracting the seven injected services, the Rust suite passed 164 active
+tests across all targets; two native credential tests were skipped by default.
+Those two tests also passed separately on private D-Bus sessions with temporary,
+unlocked Secret Service keyrings. Credential policy tests cover migration
+preflight before any mutation, locked-store retention and deletion without
+reading secret bytes. Real file tests retain revision/permission checks,
+replacement/recreation notifications and explicit lock release despite an
+inherited descriptor. Native PTY tests retain simultaneous registration,
+independent close, crash cleanup, blocked I/O cancellation and replay coverage.
+
+The rebuilt Debian executable passed eight service scenarios on private Weston
+Wayland and XWayland displays: three live PTYs with one idle watchdog and no
+watchdog PTY descriptors, exact Unicode CLI input, repeated-instance activation,
+independent terminal closure, normal Quit with geometry persistence, selective
+fresh-process restoration, SIGKILL cleanup of leaders, detached descendants
+and cgroups, and typed native diagnostic delivery under `ONGLEET_DEBUG=1`.
+Reports: `/tmp/ongleet-system-native-dcx643ig/report.json` (Wayland)
+and `/tmp/ongleet-system-native-yqynyo7b/report.json` (XWayland). These checks observe
+activation requests and successful existing-instance reuse, not physical focus.
+
+Fifteen clipboard/selection/input checks passed with the rebuilt native-validation
+binary on private Xvfb, including file URI quoting, image forwarding, size limits,
+primary selection and exact CLI input. Both selections were restored and no
+cleanup survivors remained. Report:
+`/tmp/ongleet-clipboard-validation-dj6mk_kv/report.json`.
+
+These finite runs do not certify physical desktop interaction, other compositors,
+long-running stability or installation/upgrade behavior. Production frontend
+assets are restored after native-validation checks.
+
+Reproduce the packaged service checks without the diagnostic frontend bridge:
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-system-native.py --backend wayland \
+  --application /absolute/extracted/usr/bin/ongleet-gui \
+  --cli /absolute/extracted/usr/bin/ongleet
+mise exec -- /usr/bin/python3 scripts/check-system-native.py --backend xwayland \
+  --application /absolute/extracted/usr/bin/ongleet-gui \
+  --cli /absolute/extracted/usr/bin/ongleet
+```
+
 ## Remaining acceptance
 
 - Physical keyboard focus, modal navigation, clipboard/selection and Japanese/Chinese

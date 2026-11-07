@@ -64,8 +64,8 @@ pub struct Snapshot {
 }
 
 // Durable definitions are separate from open tabs and native PTY resources.
-#[derive(Default)]
 pub struct SessionRegistry {
+    pub(crate) system: crate::system::SystemServices,
     data_directory: Option<std::path::PathBuf>,
     actions_directory: Option<std::path::PathBuf>,
     projects: Vec<Project>,
@@ -95,10 +95,18 @@ impl SessionRegistry {
         self.actions_directory = Some(directory);
     }
 
+    #[cfg(test)]
     pub fn open(directory: &std::path::Path) -> Result<Self, String> {
-        let store = MetadataStore::open(directory)?;
+        Self::open_with(directory, crate::system::services())
+    }
+    pub fn open_with(
+        directory: &std::path::Path,
+        system: crate::system::SystemServices,
+    ) -> Result<Self, String> {
+        let store = MetadataStore::open_with(directory, system.files.as_ref())?;
         let metadata = store.load()?;
         let mut registry = Self {
+            system,
             data_directory: Some(directory.to_path_buf()),
             projects: metadata.snapshot.projects.clone(),
             next_project_id: metadata.project_sequence,
@@ -190,10 +198,11 @@ impl SessionRegistry {
             .ok_or("Create a project first")?;
         self.project(group)?;
         // Validate the YAML before changing metadata. Each opening owns its copy.
-        let action = crate::actions::load_project(config_directory, group)?
-            .into_iter()
-            .find(|action| crate::plugins::has_runtime(&action.kind))
-            .ok_or("Project needs a terminal action to initialize a session")?;
+        let action =
+            crate::actions::load_project_with(self.system.files.as_ref(), config_directory, group)?
+                .into_iter()
+                .find(|action| crate::plugins::has_runtime(&action.kind))
+                .ok_or("Project needs a terminal action to initialize a session")?;
         crate::plugins::validate(&action.kind, action.config_version, &action.config)?;
         self.insert_session(group, name, directory, Some(action))
     }
@@ -767,5 +776,35 @@ impl SessionRegistry {
             .find(|s| s.tabs.iter().any(|t| t.id == id))
             .map(Session::session_tags)
             .ok_or("Tab is unavailable".into())
+    }
+}
+
+#[cfg(test)]
+impl Default for SessionRegistry {
+    fn default() -> Self {
+        Self {
+            system: crate::system::services(),
+            data_directory: Default::default(),
+            actions_directory: Default::default(),
+            projects: Default::default(),
+            next_project_id: Default::default(),
+            sessions: Default::default(),
+            store: Default::default(),
+            last_saved: Default::default(),
+            archives: Default::default(),
+            next_archive_id: Default::default(),
+            archive_cleanup_error: Default::default(),
+            selected_id: Default::default(),
+            next_id: Default::default(),
+            next_terminal_id: Default::default(),
+            next_tab_id: Default::default(),
+            terminals: Default::default(),
+            codex_activity: Default::default(),
+            file_watches: Default::default(),
+            interactions: Default::default(),
+            sdk_attachments: Default::default(),
+            http_jobs: Default::default(),
+            plugin_jobs: Default::default(),
+        }
     }
 }

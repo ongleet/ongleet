@@ -4,7 +4,6 @@ use crate::session::{SessionRegistry, TabConfig};
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    process::{Command, Stdio},
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -63,7 +62,7 @@ impl SessionRegistry {
             .find(|w| w.id == session_id)
             .ok_or("Session is unavailable")?;
         let group = self.project(session.project_id)?;
-        let yaml = super::read_project_yaml(directory, group.id)?;
+        let yaml = super::read_project_yaml_with(self.system.files.as_ref(), directory, group.id)?;
         let settings = super::parse_project_config(&yaml)?;
         let Action {
             name, kind, config, ..
@@ -147,8 +146,11 @@ impl SessionRegistry {
     }
 }
 
-pub fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Result<u32, String> {
-    use std::os::unix::process::CommandExt;
+pub fn launch_with(
+    system: &crate::system::SystemServices,
+    prepared: Prepared,
+    exited: Arc<dyn Fn(Exit) + Send + Sync>,
+) -> Result<u32, String> {
     if CHILDREN
         .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
             (n < MAX_CHILDREN).then_some(n + 1)
@@ -171,39 +173,32 @@ pub fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Re
     if !std::path::Path::new(&cwd).is_dir() {
         return Err("Working directory must be an existing directory".into());
     }
-    let mut command = if let Some(script) = config.shell_command {
-        let mut command = Command::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
-        command.args(["-lc", &script]);
-        command
+    let (executable, args) = if let Some(script) = config.shell_command {
+        (system.paths.default_shell(), vec!["-lc".into(), script])
     } else {
-        let mut command = Command::new(config.executable.ok_or("Executable is required")?);
-        command.args(config.args);
-        command
+        (
+            config.executable.ok_or("Executable is required")?,
+            config.args,
+        )
     };
-    command
-        .current_dir(cwd)
-        .envs(config.env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // External applications intentionally outlive this app and its PTY cgroups.
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() < 0 {
-                Err(std::io::Error::last_os_error())
-            } else {
-                Ok(())
-            }
-        });
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("Unable to launch {}: {e}", prepared.name))?;
+    let mut child = system
+        .processes
+        .spawn(
+            crate::system::ProcessLaunch {
+                executable: executable.into(),
+                args,
+                cwd: Some(cwd.into()),
+                env: config.env,
+            },
+            crate::system::ProcessMode::Detached,
+        )
+        .map_err(|e| format!("Unable to launch {}: {e}", prepared.name))?
+        .child;
     let pid = child.id();
     std::thread::spawn(move || {
         let _slot = slot;
         let (code, error) = match child.wait() {
-            Ok(status) => (status.code(), None),
+            Ok(status) => (status.code, None),
             Err(e) => (None, Some(e.to_string())),
         };
         exited(Exit {
@@ -218,3 +213,8 @@ pub fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Re
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+fn launch(prepared: Prepared, exited: Arc<dyn Fn(Exit) + Send + Sync>) -> Result<u32, String> {
+    launch_with(&crate::system::services(), prepared, exited)
+}

@@ -2,37 +2,13 @@ use super::protocol::{
     Command, Request, Response, RpcError, REQUEST_LIMIT, RESPONSE_LIMIT, VERSION,
 };
 use std::{
-    io::{Read, Write},
-    os::{fd::AsRawFd, unix::net::UnixStream},
-    path::Path,
+    io::Write,
     time::{Duration, Instant},
 };
 
-pub fn verify_peer(stream: &UnixStream) -> Result<(), RpcError> {
-    let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut size = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    if unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut credentials as *mut libc::ucred).cast(),
-            &mut size,
-        )
-    } != 0
-        || credentials.uid != unsafe { libc::geteuid() }
-    {
-        return Err(RpcError::new(
-            "permission_denied",
-            "Socket peer is not the current user",
-        ));
-    }
-    Ok(())
-}
-
 // An absolute deadline prevents a client from extending a timeout one byte at a time.
 pub fn read_message(
-    stream: &mut UnixStream,
+    stream: &mut dyn crate::system::ControlConnection,
     limit: usize,
     timeout: Duration,
 ) -> Result<Vec<u8>, RpcError> {
@@ -45,7 +21,7 @@ pub fn read_message(
             return Err(RpcError::new("timeout", "Socket deadline exceeded; a submitted operation may still complete. Check application state before retrying."));
         }
         stream
-            .set_read_timeout(Some(remaining))
+            .read_timeout(remaining)
             .map_err(|e| RpcError::new("operation_failed", e.to_string()))?;
         match stream.read(&mut buffer) {
             Ok(0) => return Ok(result),
@@ -60,12 +36,17 @@ pub fn read_message(
     }
 }
 
-pub fn call(path: &Path, command: Command) -> Result<Response, RpcError> {
-    call_with_timeout(path, command, Duration::from_secs(30))
+pub fn call(
+    transport: &dyn crate::system::ControlTransport,
+    path: &crate::system::ControlEndpoint,
+    command: Command,
+) -> Result<Response, RpcError> {
+    call_with_timeout(transport, path, command, Duration::from_secs(30))
 }
 
 pub fn call_with_timeout(
-    path: &Path,
+    transport: &dyn crate::system::ControlTransport,
+    path: &crate::system::ControlEndpoint,
     command: Command,
     timeout: Duration,
 ) -> Result<Response, RpcError> {
@@ -80,21 +61,23 @@ pub fn call_with_timeout(
             "Request exceeds 128 KiB",
         ));
     }
-    let mut stream = UnixStream::connect(path).map_err(|e| {
+    let mut stream = transport.connect(path).map_err(|e| {
         RpcError::new(
             "unavailable",
             format!("Application unavailable: {e}. Start it explicitly with `ongleet app start`."),
         )
     })?;
-    verify_peer(&stream)?;
     stream
-        .set_write_timeout(Some(timeout.min(Duration::from_secs(2))))
+        .verify_owner()
+        .map_err(|e| RpcError::new("permission_denied", e))?;
+    stream
+        .write_timeout(timeout.min(Duration::from_secs(2)))
         .map_err(|e| RpcError::new("operation_failed", e.to_string()))?;
     stream
         .write_all(&bytes)
-        .and_then(|_| stream.shutdown(std::net::Shutdown::Write))
+        .and_then(|_| stream.finish_write())
         .map_err(|e| RpcError::new("operation_failed", e.to_string()))?;
-    let bytes = read_message(&mut stream, RESPONSE_LIMIT, timeout)?;
+    let bytes = read_message(stream.as_mut(), RESPONSE_LIMIT, timeout)?;
     let response: Response = serde_json::from_slice(&bytes).map_err(|_| RpcError::new("protocol_error", "Invalid application response. Restart the application to load the current socket protocol."))?;
     if response.ok == response.error.is_some() {
         return Err(RpcError::new(
