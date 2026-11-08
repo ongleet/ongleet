@@ -77,9 +77,13 @@ fn write_state(
             .map_err(|e| e.to_string())?;
         file.write_all(&bytes).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
-        fs::rename(&temp, path).map_err(|e| e.to_string())?;
-        File::open(path.parent().unwrap())
-            .and_then(|f| f.sync_all())
+        system
+            .files
+            .atomic_replace(&temp, path)
+            .map_err(|e| e.to_string())?;
+        system
+            .files
+            .sync_directory(path.parent().unwrap())
             .map_err(|e| e.to_string())
     })();
     let _ = fs::remove_file(temp);
@@ -391,16 +395,11 @@ fn session_path(system: &crate::system::SystemServices) -> Result<PathBuf, Strin
     Ok(directory.join(format!("{}.json", id("ONGLEET_TAB_ID")?)))
 }
 
-fn quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 const ONGLEET_INSTRUCTIONS: &str = "You are launched through ong-codex, the Ongleet Codex wrapper. Ongleet is a Linux terminal application organized into projects, sessions and tabs. A Ongleet session may contain multiple terminal or other plugin tabs; it is distinct from your Codex conversation. Read ONGLEET_SESSION_ID, ONGLEET_PROJECT_ID and ONGLEET_TAB_ID from the environment for your launch context when available; this context does not follow later project moves or GUI selection changes. The ongleet CLI can inspect and manage the running application: start with ongleet --help, then resource or command --help. Use --json for structured output. Inspect configuration with project config ID or session config ID; project configure ID --file PATH saves actions/env YAML, session configure ID updates properties, and session pull-request ID sets or clears the linked PR. Discover options with command --help. Tab list/actions/create default to the launch session, and session create defaults to the launch project; explicit --session/--project override these defaults. The CLI requires a running app and does not start it automatically. Use it only as needed for the user's task; closing your own tab or session or quitting the app can terminate your process. Wait for the user's task before taking action.";
 
-fn codex_args(state: &State, hook: &str, extra: &[String]) -> Vec<String> {
-    let command = format!("{} {RECORD_FLAG}", quote(hook));
-    // JSON strings are also valid TOML basic strings for these ASCII commands.
-    let command = serde_json::to_string(&command).unwrap();
+fn codex_args(state: &State, command: &str, extra: &[String]) -> Vec<String> {
+    // Serialize the native hook command as a TOML basic string.
+    let command = serde_json::to_string(command).unwrap();
     let mut args = vec![
         "--no-daemon".into(),
         // Session-flag hooks have no durable source trust hash. This is also
@@ -508,7 +507,9 @@ pub fn run(system: &crate::system::SystemServices, flag: &str, args: Vec<String>
         if extra.first().is_some_and(|a| a == "--") {
             extra.remove(0);
         }
-        let hook = required("ONGLEET_CODEX_HOOK_EXE")?;
+        let hook = system
+            .paths
+            .hook_command(&required("ONGLEET_CODEX_HOOK_EXE")?, &[RECORD_FLAG])?;
         let mut state = begin(system, &path, fresh)?;
         // Keep terminal-generated interrupts directed at Codex without killing
         // its supervisor. The child restores normal dispositions before exec.

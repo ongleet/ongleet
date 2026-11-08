@@ -35,6 +35,10 @@ pub trait SystemPaths: Send + Sync {
     #[allow(dead_code)] // Used by the CLI composition, not the GUI.
     fn sibling_executable(&self, name: &str) -> Result<PathBuf, String>;
     fn default_shell(&self) -> String;
+    /// Construct explicit shell mode; literal executable launches bypass this.
+    fn shell_command(&self, script: &str) -> (String, Vec<String>);
+    /// A command interpreted by the native Codex hook shell.
+    fn hook_command(&self, executable: &str, args: &[&str]) -> Result<String, String>;
 }
 pub trait Cancellation: Send + Sync {
     fn cancel(&self);
@@ -72,11 +76,16 @@ pub trait TerminalService: Send + Sync {
     fn cleanup_guarantee(&self) -> CleanupGuarantee {
         CleanupGuarantee::Strict
     }
+    /// Independent of containment: a pseudoconsole may retain output after exit.
+    fn post_exit_drain_timeout(&self) -> Option<std::time::Duration> {
+        None
+    }
     fn spawn(&self, launch: Launch) -> Result<TerminalIo, String>;
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CleanupGuarantee {
     Strict,
+    #[allow(dead_code)] // Constructed by the Darwin backend only.
     BestEffort,
 }
 
@@ -148,6 +157,10 @@ pub trait FileWatch: Send {
     fn acknowledge(&self);
 }
 pub trait SystemFiles: Send + Sync {
+    /// Atomically install a same-volume temporary file, replacing an existing file.
+    /// The caller flushes the temporary file before committing it.
+    fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()>;
+    fn sync_directory(&self, directory: &Path) -> io::Result<()>;
     fn private_directory(&self, path: &Path, recursive: bool) -> io::Result<()>;
     fn private_permissions(&self, path: &Path, directory: bool) -> io::Result<()>;
     fn open_private(&self, path: &Path, mode: PrivateOpen) -> io::Result<std::fs::File>;
@@ -339,4 +352,70 @@ pub struct NativeKey {
     pub keyval: String,
     pub group: u8,
     pub modifiers: String,
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    #[test]
+    fn replacement_commits_existing_and_missing_files_without_removing_failed_sources() {
+        let files = services().files;
+        let directory = std::env::temp_dir().join(format!(
+            "ongleet-replace-{}-{}",
+            std::process::id(),
+            files.nonce().unwrap(),
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let temporary = directory.join("temporary");
+        let destination = directory.join("destination");
+        for text in ["first", "replacement 日本語"] {
+            let mut file = files.open_private(&temporary, PrivateOpen::New).unwrap();
+            std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
+            file.sync_all().unwrap();
+            files.atomic_replace(&temporary, &destination).unwrap();
+            assert_eq!(std::fs::read_to_string(&destination).unwrap(), text);
+            assert!(!temporary.exists());
+        }
+        std::fs::write(&temporary, "keep on failure").unwrap();
+        assert!(files.atomic_replace(&temporary, &directory).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&temporary).unwrap(),
+            "keep on failure"
+        );
+        files.sync_directory(&directory).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn hook_command_preserves_literal_arguments_through_the_native_shell() {
+        // Both currently supported backends use POSIX hooks. Windows will need
+        // its own native shell round-trip fixture when its backend is added.
+        let paths = services().paths;
+        let arguments = [
+            "",
+            "space and café 日本語",
+            "it's \"quoted\"",
+            "$HOME; $(exit 1) & | < >",
+            "a\nb",
+            "trailing\\",
+        ];
+        let mut args = vec!["%s\\0"];
+        args.extend(arguments);
+        let command = paths.hook_command("/usr/bin/printf", &args).unwrap();
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", &command])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let expected: Vec<u8> = arguments
+            .iter()
+            .flat_map(|arg| arg.as_bytes().iter().copied().chain(std::iter::once(0)))
+            .collect();
+        assert_eq!(output.stdout, expected);
+        assert!(paths.hook_command("bad\0executable", &[]).is_err());
+        assert!(paths
+            .hook_command("executable", &["bad\0argument"])
+            .is_err());
+    }
 }

@@ -8,6 +8,7 @@ use crate::system::Geometry;
 
 pub struct WindowState {
     path: PathBuf,
+    files: Arc<dyn crate::system::SystemFiles>,
     geometry: Arc<Mutex<Geometry>>,
 }
 
@@ -24,7 +25,11 @@ impl WindowState {
             .desktop
             .install_geometry(&window, geometry.clone())
             .map_err(std::io::Error::other)?;
-        app.manage(Self { path, geometry });
+        app.manage(Self {
+            path,
+            geometry,
+            files: app.state::<crate::system::SystemServices>().files.clone(),
+        });
         app.state::<crate::system::SystemServices>()
             .desktop
             .show(&window)
@@ -37,7 +42,7 @@ impl WindowState {
             let bytes = serde_json::to_vec(&*self.geometry.lock().unwrap())?;
             let temporary = self.path.with_extension("json.tmp");
             std::fs::write(&temporary, bytes)?;
-            std::fs::rename(temporary, &self.path)?;
+            self.files.atomic_replace(&temporary, &self.path)?;
             Ok(())
         })();
         if let Err(error) = result {

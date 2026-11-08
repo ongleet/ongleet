@@ -170,8 +170,11 @@ impl TerminalSession {
         if executable.is_empty() {
             return Err("Executable cannot be empty".into());
         }
-        let bounded_drain =
-            service.cleanup_guarantee() == crate::system::CleanupGuarantee::BestEffort;
+        let drain_timeout = service.post_exit_drain_timeout();
+        crate::diagnostics::record(format_args!(
+            "terminal containment={:?} post_exit_drain_timeout={drain_timeout:?}",
+            service.cleanup_guarantee(),
+        ));
         let cols = launch.cols;
         let rows = launch.rows;
         let crate::system::TerminalIo {
@@ -327,18 +330,17 @@ impl TerminalSession {
             // The dedicated reaper waits for process exit. Stopping the terminal
             // wakes it without periodic status checks.
             let exit = wait.wait();
-            // Darwin descendants may escape the terminal session while retaining
-            // a PTY slave. Bound drainage independently of process cleanup.
-            let drain_timer = bounded_drain.then(|| {
+            // Output drainage is independent of process containment guarantees.
+            let drain_timer = drain_timeout.map(|timeout| {
                 let done = drain_done.clone();
                 let cancel = reaper_read_cancel.clone();
                 let flow = reaper_flow.clone();
                 std::thread::spawn(move || {
-                    let (finished, _) = done.1.wait_timeout_while(done.0.lock().unwrap(), std::time::Duration::from_secs(2), |done| !*done).unwrap();
+                    let (finished, _) = done.1.wait_timeout_while(done.0.lock().unwrap(), timeout, |done| !*done).unwrap();
                     if !*finished {
                         let mut state = flow.0.lock().unwrap();
                         if let Some(output) = &state.output {
-                            let _ = output.send(Output::Error { message: "Post-exit output exceeded the two-second drain deadline; remaining output was discarded".into() });
+                            let _ = output.send(Output::Error { message: "Post-exit output exceeded the drain deadline; remaining output was discarded".into() });
                         }
                         state.ended = true;
                         if let Some(output) = &state.output { let _ = output.send(Output::Eof); }

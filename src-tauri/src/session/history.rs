@@ -67,10 +67,10 @@ fn write_history_with(
     file.write_all(text.as_bytes())
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())?;
-    fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
-    fs::File::open(directory)
-        .and_then(|f| f.sync_all())
-        .map_err(|e| e.to_string())
+    files
+        .atomic_replace(&temporary, &path)
+        .map_err(|e| e.to_string())?;
+    files.sync_directory(directory).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

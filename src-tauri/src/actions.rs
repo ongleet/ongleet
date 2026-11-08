@@ -265,7 +265,9 @@ fn save_yaml_with(
             .map_err(|e| e.to_string())?;
         file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
-        std::fs::rename(&temporary, &path).map_err(|e| e.to_string())?;
+        files
+            .atomic_replace(&temporary, &path)
+            .map_err(|e| e.to_string())?;
         Ok(())
     })();
     if result.is_err() {

@@ -71,10 +71,8 @@ impl SessionRegistry {
         let config: super::TabConfig =
             serde_json::from_value(tab.config.clone()).map_err(|e| e.to_string())?;
         let (mut executable, mut args) = if let Some(command) = &config.shell_command {
-            (
-                Some(self.system.paths.default_shell()),
-                vec!["-lc".into(), command.clone()],
-            )
+            let (executable, args) = self.system.paths.shell_command(command);
+            (Some(executable), args)
         } else {
             (config.executable.clone(), config.args.clone())
         };

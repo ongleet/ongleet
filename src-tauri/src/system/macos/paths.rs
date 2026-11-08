@@ -131,6 +131,23 @@ pub fn runtime() -> Result<PathBuf, String> {
     Ok(path)
 }
 impl SystemPaths for super::Macos {
+    fn shell_command(&self, script: &str) -> (String, Vec<String>) {
+        (self.default_shell(), vec!["-lc".into(), script.into()])
+    }
+    fn hook_command(&self, executable: &str, args: &[&str]) -> Result<String, String> {
+        if std::iter::once(executable)
+            .chain(args.iter().copied())
+            .any(|s| s.contains('\0'))
+        {
+            return Err("Hook command contains a NUL byte".into());
+        }
+        Ok(std::iter::once(executable)
+            .chain(args.iter().copied())
+            .map(|s| format!("'{}'", s.replace('\'', "'\\''")))
+            .collect::<Vec<_>>()
+            .join(" "))
+    }
+
     fn config_directory(&self) -> Result<PathBuf, String> {
         directory("XDG_CONFIG_HOME", "Preferences", "ongleet")
     }

@@ -29,12 +29,18 @@ Linux retains its required confinement, with no fallback.
 Features retain launch decisions, process deadlines/output bounds, Codex arguments
 and restart policy, secret identities/migration policy, editor conflict checks,
 window persistence, confirmations, delayed closure and diagnostic formatting.
+Shell argument construction and Codex hook commands belong to `SystemPaths`;
+feature code passes scripts or literal arguments without choosing native quoting.
+`SystemFiles::atomic_replace` commits a flushed temporary file on the same volume;
+`sync_directory` owns platform-specific directory durability. Existing-file updates
+for YAML, Codex mappings, history, editor saves, geometry and log rotation use
+these contracts. Migration renames to absent destinations remain ordinary moves.
 Native diagnostics cross the boundary as typed events and counters. Terminal workers retain
 bounded queues, ACK/replay/history and separate paste/Enter delivery. The backend
 returns independent reader/writer cancellations, shared resize/stop control and
-a consumed wait handle. The terminal service advertises strict or best-effort cleanup. Best-effort
-post-exit drainage has an additional two-second cancellation deadline and reports
-truncation; Linux keeps its existing drainage. Natural exit drains final output; explicit closure wakes
+a consumed wait handle. The terminal service advertises strict or best-effort cleanup
+and an independent optional post-exit drain timeout. Darwin uses a two-second
+cancellation deadline and reports truncation; Linux keeps its existing drainage. Natural exit drains final output; explicit closure wakes
 both I/O workers and waits for cleanup.
 
 `npm run check:system-boundaries` rejects native APIs and Linux system paths in

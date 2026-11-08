@@ -147,7 +147,9 @@ pub fn save_with(
         if files.revision(&current, &current_metadata) != expected_revision {
             return Err("File changed on disk while saving; your edits have been kept".into());
         }
-        std::fs::rename(&temporary, path).map_err(|e| e.to_string())?;
+        files
+            .atomic_replace(&temporary, path)
+            .map_err(|e| e.to_string())?;
         let metadata = file.metadata().map_err(|e| e.to_string())?;
         document(files, path, output.as_bytes(), &metadata)?
             .ok_or("Content is not supported text".into())

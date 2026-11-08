@@ -31,7 +31,7 @@ pub fn init(
         return Ok(());
     }
     let path = directory.join("debug.log");
-    rotate(&path)?;
+    rotate(files.as_ref(), &path)?;
     let file = open(files.as_ref(), &path)?;
     let _ = LOG.set(Mutex::new(Log {
         files,
@@ -55,8 +55,8 @@ pub fn init(
     Ok(())
 }
 
-fn rotate(path: &Path) -> std::io::Result<()> {
-    match std::fs::rename(path, path.with_extension("previous.log")) {
+fn rotate(files: &dyn crate::system::SystemFiles, path: &Path) -> std::io::Result<()> {
+    match files.atomic_replace(path, &path.with_extension("previous.log")) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
@@ -85,7 +85,7 @@ impl Log {
             self.started.elapsed().as_millis()
         );
         if self.bytes + line.len() as u64 > LIMIT {
-            if rotate(&self.path).is_err() {
+            if rotate(self.files.as_ref(), &self.path).is_err() {
                 return;
             }
             let Ok(file) = open(self.files.as_ref(), &self.path) else {
@@ -173,7 +173,7 @@ mod tests {
             .unwrap()
             .ends_with("last breadcrumb\n"));
         // Restart preserves the final breadcrumbs from the preceding run.
-        rotate(&path).unwrap();
+        rotate(crate::system::services().files.as_ref(), &path).unwrap();
         drop(open(crate::system::services().files.as_ref(), &path).unwrap());
         assert!(std::fs::read_to_string(&backup)
             .unwrap()

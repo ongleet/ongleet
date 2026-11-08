@@ -64,7 +64,10 @@ fn records_changed_conversations_and_resumes_only_the_matching_tab() {
     assert_eq!(next.conversation.as_deref(), Some("conversation-b"));
     let args = codex_args(
         &next,
-        "/app path/it's executable",
+        &crate::system::services()
+            .paths
+            .hook_command("/app path/it's executable", &[RECORD_FLAG])
+            .unwrap(),
         &["--model".into(), "example".into()],
     );
     assert!(args
@@ -338,7 +341,11 @@ fn activity_reports_only_current_main_agent_and_keeps_mappings_separate() {
 
 #[test]
 fn activity_hook_configuration_is_scoped_and_bounded() {
-    let args = codex_args(&State::default(), "/app/ong-codex", &[]);
+    let hook = crate::system::services()
+        .paths
+        .hook_command("/app/ong-codex", &[RECORD_FLAG])
+        .unwrap();
+    let args = codex_args(&State::default(), &hook, &[]);
     for name in [
         "SessionStart",
         "UserPromptSubmit",

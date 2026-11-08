@@ -677,7 +677,7 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             eprintln!("{error}");
         }
         let _store = storage::MetadataStore::open_with(&directory, services.files.as_ref())?;
-        branding::migrate_yaml(&services.paths.config_directory()?)?;
+        branding::migrate_yaml(services.files.as_ref(), &services.paths.config_directory()?)?;
         actions::migrate_projects(&services.paths.config_directory()?)?;
         println!(
             "Ongleet config: {}\nOngleet database: {}",
@@ -732,7 +732,7 @@ fn run(services: system::SystemServices) -> Result<(), String> {
     {
         eprintln!("Could not initialize diagnostic log: {error}");
     }
-    branding::migrate_yaml(&services.paths.config_directory()?)?;
+    branding::migrate_yaml(services.files.as_ref(), &services.paths.config_directory()?)?;
     actions::migrate_projects(&services.paths.config_directory()?)?;
     // GTK's fallback Wayland app ID must match the installed desktop filename.
     // Keep the GTK application non-unique so isolated XDG instances still work.

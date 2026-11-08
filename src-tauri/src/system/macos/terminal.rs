@@ -87,6 +87,9 @@ impl TerminalWait for Wait {
     }
 }
 impl TerminalService for super::Macos {
+    fn post_exit_drain_timeout(&self) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(2))
+    }
     fn cleanup_guarantee(&self) -> super::super::CleanupGuarantee {
         super::super::CleanupGuarantee::BestEffort
     }

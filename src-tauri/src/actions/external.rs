@@ -174,7 +174,7 @@ pub fn launch_with(
         return Err("Working directory must be an existing directory".into());
     }
     let (executable, args) = if let Some(script) = config.shell_command {
-        (system.paths.default_shell(), vec!["-lc".into(), script])
+        system.paths.shell_command(&script)
     } else {
         (
             config.executable.ok_or("Executable is required")?,

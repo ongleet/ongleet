@@ -17,6 +17,12 @@ impl Drop for Lock {
     }
 }
 impl SystemFiles for super::Linux {
+    fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        fs::rename(source, destination)
+    }
+    fn sync_directory(&self, directory: &Path) -> io::Result<()> {
+        File::open(directory)?.sync_all()
+    }
     fn private_directory(&self, path: &Path, recursive: bool) -> io::Result<()> {
         fs::DirBuilder::new()
             .recursive(recursive)

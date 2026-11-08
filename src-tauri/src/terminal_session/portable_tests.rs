@@ -134,7 +134,7 @@ fn escaped_descendant_cannot_hold_drain_open_and_detached_apps_survive_close() {
             }
             Output::Size { seq, .. } | Output::Ready { seq } => session.acknowledge(seq).unwrap(),
             Output::Error { message } => {
-                assert!(message.contains("two-second drain deadline"), "{message}");
+                assert!(message.contains("drain deadline"), "{message}");
             }
             Output::Eof => break,
             _ => (),
@@ -156,7 +156,7 @@ fn escaped_descendant_cannot_hold_drain_open_and_detached_apps_survive_close() {
 }
 
 #[test]
-fn best_effort_deadline_cancels_a_reader_that_remains_open_after_exit() {
+fn strict_containment_can_bound_a_reader_that_remains_open_after_exit() {
     // Simulate the native boundary retaining a readable stream after child exit.
     // The real PTY/process and all shared workers remain in the test path.
     struct Cancel(Mutex<Option<mpsc::Sender<()>>>);
@@ -180,8 +180,8 @@ fn best_effort_deadline_cancels_a_reader_that_remains_open_after_exit() {
     }
     struct HeldStream<'a>(&'a dyn TerminalService);
     impl TerminalService for HeldStream<'_> {
-        fn cleanup_guarantee(&self) -> crate::system::CleanupGuarantee {
-            crate::system::CleanupGuarantee::BestEffort
+        fn post_exit_drain_timeout(&self) -> Option<Duration> {
+            Some(Duration::from_secs(2))
         }
         fn spawn(&self, launch: Launch) -> Result<crate::system::TerminalIo, String> {
             let mut io = self.0.spawn(launch)?;
@@ -226,7 +226,7 @@ fn best_effort_deadline_cancels_a_reader_that_remains_open_after_exit() {
     loop {
         match receive.recv_timeout(Duration::from_secs(5)).unwrap() {
             Output::Error { message } => {
-                assert!(message.contains("two-second drain deadline"), "{message}");
+                assert!(message.contains("drain deadline"), "{message}");
                 deadline_reported = true;
             }
             Output::Eof => break,

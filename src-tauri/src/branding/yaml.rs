@@ -113,7 +113,7 @@ fn rewrite(text: &str) -> Option<String> {
     (actual == desired).then_some(output)
 }
 
-pub fn migrate(directory: &Path) -> Result<(), String> {
+pub fn migrate(files: &dyn crate::system::SystemFiles, directory: &Path) -> Result<(), String> {
     if !directory.exists() {
         return Ok(());
     }
@@ -121,7 +121,7 @@ pub fn migrate(directory: &Path) -> Result<(), String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let kind = entry.file_type().map_err(|e| e.to_string())?;
         if kind.is_dir() {
-            migrate(&entry.path())?;
+            migrate(files, &entry.path())?;
         } else if kind.is_file() && entry.file_name() == "actions.yaml" {
             let path = entry.path();
             let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -134,7 +134,9 @@ pub fn migrate(directory: &Path) -> Result<(), String> {
                     let temporary = path.with_extension("yaml.ongleet-migration");
                     fs::copy(&path, &temporary).map_err(|e| e.to_string())?;
                     fs::write(&temporary, updated).map_err(|e| e.to_string())?;
-                    fs::rename(temporary, &path).map_err(|e| e.to_string())?;
+                    files
+                        .atomic_replace(&temporary, &path)
+                        .map_err(|e| e.to_string())?;
                 }
                 None => eprintln!("Manual migration required for YAML: {}", path.display()),
                 _ => {}
@@ -181,8 +183,8 @@ mod file_tests {
         let path = root.join("projects/7/actions.yaml");
         let original = "# personal comment\nactions:\n- kind: terminal\n  config: {executable: dcodex, args: ['devcenter'], env: {KEEP: yes}}\n";
         fs::write(&path, original).unwrap();
-        migrate(&root).unwrap();
-        migrate(&root).unwrap();
+        migrate(crate::system::services().files.as_ref(), &root).unwrap();
+        migrate(crate::system::services().files.as_ref(), &root).unwrap();
         assert_eq!(
             fs::read_to_string(path.with_extension("yaml.before-ongleet")).unwrap(),
             original
