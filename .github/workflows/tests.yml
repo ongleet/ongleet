@@ -48,7 +48,10 @@ jobs:
           # Moving between cgroups requires write access at the common ancestor.
           # GitHub's runner service starts outside the delegated user subtree.
           group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
-          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
+          # The delegated root has controllers enabled: keep processes in a leaf.
+          leaf="$group/ongleet-ci-${GITHUB_RUN_ID}-$$"
+          mkdir "$leaf"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$leaf"
           mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - name: Build bundled native executables
         run: mise exec -- cargo build --locked --manifest-path src-tauri/Cargo.toml --bins --features tauri/custom-protocol
@@ -61,7 +64,10 @@ jobs:
           # Moving between cgroups requires write access at the common ancestor.
           # GitHub's runner service starts outside the delegated user subtree.
           group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
-          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
+          # The delegated root has controllers enabled: keep processes in a leaf.
+          leaf="$group/ongleet-ci-${GITHUB_RUN_ID}-$$"
+          mkdir "$leaf"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$leaf"
           dbus-run-session -- python3 scripts/check-system-native.py --backend wayland \
             --application "$PWD/src-tauri/target/debug/ongleet-gui" \
             --cli "$PWD/src-tauri/target/debug/ongleet"
@@ -70,7 +76,10 @@ jobs:
           # Moving between cgroups requires write access at the common ancestor.
           # GitHub's runner service starts outside the delegated user subtree.
           group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
-          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
+          # The delegated root has controllers enabled: keep processes in a leaf.
+          leaf="$group/ongleet-ci-${GITHUB_RUN_ID}-$$"
+          mkdir "$leaf"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$leaf"
           dbus-run-session -- python3 scripts/check-system-native.py --backend xwayland \
             --application "$PWD/src-tauri/target/debug/ongleet-gui" \
             --cli "$PWD/src-tauri/target/debug/ongleet"
