@@ -275,10 +275,15 @@ post-exit drainage. An initial sandbox run rejected socket credentials; a native
 rerun passed. One native run observed an existing watch-test startup race; the
 subsequent complete run passed without changing the watcher.
 
-**The Windows backend is not implemented.** A `windows-2025` x64 CI job is now
-configured, with all-target Rust tests and gated release ZIP publication. Workflow
-lint, frontend build, boundary tests and Python syntax checks passed locally.
-Packaging/smoke checks passed using Linux binaries staged under `.exe` names;
-this checks script behavior, not Windows execution. No successful Windows build,
-Windows executable artifact or Windows 11 qualification is established.
-See [the remaining Windows work](WINDOWS.md).
+The Windows backend now compiles as a complete Tauri application on the hosted
+x64 runner. At `da24b61`, twelve native service scenarios passed, covering ConPTY
+Unicode/resize, blocked I/O cancellation, assignment refusal before execution,
+owner-death descendant cleanup, executable/shim argument quoting, authenticated
+pipe half-close/deadlines/bounds, file replacement/watches and DPAPI persistence,
+attribute isolation, replacement/deletion, corruption and the 64 KiB limit.
+The Windows editor revision/format regression also passed.
+
+That run still failed three legacy directory migration tests while writer locks
+were held. Linux and macOS passed. All-platform qualification and Windows artifact
+publication remain open until the replacement pipeline succeeds. Windows 11
+physical desktop behavior is untested; see [the acceptance checklist](WINDOWS.md).

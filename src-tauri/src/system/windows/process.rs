@@ -58,6 +58,7 @@ pub fn resolve(
     } else {
         let search = env
             .iter()
+            .rev()
             .find(|(k, _)| k.eq_ignore_ascii_case("PATH"))
             .map(|(_, v)| v.clone())
             .or_else(|| std::env::var("PATH").ok())
@@ -294,20 +295,20 @@ pub fn spawn(
         .transpose()
         .map_err(|e| e.to_string())?;
     // Environment keys are case insensitive on Windows, including Path/PATH.
-    let mut environment = BTreeMap::<String, (String, std::ffi::OsString)>::new();
-    for (key, value) in std::env::vars_os() {
-        let text = key.to_string_lossy().into_owned();
-        environment.insert(text.to_uppercase(), (text, value));
-    }
+    let mut environment: Vec<_> = std::env::vars_os().collect();
     for (key, value) in launch.env {
-        if key.contains(['=', '\0']) {
+        if key.is_empty() || key.contains(['=', '\0']) {
             return Err("Invalid environment variable name".into());
         }
-        environment.insert(key.to_uppercase(), (key, value.into()));
+        let key = std::ffi::OsString::from(key);
+        environment
+            .retain(|(existing, _)| environment_order(existing, &key) != std::cmp::Ordering::Equal);
+        environment.push((key, value.into()));
     }
+    environment.sort_by(|(left, _), (right, _)| environment_order(left, right));
     let mut block = Vec::new();
-    for (_, (key, value)) in environment {
-        let mut pair = std::ffi::OsString::from(key);
+    for (key, value) in environment {
+        let mut pair = key;
         pair.push("=");
         pair.push(value);
         block.extend(wide(pair).map_err(|e| e.to_string())?);
@@ -387,7 +388,13 @@ pub fn spawn(
             &startup.StartupInfo,
             &mut information,
         ))
-        .map_err(|e| format!("Cannot create contained process: {e}"))?;
+        .map_err(|e| {
+            if detached {
+                format!("Cannot detach process; an enclosing host Job may forbid breakaway: {e}")
+            } else {
+                format!("Cannot create contained process: {e}")
+            }
+        })?;
         let process = Handle::new(information.hProcess).map_err(|e| e.to_string())?;
         let thread = Handle::new(information.hThread).map_err(|e| e.to_string())?;
         if let Some(job) = &job {

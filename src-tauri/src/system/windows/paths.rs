@@ -135,6 +135,18 @@ impl SystemPaths for super::Windows {
             .ok_or("Executable directory unavailable")?
             .join(format!("{name}.exe")))
     }
+    fn merge_environment(
+        &self,
+        base: &mut std::collections::BTreeMap<String, String>,
+        overrides: std::collections::BTreeMap<String, String>,
+    ) {
+        for (key, value) in overrides {
+            base.retain(|existing, _| {
+                environment_order(existing.as_ref(), key.as_ref()) != std::cmp::Ordering::Equal
+            });
+            base.insert(key, value);
+        }
+    }
     fn quote_shell_argument(&self, value: &str) -> String {
         ps_quote(value)
     }
@@ -168,5 +180,49 @@ impl SystemPaths for super::Windows {
             .collect::<Vec<_>>()
             .join(" ");
         Ok(format!("$ongleetStart = New-Object System.Diagnostics.ProcessStartInfo; $ongleetStart.UseShellExecute = $false; $ongleetStart.CreateNoWindow = $true; $ongleetStart.FileName = {}; $ongleetStart.Arguments = {}; $ongleetChild = [System.Diagnostics.Process]::Start($ongleetStart); $ongleetChild.WaitForExit(); exit $ongleetChild.ExitCode", ps_quote(executable), ps_quote(&arguments)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::SystemFiles;
+    use super::*;
+    #[test]
+    fn replaced_or_new_sibling_images_require_restart_before_helpers() {
+        let native = super::super::Windows::new();
+        let root = std::env::temp_dir().join(format!("ongleet-image-{}", native.nonce().unwrap()));
+        native.private_directory(&root, true).unwrap();
+        let current = root.join("ongleet-gui.exe");
+        let helper = root.join("ong-codex.exe");
+        let cli = root.join("ongleet.exe");
+        std::fs::write(&current, b"original GUI").unwrap();
+        std::fs::write(&helper, b"original CLI").unwrap();
+        let capture = || {
+            Image(Ok(vec![
+                (
+                    current.clone(),
+                    Some(super::super::files::identity(&current).unwrap()),
+                ),
+                (
+                    helper.clone(),
+                    Some(super::super::files::identity(&helper).unwrap()),
+                ),
+                (cli.clone(), super::super::files::identity(&cli).ok()),
+            ]))
+        };
+        let image = capture();
+        assert_eq!(image.verified().unwrap(), current);
+        let replacement = root.join("replacement");
+        std::fs::write(&replacement, b"changed helper").unwrap();
+        native.atomic_replace(&replacement, &helper).unwrap();
+        assert!(image.verified().unwrap_err().contains("restart"));
+        let image = capture();
+        std::fs::write(&replacement, b"changed GUI").unwrap();
+        native.atomic_replace(&replacement, &current).unwrap();
+        assert!(image.verified().is_err());
+        let image = capture();
+        std::fs::write(&cli, b"added sibling").unwrap();
+        assert!(image.verified().is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

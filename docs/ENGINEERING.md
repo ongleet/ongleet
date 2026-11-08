@@ -64,8 +64,9 @@ On upgrades, revalidate writes, cursor notifications, hover, selection, scrollin
 visibility and listener cleanup. Resize only visible, nonzero containers.
 Dispose resources on explicit closure.
 
-Wait on PTY readiness and an eventfd cancellation signal without polling. Use a
-blocking reaper for child exit. Separate input and reader cancellation: natural
+On Linux, wait on PTY readiness and an eventfd cancellation signal without polling.
+Windows uses overlapped pipes and cancellation events; Darwin uses kqueue.
+Use a blocking reaper for child exit. Separate input and reader cancellation: natural
 exit drains final output; explicit closure wakes both workers. ACK waits use
 condition-variable notifications without periodic timeouts.
 

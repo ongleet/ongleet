@@ -6,6 +6,15 @@ pub fn run() -> bool {
         return false;
     }
     match args.next().as_deref() {
+        Some("environment") => {
+            let values: std::collections::BTreeMap<_, _> = args
+                .map(|key| {
+                    let value = std::env::var(&key).ok();
+                    (key, value)
+                })
+                .collect();
+            println!("{}", serde_json::to_string(&values).unwrap());
+        }
         Some("argv") => {
             println!(
                 "{}",
@@ -37,6 +46,47 @@ pub fn run() -> bool {
             .unwrap();
             println!("TREE:{}:{}", std::process::id(), child.id());
             std::io::stdout().flush().unwrap();
+            loop {
+                std::thread::park();
+            }
+        }
+        Some("terminal-owner") => {
+            let services = crate::system::services();
+            let mut terminal = services
+                .terminal
+                .spawn(crate::system::Launch {
+                    executable: Some(
+                        std::env::current_exe()
+                            .unwrap()
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
+                    args: vec!["--probe".into(), "tree".into()],
+                    cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+                    env: Default::default(),
+                    cols: 80,
+                    rows: 24,
+                })
+                .unwrap();
+            let mut output = Vec::new();
+            let mut bytes = [0u8; 4096];
+            loop {
+                let count = terminal.reader.read(&mut bytes).unwrap();
+                assert!(count > 0);
+                output.extend_from_slice(&bytes[..count]);
+                assert!(output.len() < 65536);
+                let text = String::from_utf8_lossy(&output);
+                if let Some(index) = text.find("TREE:") {
+                    let tail = &text[index + 5..];
+                    if let Some(end) = tail.find(['\r', '\n', '\x1b']) {
+                        let ids = &tail[..end];
+                        assert_eq!(ids.split(':').count(), 2);
+                        println!("TREE:{ids}");
+                        std::io::stdout().flush().unwrap();
+                        break;
+                    }
+                }
+            }
             loop {
                 std::thread::park();
             }

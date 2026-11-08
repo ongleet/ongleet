@@ -250,7 +250,10 @@ fn read_clipboard() -> Result<ClipboardContent, String> {
             }
             return Ok(ClipboardContent::Files(files));
         }
-        if IsClipboardFormatAvailable(8) != 0 || IsClipboardFormatAvailable(17) != 0 {
+        if IsClipboardFormatAvailable(2) != 0
+            || IsClipboardFormatAvailable(8) != 0
+            || IsClipboardFormatAvailable(17) != 0
+        {
             return Ok(ClipboardContent::Image);
         }
         if IsClipboardFormatAvailable(13) == 0 {

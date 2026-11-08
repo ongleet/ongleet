@@ -279,3 +279,23 @@ impl PipeIo {
         }
     }
 }
+
+/// Windows environment names use ordinal, locale-independent case comparison.
+pub fn environment_order(left: &OsStr, right: &OsStr) -> std::cmp::Ordering {
+    let left: Vec<u16> = left.encode_wide().collect();
+    let right: Vec<u16> = right.encode_wide().collect();
+    match unsafe {
+        windows_sys::Win32::Globalization::CompareStringOrdinal(
+            left.as_ptr(),
+            left.len() as i32,
+            right.as_ptr(),
+            right.len() as i32,
+            1,
+        )
+    } {
+        1 => std::cmp::Ordering::Less,
+        2 => std::cmp::Ordering::Equal,
+        3 => std::cmp::Ordering::Greater,
+        _ => left.cmp(&right),
+    }
+}

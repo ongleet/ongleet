@@ -215,8 +215,7 @@ fn failed_assignment_never_executes_user_code() {
     assert!(!marker.exists());
     std::fs::remove_dir_all(directory).unwrap();
 }
-#[test]
-fn owner_crash_closes_last_job_handle_and_kills_descendants() {
+fn assert_owner_crash(mode: &str) {
     use std::io::BufRead;
     use windows_sys::Win32::System::Threading::*;
     struct Owner(std::process::Child);
@@ -228,7 +227,7 @@ fn owner_crash_closes_last_job_handle_and_kills_descendants() {
     }
     let mut owner = Owner(
         std::process::Command::new(helper())
-            .args(["--probe", "owner"])
+            .args(["--probe", mode])
             .stdout(std::process::Stdio::piped())
             .spawn()
             .unwrap(),
@@ -488,4 +487,127 @@ fn oversized_native_pipe_frames_are_rejected_before_payload_allocation() {
     );
     worker.join().unwrap();
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn owner_crash_closes_terminal_and_captured_jobs_and_kills_descendants() {
+    for mode in ["owner", "terminal-owner"] {
+        assert_owner_crash(mode);
+    }
+}
+
+#[test]
+fn detached_actions_survive_terminal_closure_or_report_host_job_restriction() {
+    use windows_sys::Win32::{Foundation::*, System::Threading::*};
+    let native = Windows::new();
+    let detached = ProcessService::spawn(
+        &native,
+        ProcessLaunch {
+            executable: helper(),
+            args: vec!["--probe".into(), "hold".into()],
+            ..Default::default()
+        },
+        ProcessMode::Detached,
+    );
+    let resources = match detached {
+        Ok(resources) => resources,
+        Err(error) => {
+            let mut in_job = 0;
+            super::native::check(unsafe {
+                windows_sys::Win32::System::JobObjects::IsProcessInJob(
+                    GetCurrentProcess(),
+                    std::ptr::null_mut(),
+                    &mut in_job,
+                )
+            })
+            .unwrap();
+            assert!(
+                in_job != 0 && error.contains("enclosing host Job") && error.contains("os error 5"),
+                "{error}"
+            );
+            eprintln!("Host Job forbids breakaway; detached launch correctly rejected");
+            return;
+        }
+    };
+    let handle = super::native::Handle::new(unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_TERMINATE,
+            0,
+            resources.child.id(),
+        )
+    })
+    .unwrap();
+    struct Stop(super::native::Handle);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            unsafe {
+                TerminateProcess(self.0 .0, 1);
+                WaitForSingleObject(self.0 .0, 5000);
+            }
+        }
+    }
+    let child = Stop(handle);
+    let terminal = native.spawn_terminal(launch("hold"));
+    terminal.cancel_read.cancel();
+    terminal.cancel_input.cancel();
+    terminal.control.stop().unwrap();
+    drop(terminal);
+    drop(resources);
+    drop(native);
+    assert_eq!(unsafe { WaitForSingleObject(child.0 .0, 0) }, WAIT_TIMEOUT);
+}
+
+#[test]
+fn environment_layers_treat_names_case_insensitively_and_preserve_reserved_context() {
+    let native = Windows::new();
+    let mut env = BTreeMap::from([
+        ("SDK_CASE".into(), "project".into()),
+        ("ongleet_session_id".into(), "untrusted".into()),
+    ]);
+    native.merge_environment(
+        &mut env,
+        BTreeMap::from([("sdk_case".into(), "action".into())]),
+    );
+    native.merge_environment(
+        &mut env,
+        BTreeMap::from([("ONGLEET_SESSION_ID".into(), "123".into())]),
+    );
+    let mut resources = ProcessService::spawn(
+        &native,
+        ProcessLaunch {
+            executable: helper(),
+            args: vec![
+                "--probe".into(),
+                "environment".into(),
+                "SDK_CASE".into(),
+                "sdk_case".into(),
+                "ONGLEET_SESSION_ID".into(),
+                "ongleet_session_id".into(),
+            ],
+            env,
+            ..Default::default()
+        },
+        ProcessMode::Captured,
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 4096];
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        match resources.stdout.as_mut().unwrap().read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert_eq!(resources.child.wait().unwrap().exit_code, 0);
+    let values: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(values["SDK_CASE"], "action");
+    assert_eq!(values["sdk_case"], "action");
+    assert_eq!(values["ONGLEET_SESSION_ID"], "123");
+    assert_eq!(values["ongleet_session_id"], "123");
 }

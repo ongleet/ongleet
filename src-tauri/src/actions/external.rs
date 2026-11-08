@@ -95,7 +95,7 @@ impl SessionRegistry {
             .as_ref()
             .is_some_and(|s| s.contains("{{"))
         {
-            return Err("Use quoted $SESSION_PATH / $PROJECT_PATH environment variables in shell commands, not placeholders".into());
+            return Err("Use quoted shell environment variables SESSION_PATH / PROJECT_PATH, not placeholders".into());
         }
         config.executable = config
             .executable
@@ -112,30 +112,30 @@ impl SessionRegistry {
             &values,
         )?);
         let mut env = settings.env;
-        env.extend(config.env);
+        self.system.paths.merge_environment(&mut env, config.env);
         config.env = env
             .into_iter()
             .map(|(key, value)| Ok((key, expand(&value, &values)?)))
             .collect::<Result<_, String>>()?;
-        config
-            .env
-            .insert("SESSION_PATH".into(), session.base_directory.clone());
-        config
-            .env
-            .insert("SESSION_NAME".into(), session.name.clone());
-        config
-            .env
-            .insert("PROJECT_PATH".into(), group.root_directory.clone());
-        config.env.insert("PROJECT_NAME".into(), group.name.clone());
+        self.system.paths.merge_environment(
+            &mut config.env,
+            BTreeMap::from([
+                ("SESSION_PATH".into(), session.base_directory.clone()),
+                ("SESSION_NAME".into(), session.name.clone()),
+                ("PROJECT_PATH".into(), group.root_directory.clone()),
+                ("PROJECT_NAME".into(), group.name.clone()),
+            ]),
+        );
         for (legacy, current) in [
             ("WORKSPACE_PATH", "SESSION_PATH"),
             ("WORKSPACE_NAME", "SESSION_NAME"),
             ("WORKGROUP_PATH", "PROJECT_PATH"),
             ("WORKGROUP_NAME", "PROJECT_NAME"),
         ] {
-            config
-                .env
-                .insert(legacy.into(), config.env[current].clone());
+            let value = config.env[current].clone();
+            self.system
+                .paths
+                .merge_environment(&mut config.env, BTreeMap::from([(legacy.into(), value)]));
         }
         config.validate()?;
         Ok(Prepared {

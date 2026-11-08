@@ -39,8 +39,20 @@ impl Drop for Lock {
 }
 impl SystemFiles for super::Windows {
     fn move_directory(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        let parent = destination.parent().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Migration destination has no parent",
+            )
+        })?;
+        let name = destination.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Migration destination has no name",
+            )
+        })?;
         let source = wide(source)?;
-        let destination = wide(destination)?;
+        let destination = wide(name)?;
         let handle = Handle::new(unsafe {
             CreateFileW(
                 source.as_ptr(),
@@ -51,7 +63,20 @@ impl SystemFiles for super::Windows {
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
                 null_mut(),
             )
-        })?;
+        })
+        .map_err(|e| io::Error::new(e.kind(), format!("Open migration source: {e}")))?;
+        let parent = Handle::new(unsafe {
+            CreateFileW(
+                wide(parent)?.as_ptr(),
+                FILE_TRAVERSE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                null_mut(),
+            )
+        })
+        .map_err(|e| io::Error::new(e.kind(), format!("Open migration destination parent: {e}")))?;
         let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
         let length = offset + (destination.len() - 1) * 2;
         let mut storage = vec![0usize; length.div_ceil(std::mem::size_of::<usize>())];
@@ -60,7 +85,7 @@ impl SystemFiles for super::Windows {
             // FILE_RENAME_FLAG_POSIX_SEMANTICS: keep existing writer handles
             // valid while the directory name changes. No replacement flag is set.
             (*info).Anonymous.Flags = 2;
-            (*info).RootDirectory = null_mut();
+            (*info).RootDirectory = parent.0;
             (*info).FileNameLength = ((destination.len() - 1) * 2) as u32;
             std::ptr::copy_nonoverlapping(
                 destination.as_ptr(),
@@ -73,6 +98,9 @@ impl SystemFiles for super::Windows {
                 info.cast(),
                 length as u32,
             ))
+            .map_err(|e| {
+                io::Error::new(e.kind(), format!("Rename locked migration directory: {e}"))
+            })
         }
     }
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()> {
