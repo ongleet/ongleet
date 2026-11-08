@@ -1,3 +1,4 @@
+import { t, getLocale } from '../../i18n';
 import {
   Button,
   Dialog,
@@ -36,11 +37,12 @@ export function PullRequestConfigurationEditor({ value, onChange }: Configuratio
   return (
     <>
       <p className="muted">
-        The GitHub PR association is shared by the session. Set its repository and PR number or URL
-        inside the tab.
+        {t(
+          'The GitHub PR association is shared by the session. Set its repository and PR number or URL inside the tab.',
+        )}
       </p>
       <label>
-        Refresh interval (seconds)
+        {t('Refresh interval (seconds)')}
         <Input
           type="number"
           min="30"
@@ -147,7 +149,7 @@ export function PullRequestContent({
       !Array.isArray(cursor.ids) ||
       !cursor.ids.every((id) => typeof id === 'string')
     )
-      throw new Error('Invalid saved review read state');
+      throw new Error(t('Invalid saved review read state'));
     return cursor;
   }
   async function markReviewsRead() {
@@ -189,7 +191,7 @@ export function PullRequestContent({
       );
       if (request === generation.current) {
         setData(result);
-        setLastRefresh(new Date().toLocaleString());
+        setLastRefresh(new Date().toISOString());
         await updatePullRequestTag(
           sdk.session,
           pullRequestStatus(result),
@@ -304,30 +306,33 @@ export function PullRequestContent({
     >
       <div className="pr-association-fields">
         <label>
-          Repository or PR URL
+          {t('Repository or PR URL')}
           <Input
-            placeholder="owner/repository or GitHub PR URL"
+            placeholder={t('owner/repository or GitHub PR URL')}
             value={target}
             onChange={(event) => setTarget(event.target.value)}
           />
         </label>
         <label>
-          PR number
+          {t('PR number')}
           <Input
             type="number"
             min="1"
-            placeholder="PR number"
+            placeholder={t('PR number')}
             value={number}
             onChange={(event) => setNumber(event.target.value)}
           />
         </label>
       </div>
       <p className="muted">
-        This association belongs to the session. Clear the repository to remove it. Status and
-        session tags refresh every {interval} seconds while this tab is open, including when hidden.
+        {t(
+          'This association belongs to the session. Clear the repository to remove it. Status and session tags refresh every ',
+        )}
+        {interval}
+        {t(' seconds while this tab is open, including when hidden.')}
       </p>
       <label>
-        Refresh interval (seconds)
+        {t('Refresh interval (seconds)')}
         <Input
           type="number"
           min="30"
@@ -340,40 +345,48 @@ export function PullRequestContent({
       <div className="dialog-actions">
         {configurationOpen && (
           <Button type="button" disabled={saving} onClick={dismissConfiguration}>
-            Cancel
+            {t('Cancel')}
           </Button>
         )}
-        <Button disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+        <Button disabled={saving}>{saving ? t('Saving…') : t('Save')}</Button>
       </div>
     </form>
   );
   const connection = (
-    <section aria-label="GitHub connection">
-      <h3>GitHub connection</h3>
+    <section aria-label={t('GitHub connection')}>
+      <h3>{t('GitHub connection')}</h3>
       {!auth.loading && !auth.environment && (
         <p className="muted">
-          Neither GH_TOKEN nor GITHUB_TOKEN is set in Ongleet’s launch environment.
+          {t('Neither GH_TOKEN nor GITHUB_TOKEN is set in Ongleet’s launch environment.')}
         </p>
       )}
-      {auth.login && <p>Connected as {auth.login}</p>}
+      {auth.login && (
+        <p>
+          {t('Connected as ')}
+          {auth.login}
+        </p>
+      )}
       {auth.environment ? (
         <>
           <p className="muted">
-            Using {auth.environment} from Ongleet’s launch environment. Update it and restart
-            Ongleet to change the token.
+            {t('Using ')}
+            {auth.environment}
+            {t(
+              ' from Ongleet’s launch environment. Update it and restart Ongleet to change the token.',
+            )}
           </p>
           {(!auth.login || auth.paused) && (
             <Button
               disabled={auth.busy || auth.loading}
               onClick={() => void githubAuth.reconnect(sdk)}
             >
-              Reconnect
+              {t('Reconnect')}
             </Button>
           )}
         </>
       ) : auth.login && !replacing && !auth.paused ? (
         <Button onClick={() => setReplacing(true)} disabled={auth.busy}>
-          Replace token
+          {t('Replace token')}
         </Button>
       ) : (
         <form
@@ -385,7 +398,7 @@ export function PullRequestContent({
           }}
         >
           <label>
-            GitHub personal access token
+            {t('GitHub personal access token')}
             <Input
               type="password"
               autoComplete="off"
@@ -395,7 +408,7 @@ export function PullRequestContent({
             />
           </label>
           <Button disabled={auth.busy || auth.loading || !token.trim()}>
-            {auth.login ? 'Replace token' : 'Connect'}
+            {auth.login ? t('Replace token') : t('Connect')}
           </Button>
         </form>
       )}
@@ -404,7 +417,7 @@ export function PullRequestContent({
           disabled={auth.busy || auth.loading}
           onClick={() => void githubAuth.disconnect(sdk)}
         >
-          Disconnect
+          {t('Disconnect')}
         </Button>
       )}
       <Button
@@ -414,9 +427,9 @@ export function PullRequestContent({
             .catch((error) => setError(String(error)))
         }
       >
-        GitHub token settings
+        {t('GitHub token settings')}
       </Button>
-      {auth.loading && <p>Loading GitHub connection…</p>}
+      {auth.loading && <p>{t('Loading GitHub connection…')}</p>}
       {auth.error && (
         <p role="alert" className="error">
           {auth.error}
@@ -433,12 +446,12 @@ export function PullRequestContent({
     >
       <div className="pr-content">
         {!auth.loading && (!auth.login || auth.paused) && (
-          <p className="muted">Configure this tab to connect your GitHub account.</p>
+          <p className="muted">{t('Configure this tab to connect your GitHub account.')}</p>
         )}
         {!session.pullRequest && !configurationOpen && configuration}
         <Dialog
           ref={configurationDialog}
-          aria-label="Pull request configuration"
+          aria-label={t('Pull request configuration')}
           onCancel={(event) => {
             if (saving) event.preventDefault();
             else dismissConfiguration?.();
@@ -446,7 +459,10 @@ export function PullRequestContent({
         >
           {configurationOpen && (
             <div className="pr-configuration-body">
-              <h2>Configure {tab.name}</h2>
+              <h2>
+                {t('Configure ')}
+                {tab.name}
+              </h2>
               {connection}
               {configuration}
               {error && (
@@ -466,8 +482,8 @@ export function PullRequestContent({
               <Button
                 type="button"
                 className="pr-refresh"
-                aria-label={busy ? 'Refreshing pull request' : 'Refresh pull request'}
-                title={busy ? 'Refreshing…' : 'Refresh pull request'}
+                aria-label={busy ? t('Refreshing pull request') : t('Refresh pull request')}
+                title={busy ? t('Refreshing…') : t('Refresh pull request')}
                 disabled={busy || !auth.login || auth.paused || auth.busy || auth.loading}
                 onClick={() => void refresh()}
               >
@@ -502,35 +518,36 @@ export function PullRequestContent({
         {unread.length > 0 && (
           <div role="status">
             <p>
-              New reviews from{' '}
+              {t('New reviews from')}{' '}
               {Array.from(new Set(unread.map((review) => review.author!.login))).join(', ')}
             </p>
             <ul>
               {unread.map((review) => (
                 <li key={review.id}>
                   {review.author!.login}: {review.state} ·{' '}
-                  {new Date(review.submittedAt!).toLocaleString()}
+                  {new Date(review.submittedAt!).toLocaleString(getLocale())}
                 </li>
               ))}
             </ul>
-            <Button onClick={() => void markReviewsRead()}>Mark reviews read</Button>
+            <Button onClick={() => void markReviewsRead()}>{t('Mark reviews read')}</Button>
           </div>
         )}
         {data && (
           <>
             <p>
-              State: {pullRequestStatus(data)} · Review:{' '}
-              {data.reviewDecision || 'No review decision'}
+              {t('State: ')}
+              {pullRequestStatus(data)}
+              {t(' · Review:')} {data.reviewDecision || t('No review decision')}
             </p>
             <Button
               onClick={() =>
                 void sdk.desktop.openUrl(data.url).catch((error) => setError(String(error)))
               }
             >
-              Open pull request
+              {t('Open pull request')}
             </Button>
-            <section aria-label="Linked issues">
-              <h3>Linked issues</h3>
+            <section aria-label={t('Linked issues')}>
+              <h3>{t('Linked issues')}</h3>
               {data.issues.length ? (
                 <ul>
                   {data.issues.map((issue) => (
@@ -549,23 +566,26 @@ export function PullRequestContent({
                   ))}
                 </ul>
               ) : (
-                <p>No linked issues.</p>
+                <p>{t('No linked issues.')}</p>
               )}
             </section>
-            <p role="status">Pipeline: {pipelineStatus(data.statusCheckRollup)}</p>
-            <section aria-label="Reviews">
-              <h3>Reviews</h3>
+            <p role="status">
+              {t('Pipeline: ')}
+              {pipelineStatus(data.statusCheckRollup)}
+            </p>
+            <section aria-label={t('Reviews')}>
+              <h3>{t('Reviews')}</h3>
               {data.reviews?.length ? (
                 <ul>
                   {data.reviews.map((review) => (
                     <li key={review.id}>
-                      {review.author?.login ?? 'Deleted user'}: {review.state}
+                      {review.author?.login ?? t('Deleted user')}: {review.state}
                       {review.submittedAt && Number.isFinite(Date.parse(review.submittedAt)) && (
                         <>
                           {' '}
                           ·{' '}
                           <time dateTime={review.submittedAt}>
-                            {new Date(review.submittedAt).toLocaleString()}
+                            {new Date(review.submittedAt).toLocaleString(getLocale())}
                           </time>
                         </>
                       )}
@@ -573,42 +593,46 @@ export function PullRequestContent({
                   ))}
                 </ul>
               ) : (
-                <p>No reviews submitted.</p>
+                <p>{t('No reviews submitted.')}</p>
               )}
             </section>
             <Disclosure className="pr-checks" key={associationKey}>
-              <DisclosureTrigger>Checks</DisclosureTrigger>
+              <DisclosureTrigger>{t('Checks')}</DisclosureTrigger>
               {data.statusCheckRollup?.length ? (
                 <ul>
                   {data.statusCheckRollup.map((check, index) => (
                     <li key={index}>
                       {check.name ?? check.context}:{' '}
-                      {check.conclusion || check.state || check.status || 'Unknown'}
+                      {check.conclusion || check.state || check.status || t('Unknown')}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>No checks reported.</p>
+                <p>{t('No checks reported.')}</p>
               )}
             </Disclosure>
           </>
         )}
       </div>
       {session.pullRequest && (
-        <footer className="plugin-statusbar" aria-label="Pull request status">
+        <footer className="plugin-statusbar" aria-label={t('Pull request status')}>
           <span>
             {busy
-              ? 'Refreshing…'
+              ? t('Refreshing…')
               : error
-                ? 'Refresh failed'
+                ? t('Refresh failed')
                 : lastRefresh
-                  ? `Last refresh: ${lastRefresh}`
-                  : 'Not refreshed yet'}
+                  ? t('Last refresh: {value0}', {
+                      value0: new Date(lastRefresh).toLocaleString(getLocale()),
+                    })
+                  : t('Not refreshed yet')}
           </span>
           <span>
             {!auth.login || auth.paused
-              ? 'Connect GitHub to refresh'
-              : `Auto-refresh every ${interval}s · Also refreshes when hidden`}
+              ? t('Connect GitHub to refresh')
+              : t('Auto-refresh every {value0}s · Also refreshes when hidden', {
+                  value0: interval,
+                })}
           </span>
         </footer>
       )}

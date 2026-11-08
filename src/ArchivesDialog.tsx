@@ -1,3 +1,4 @@
+import { t, getLocale } from './i18n';
 import { Button, Dialog } from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
@@ -55,7 +56,7 @@ export function ArchivesDialog({
   return (
     <Dialog
       ref={dialog}
-      aria-label="Archives"
+      aria-label={t('Archives')}
       className="archives-dialog"
       onCancel={(event) => {
         event.preventDefault();
@@ -63,14 +64,15 @@ export function ArchivesDialog({
       }}
     >
       <div className="archives-heading">
-        <h2>Archives</h2>
+        <h2>{t('Archives')}</h2>
         <Button disabled={busy} onClick={dismiss}>
-          Close
+          {t('Close')}
         </Button>
       </div>
       <p className="muted">
-        Sessions and removed tabs are kept for 30 days from archival. Expired archives are purged at
-        startup and when archiving. Working files are never deleted.
+        {t(
+          'Sessions and removed tabs are kept for 30 days from archival. Expired archives are purged at startup and when archiving. Working files are never deleted.',
+        )}
       </p>
       {error && (
         <p className="error" role="alert">
@@ -79,20 +81,21 @@ export function ArchivesDialog({
       )}
       {data?.cleanupError && (
         <p className="error" role="alert">
-          Archive cleanup needs attention: {data.cleanupError}
+          {t('Archive cleanup needs attention: ')}
+          {data.cleanupError}
         </p>
       )}
-      {!data && !error && <p role="status">Loading archives…</p>}
-      {data?.entries.length === 0 && <p>No archives.</p>}
+      {!data && !error && <p role="status">{t('Loading archives…')}</p>}
+      {data?.entries.length === 0 && <p>{t('No archives.')}</p>}
       {!!data?.entries.length && (
         <table className="archives-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Type / context</th>
-              <th>Archived</th>
-              <th>Expires</th>
-              <th>Actions</th>
+              <th>{t('Name')}</th>
+              <th>{t('Type / context')}</th>
+              <th>{t('Archived')}</th>
+              <th>{t('Expires')}</th>
+              <th>{t('Actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -100,20 +103,23 @@ export function ArchivesDialog({
               <tr key={entry.id}>
                 <td>
                   {entry.name}
-                  <small>Archive #{entry.id}</small>
+                  <small>
+                    {t('Archive #')}
+                    {entry.id}
+                  </small>
                 </td>
                 <td>
-                  {entry.kind === 'session' ? 'Session' : 'Tab'}
+                  {entry.kind === 'session' ? t('Session') : t('Tab')}
                   <small>
                     {entry.projectName}
                     {entry.kind === 'tab' ? ` / ${entry.sessionName}` : ''}
                   </small>
                 </td>
-                <td>{new Date(entry.archivedAt * 1000).toLocaleDateString()}</td>
+                <td>{new Date(entry.archivedAt * 1000).toLocaleDateString(getLocale())}</td>
                 <td>
                   {entry.purging
-                    ? 'Deletion pending'
-                    : new Date(entry.expiresAt * 1000).toLocaleDateString()}
+                    ? t('Deletion pending')
+                    : new Date(entry.expiresAt * 1000).toLocaleDateString(getLocale())}
                 </td>
                 <td>
                   <div className="archive-actions">
@@ -123,27 +129,33 @@ export function ArchivesDialog({
                         if (
                           entry.restartTerminals > 0 &&
                           !(await confirm(
-                            `Restore “${entry.name}” and launch ${entry.restartTerminals} previously running terminal command(s) in new processes?`,
+                            t(
+                              'Restore “{value0}” and launch {value1} previously running terminal command(s) in new processes?',
+                              { value0: entry.name, value1: entry.restartTerminals },
+                            ),
                           ))
                         )
                           return;
                         await act('restore_archive', { id: entry.id });
                       }}
                     >
-                      Restore
+                      {t('Restore')}
                     </Button>
                     <Button
                       disabled={busy}
                       onClick={async () => {
                         if (
                           await confirm(
-                            `Permanently delete archive “${entry.name}” and its Ongleet history? This cannot be undone. Working files stay untouched.`,
+                            t(
+                              'Permanently delete archive “{value0}” and its Ongleet history? This cannot be undone. Working files stay untouched.',
+                              { value0: entry.name },
+                            ),
                           )
                         )
                           await act('purge_archive', { id: entry.id, confirmed: true });
                       }}
                     >
-                      Delete permanently
+                      {t('Delete permanently')}
                     </Button>
                   </div>
                 </td>
@@ -158,13 +170,13 @@ export function ArchivesDialog({
           onClick={async () => {
             if (
               await confirm(
-                'Permanently purge archives older than 30 days and retry pending cleanup?',
+                t('Permanently purge archives older than 30 days and retry pending cleanup?'),
               )
             )
               await act('prune_archives', { confirmed: true });
           }}
         >
-          Purge expired
+          {t('Purge expired')}
         </Button>
       </div>
     </Dialog>

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { TabPanel } from '../components/Controls';
 import { useEffect, useState, type ComponentType } from 'react';
 import { createSdk } from '../sdk/transport';
@@ -55,10 +56,7 @@ export function TabHost(props: HostProps) {
       hidden={!props.visible}
       className="plugin-panel"
     >
-      <p>
-        Plugin unavailable: {props.tab.kind} (configuration version {props.tab.configVersion}). Its
-        saved configuration has been retained.
-      </p>
+      <p>{t("Plugin unavailable: ")}{props.tab.kind}{t(" (configuration version ")}{props.tab.configVersion}{t("). Its saved configuration has been retained.")}</p>
     </TabPanel>
   );
 }

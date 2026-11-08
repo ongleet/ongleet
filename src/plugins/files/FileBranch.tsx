@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { FileIcon } from '../../components/FileIcon';
@@ -77,7 +78,7 @@ export function FileBranch(props: Props) {
               <FileBranch {...props} key={child.path} entry={child} />
             ))}
           </ul>
-          {busy && <p role="status">Loading files…</p>}
+          {busy && <p role="status">{t('Loading files…')}</p>}
           {error && (
             <p role="alert" className="error">
               {error}
@@ -85,11 +86,11 @@ export function FileBranch(props: Props) {
           )}
           {!busy && (!listing || listing.nextOffset != null || error) && (
             <Button type="button" onClick={() => void load(error ? 0 : (listing?.nextOffset ?? 0))}>
-              {error ? 'Retry loading' : 'Load more'}
+              {error ? t('Retry loading') : t('Load more')}
             </Button>
           )}
           {!busy && listing?.entries.length === 0 && (
-            <p className="muted file-list-empty">No entries in this folder.</p>
+            <p className="muted file-list-empty">{t('No entries in this folder.')}</p>
           )}
         </Disclosure>
       ) : (
@@ -102,7 +103,7 @@ export function FileBranch(props: Props) {
         >
           <FileIcon />
           <span className="file-tree-label">{entry.name}</span>
-          {entry.symlink && <span aria-label="Symbolic link">↗</span>}
+          {entry.symlink && <span aria-label={t('Symbolic link')}>↗</span>}
         </Button>
       )}
     </li>

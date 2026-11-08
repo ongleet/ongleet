@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button, TabPanel } from '../../components/Controls';
 import { useState } from 'react';
 import { useSdk } from '../../sdk';
@@ -40,7 +41,7 @@ function Content({ tab, visible }: PluginContentProps) {
     try {
       const { tabs } = await sdk.tabs.list();
       const terminal = tabs.find((tab) => tab.isOpen && tab.kind === 'terminal');
-      if (!terminal) throw new Error('Open a terminal first');
+      if (!terminal) throw new Error(t('Open a terminal first'));
       const capabilities = await sdk.tabs.capabilities(terminal.id);
       const state = await sdk.tabs.state(terminal.id, { lines: 10 });
       setMessage(JSON.stringify({ capabilities, state }));
@@ -55,7 +56,7 @@ function Content({ tab, visible }: PluginContentProps) {
     try {
       const { tabs } = await sdk.tabs.list();
       const terminal = tabs.find((tab) => tab.isOpen && tab.kind === 'terminal');
-      if (!terminal) throw new Error('Open a terminal first');
+      if (!terminal) throw new Error(t('Open a terminal first'));
       await sdk.tabs.invoke(terminal.id, 'send-text', { text: 'SDK example', enter: false });
       setMessage('Text write acknowledged.');
     } catch (error) {
@@ -67,22 +68,24 @@ function Content({ tab, visible }: PluginContentProps) {
   return (
     <TabPanel className="plugin-panel" id={`tab-panel-${tab.id}`} hidden={!visible}>
       <p>
-        Frontend-only filesystem, literal process arguments and revision-checked storage example.
+        {t(
+          'Frontend-only filesystem, literal process arguments and revision-checked storage example.',
+        )}
       </p>
       <Button disabled={busy} onClick={() => void run()}>
-        Run SDK example
+        {t('Run SDK example')}
       </Button>
       <Button disabled={busy} onClick={() => void inspectTerminal()}>
-        Discover terminal state
+        {t('Discover terminal state')}
       </Button>
       <Button disabled={busy} onClick={() => void sendExample()}>
-        Send example text without Enter
+        {t('Send example text without Enter')}
       </Button>
       <p role="status">{message}</p>
     </TabPanel>
   );
 }
 function ConfigurationEditor() {
-  return <p>Uses the session directory by default.</p>;
+  return <p>{t('Uses the session directory by default.')}</p>;
 }
 export default { Content, ConfigurationEditor, toDraft: JSON.stringify, fromDraft: JSON.parse };

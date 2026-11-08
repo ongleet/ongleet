@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button, Input, Select, TabPanel } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk, useTabInteractions, SdkError, type Listing, type SortOrder } from '../../sdk';
@@ -251,7 +252,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
           className="files-sidebar"
         >
           <div className="files-browser">
-            {restoringEditor && <p role="status">Reopening text file…</p>}
+            {restoringEditor && <p role="status">{t('Reopening text file…')}</p>}
             {restoreError && (
               <div className="error" role="alert">
                 <p>{restoreError}</p>
@@ -260,7 +261,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                     void leaveEditor().catch((error) => setRestoreError(String(error)))
                   }
                 >
-                  Keep browsing
+                  {t('Keep browsing')}
                 </Button>
               </div>
             )}
@@ -273,7 +274,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
             >
               <div className="files-path">
                 <Input
-                  aria-label="Folder"
+                  aria-label={t('Folder')}
                   value={path}
                   onChange={(event) => setPath(event.target.value)}
                   onKeyDown={(event) => {
@@ -286,8 +287,8 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 <Button
                   className="files-refresh"
                   type="button"
-                  aria-label="Refresh folder"
-                  title="Refresh folder"
+                  aria-label={t('Refresh folder')}
+                  title={t('Refresh folder')}
                   disabled={busy || restoringEditor}
                   onClick={() => void browse(listing?.folder)}
                 >
@@ -312,8 +313,8 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 <Input
                   className="files-search"
                   type="search"
-                  aria-label="Search filenames and paths in all subfolders"
-                  placeholder="Search all files by name or path…"
+                  aria-label={t('Search filenames and paths in all subfolders')}
+                  placeholder={t('Search all files by name or path…')}
                   disabled={restoringEditor || opening.current}
                   maxLength={256}
                   value={search}
@@ -326,12 +327,12 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                   <span
                     className="files-search-spinner"
                     role="status"
-                    aria-label="Searching files"
+                    aria-label={t('Searching files')}
                   />
                 )}
               </div>
               <Select
-                aria-label="Sort order (folders first)"
+                aria-label={t('Sort order (folders first)')}
                 value={order}
                 disabled={busy || restoringEditor}
                 onChange={(event) => {
@@ -339,12 +340,12 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                   void browse(listing?.folder, 0, event.target.value as SortOrder);
                 }}
               >
-                <option value="nameAscending">Name A–Z</option>
-                <option value="nameDescending">Name Z–A</option>
-                <option value="dateDescending">Newest</option>
-                <option value="dateAscending">Oldest</option>
-                <option value="sizeAscending">Smallest</option>
-                <option value="sizeDescending">Largest</option>
+                <option value="nameAscending">{t('Name A–Z')}</option>
+                <option value="nameDescending">{t('Name Z–A')}</option>
+                <option value="dateDescending">{t('Newest')}</option>
+                <option value="dateAscending">{t('Oldest')}</option>
+                <option value="sizeAscending">{t('Smallest')}</option>
+                <option value="sizeDescending">{t('Largest')}</option>
               </Select>
             </form>
 
@@ -367,7 +368,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 />
               )}
               {!search && (
-                <ul className="file-list" aria-label="Folder contents" aria-busy={busy}>
+                <ul className="file-list" aria-label={t('Folder contents')} aria-busy={busy}>
                   {listing?.entries.map((entry) => (
                     <FileBranch
                       key={entry.path}
@@ -390,25 +391,32 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 </ul>
               )}
               {!search && listing && !busy && listing.entries.length === 0 && (
-                <p className="muted file-list-empty">No entries in this folder.</p>
+                <p className="muted file-list-empty">{t('No entries in this folder.')}</p>
               )}
               <div ref={loadMore} className="files-load-more">
-                {busy && <p role="status">Loading files…</p>}
+                {busy && <p role="status">{t('Loading files…')}</p>}
                 {error && listing?.nextOffset != null && (
                   <Button onClick={() => void browse(listing.folder, listing.nextOffset!)}>
-                    Retry loading
+                    {t('Retry loading')}
                   </Button>
                 )}
               </div>
             </div>
-            <footer className="plugin-statusbar" aria-label="Files status">
+            <footer className="plugin-statusbar" aria-label={t('Files status')}>
               <span>
                 {listing
-                  ? `${listing.entries.length} entries loaded${listing.nextOffset != null ? ' · More available' : ''}`
-                  : 'No folder loaded'}
-                {busy ? ' · Loading…' : error ? ' · Refresh failed' : ''}
+                  ? t('{value0} entries loaded{value1}', {
+                      value0: listing.entries.length,
+                      value1: listing.nextOffset != null ? t(' · More available') : '',
+                    })
+                  : t('No folder loaded')}
+                {busy ? t(' · Loading…') : error ? t(' · Refresh failed') : ''}
               </span>
-              <span>Ctrl+H: {showHidden ? 'hide' : 'show'} hidden files</span>
+              <span>
+                {t('Ctrl+H: ')}
+                {showHidden ? t('hide') : t('show')}
+                {t(' hidden files')}
+              </span>
             </footer>
           </div>
         </FileSidebar>
@@ -425,7 +433,9 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
           ) : details ? (
             <FileDetails key={details.path} file={details} close={leaveEditor} />
           ) : (
-            <p className="muted files-editor-empty">Select a file from the explorer to open it.</p>
+            <p className="muted files-editor-empty">
+              {t('Select a file from the explorer to open it.')}
+            </p>
           )}
         </div>
       </div>

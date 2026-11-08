@@ -39,7 +39,7 @@ def run(args):
     actions.write_text(json.dumps({'actions':[
         {'id':'stream','name':'Stream','kind':'terminal','config':{'executable':'/usr/bin/python3','args':[str(probe)]}},
         {'id':'files','name':'Files','kind':'files','config':{}},
-        {'id':'diff','name':'Diff','kind':'diff','config':{}},
+        {'id':'diff','name':'Diff','kind':'diff','config':{'mode':'refs','baseRef':'HEAD~1','targetRef':'HEAD'}},
         *([{'id':'pr','name':'Pull request','kind':'pull-request','config':{}},
            {'id':'archive','name':'Archive fixture','kind':'terminal','config':{'executable':'/bin/true','args':[]}}] if args.surfaces else [])
     ]}))
@@ -90,10 +90,13 @@ def run(args):
                 client.click(f"//button[normalize-space()='{text}']",'xpath')
             def appearance():
                 client.click('.titlebar-menu > summary')
-                button('Appearance…')
-                native.wait_for(lambda:client.js('return !!document.querySelector("#appearance-title")'),'appearance dialog')
+                button('Configure…')
+                native.wait_for(lambda:client.js('return !!document.querySelector("#settings-appearance:not(:disabled)")'),'appearance tab')
+                client.click('#settings-appearance')
+                native.wait_for(lambda:client.js('return !!document.querySelector("#appearance-title")'),'appearance settings')
             def choose(index,value):
-                client.js("const el=document.querySelectorAll('dialog select')[arguments[0]]; el.value=arguments[1]; el.dispatchEvent(new Event('change',{bubbles:true}));",index,value)
+                client.js("const el=document.querySelectorAll('.appearance-settings select')[arguments[0]===0?1:2]; el.value=arguments[1]; el.dispatchEvent(new Event('change',{bubbles:true}));",index,value)
+                button('Save configuration')
                 native.wait_for(lambda:client.js("const p=JSON.parse(localStorage.getItem('ongleet.appearance'));return (arguments[0]===0?p.application:(p.terminal||''))===arguments[1]",index,value),'saved selection')
             def new_tab(name):
                 client.click('[aria-label="Session and tab menu"]')
@@ -114,7 +117,7 @@ def run(args):
             shell_pid=int(re.search(r'THEME_PID=(\d+)',client.screen(stream))[1])
             original_runtime=client.state(stream)['sessionId']
             appearance()
-            assert client.js("return document.querySelectorAll('dialog select')[0].value==='original' && document.querySelectorAll('dialog select')[1].value===''")
+            assert client.js("return document.querySelectorAll('.appearance-settings select')[1].value==='original' && document.querySelectorAll('.appearance-settings select')[2].value===''")
             for theme in ['original','dark-plus','light-plus','darcula','one-dark','monokai']:
                 choose(0,theme)
                 expected='light' if theme=='light-plus' else 'dark'
@@ -126,7 +129,7 @@ def run(args):
             choose(0,'one-dark')
             assert client.js("return document.querySelectorAll('.appearance-preview')[1].style.backgroundColor==='rgb(255, 255, 255)'")
             choose(1,'')
-            button('Done')
+            button('Close')
             mark('All six presets switch during live output; terminal runtime/PID unchanged; terminal override and inheritance persist')
             hidden_before=client.screen(stream)
             files=new_tab('Files')
@@ -141,7 +144,7 @@ def run(args):
             for theme in ['original','dark-plus','light-plus','darcula','one-dark','monokai']:
                 choose(0,theme)
                 assert client.js("return document.querySelector('.cm-content').innerText")==draft
-            button('Done')
+            button('Close')
             client.click('.editor-toolbar button[popovertarget]')
             client.click("//div[contains(@class,'editor-menu')]//button[contains(.,'Undo')]",'xpath')
             assert client.js("return document.querySelector('.cm-content').innerText")!=draft
@@ -150,12 +153,12 @@ def run(args):
             assert client.js("return document.querySelector('.cm-content').innerText")==draft
             mark('Native Files drafts and undo/redo survive all six presets while terminal continues hidden output')
             for theme in ['light-plus','one-dark']:
-                appearance();choose(0,theme);button('Done');screenshot('editor-'+theme)
+                appearance();choose(0,theme);button('Close');screenshot('editor-'+theme)
                 assert client.js("return getComputedStyle(document.querySelector('.cm-editor')).backgroundColor")==('rgb(255, 255, 255)' if theme=='light-plus' else 'rgb(40, 44, 52)')
             diff=new_tab('Diff')
             native.wait_for(lambda:client.js("return !!document.querySelector('.diff-code-insert')"),'Diff')
             for theme in ['light-plus','one-dark']:
-                appearance();choose(0,theme);button('Done')
+                appearance();choose(0,theme);button('Close')
                 colors=client.js("return ['.diff-code-insert','.diff-code-delete'].map(s=>getComputedStyle(document.querySelector(s)).backgroundColor)")
                 assert colors[0]!=colors[1],colors
                 screenshot('diff-'+theme)
@@ -164,11 +167,13 @@ def run(args):
             native.wait_for(lambda:client.screen(stream)!=hidden_before,'hidden stream output consumed')
             assert client.state(stream)['sessionId']==original_runtime
             assert Path(f'/proc/{shell_pid}').exists()
-            appearance();choose(0,'light-plus');choose(1,'monokai');button('Done')
+            appearance();choose(0,'light-plus');choose(1,'monokai');button('Close')
             second=new_tab('Stream')
             native.wait_for(lambda:'THEME_PID=' in client.screen(second),'new terminal')
             assert client.js("return document.querySelectorAll('canvas').length>=2")
             mark('Hidden terminal consumes output and reveals with same PID; new terminal opens after palette change')
+            # A stale WebView cache must not override the YAML on startup.
+            client.js("localStorage.setItem('ongleet.appearance',JSON.stringify({version:1,application:'dark-plus',terminal:null}))")
             client.js("setTimeout(()=>window.__TAURI_INTERNALS__.invoke('quit',{confirmed:true}),0)")
             native.wait_for(lambda:not any(p['name']=='ongleet-gui' for p in native.owned_processes(directory)),'quit')
             client.request('DELETE','');client.session=None
@@ -176,10 +181,33 @@ def run(args):
             assert client.js("return document.documentElement.style.colorScheme==='light' && JSON.parse(localStorage.getItem('ongleet.appearance')).terminal==='monokai'")
             client.click(f'#tab-{files}')
             native.wait_for(lambda:client.js("return document.querySelector('.cm-content')?.innerText.includes('draft')"),'restart editor draft')
-            appearance();button('Restore defaults')
-            assert client.js("const p=JSON.parse(localStorage.getItem('ongleet.appearance'));return p.application==='original' && p.terminal===null")
-            button('Done')
-            mark('Fresh app restart restores application/terminal preferences and unsaved draft; Restore defaults resets both')
+            appearance();button('Restore defaults');button('Save configuration')
+            native.wait_for(lambda:client.js("const p=JSON.parse(localStorage.getItem('ongleet.appearance'));return p.application==='original' && p.terminal===null"), 'defaults saved')
+            button('Close')
+            mark('Fresh app restart loads YAML over stale cached preferences and retains unsaved draft; Restore defaults resets both')
+            appearance()
+            choose(0, 'dark-plus')
+            client.click('#settings-yaml')
+            yaml = client.js("return document.querySelector('#project-actions-yaml').value")
+            parsed = client.invoke('parse_actions', {'yaml': yaml})
+            assert parsed['appearance']['application'] == 'dark-plus'
+            parsed['appearance'] = {'application': 'light-plus', 'terminal': 'monokai', 'language': 'fr'}
+            updated = client.invoke('format_actions', {'config': parsed})
+            client.js("const el=document.querySelector('#project-actions-yaml');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(el,arguments[0]);el.dispatchEvent(new Event('input',{bubbles:true}));", updated)
+            client.click('#settings-appearance')
+            native.wait_for(lambda:client.js("return document.querySelectorAll('.appearance-settings select')[0].value==='fr'"), 'YAML to appearance form')
+            button('Save configuration')
+            native.wait_for(lambda:client.js("return document.documentElement.lang==='fr' && document.querySelector('#settings-appearance').textContent==='Apparence'"), 'saved French UI')
+            assert client.js("return document.documentElement.style.colorScheme==='light'")
+            persisted = client.invoke('parse_actions', {'yaml': client.invoke('default_actions')})
+            assert persisted['appearance'] == parsed['appearance']
+            # Use language-independent selectors while the interface is French.
+            client.js("const el=document.querySelectorAll('.appearance-settings select')[0];el.value='en';el.dispatchEvent(new Event('change',{bubbles:true}));")
+            client.click('.settings-footer button:last-child')
+            native.wait_for(lambda:client.js("return document.documentElement.lang==='en'"), 'restore English')
+            button('Close')
+            mark('Appearance form and global YAML roundtrip themes/language; saved language updates the mounted UI')
+
             if args.surfaces:
                 # Dummy launch token + validation HTTP interception avoid Secret Service
                 # access and live GitHub calls while rendering a populated PR panel.
@@ -203,9 +231,9 @@ def run(args):
                         'background':'rgb(243, 243, 243)' if theme=='light-plus' else 'rgb(33, 37, 43)',
                         'text':'rgb(32, 32, 32)' if theme=='light-plus' else 'rgb(171, 178, 191)'}
                 for theme in ['light-plus','one-dark']:
-                    appearance();choose(0,theme);button('Done')
+                    appearance();choose(0,theme);button('Close')
                     app_menu('Configure…')
-                    native.wait_for(lambda:client.js("return !!document.querySelector('dialog[aria-label=\"Default actions\"] input:not(:disabled)')"),'default actions loaded')
+                    native.wait_for(lambda:client.js("return !!document.querySelector('dialog[aria-label=\"Application settings\"] input:not(:disabled)')"),'default actions loaded')
                     assert themed_dialog(theme)
                     client.click('dialog[open] [aria-label="Action name"]')
                     focus=client.js("const el=document.activeElement;window.previousFocus=el;return {border:getComputedStyle(el).borderTopColor,focused:el.matches(':focus'),documentFocused:document.hasFocus(),accent:getComputedStyle(el).getPropertyValue('--accent')}")

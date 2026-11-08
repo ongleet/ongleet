@@ -101,6 +101,18 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 - Window close confirms, flushes plugins and hides for two minutes before cleanup/exit; reopening cancels the deadline. Explicit Quit confirms and exits immediately; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart the last recorded running set and eligible failed launches/nonzero `ong-codex` exits. Explicitly stopped/closed tabs and other exited commands never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
+## UI localization
+
+Use `t` from `src/i18n.ts` for UI copy. English source messages are catalog keys;
+French translations live in `src/locales/fr.ts`. Use named placeholders for dynamic
+values and keep user content and protocol identifiers outside translation calls.
+English is the default and fallback. The global configuration Appearance tab stores themes and language in
+`actions.yaml`; localStorage provides a legacy fallback and startup cache.
+Project configurations never inherit global appearance settings. `useLocale` subscribes React surfaces;
+CodeMirror uses locale subscriptions to reconfigure existing editors without
+recreating documents or undo history. Run `mise exec -- npm run check:i18n` for
+preference, fallback, interpolation and static catalog checks.
+
 ## Shared form controls
 
 Use `src/components/Controls.tsx` for app and plugin buttons, inputs, selects, textareas, dialogs,

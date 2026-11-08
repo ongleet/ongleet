@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button } from '../../components/Controls';
 import { useState } from 'react';
 import { useSdk } from '../../sdk';
@@ -37,16 +38,16 @@ export function FileDetails({
     }
   }
   return (
-    <section className="file-details" aria-label="File details">
+    <section className="file-details" aria-label={t('File details')}>
       <h2>{name}</h2>
       <p className="muted">{file.reason}</p>
       <dl>
-        <dt>Name</dt>
+        <dt>{t('Name')}</dt>
         <dd>{name}</dd>
-        <dt>Path</dt>
+        <dt>{t('Path')}</dt>
         <dd>{file.path}</dd>
-        <dt>Extension</dt>
-        <dd>{extension ? `.${extension}` : 'None'}</dd>
+        <dt>{t('Extension')}</dt>
+        <dd>{extension ? `.${extension}` : t('None')}</dd>
       </dl>
       {error && (
         <p role="alert" className="error">
@@ -55,13 +56,13 @@ export function FileDetails({
       )}
       <div className="file-details-actions">
         <Button disabled={busy} onClick={() => void openExternally()}>
-          {busy ? 'Opening…' : 'Open in default application'}
+          {busy ? t('Opening…') : t('Open in default application')}
         </Button>
         <Button
           disabled={busy}
           onClick={() => void close().catch((error) => setError(String(error)))}
         >
-          Close file
+          {t('Close file')}
         </Button>
       </div>
     </section>

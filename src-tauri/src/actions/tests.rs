@@ -163,3 +163,55 @@ fn global_defaults_seed_new_projects_without_changing_existing_projects() {
     assert!(!project_path(&directory, 3).exists());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn global_appearance_roundtrips_and_rejects_invalid_values() {
+    let text = format!(
+        "{DEFAULTS}\nappearance:\n  application: dark-plus\n  terminal: monokai\n  language: fr\n"
+    );
+    let config = parse_config(&text).unwrap();
+    let expected = Appearance {
+        application: "dark-plus".into(),
+        terminal: Some("monokai".into()),
+        language: "fr".into(),
+    };
+    assert_eq!(config.appearance.as_ref(), Some(&expected));
+    let roundtrip = parse_config(&format(config).unwrap()).unwrap();
+    assert_eq!(roundtrip.appearance.as_ref(), Some(&expected));
+    assert_eq!(roundtrip.actions.len(), parse(DEFAULTS).unwrap().len());
+    assert!(parse_config(DEFAULTS).unwrap().appearance.is_none());
+    let empty = parse_config(&format!("{DEFAULTS}\nappearance: {{}}\n"))
+        .unwrap()
+        .appearance
+        .unwrap();
+    assert_eq!(empty.application, "original");
+    assert_eq!(empty.terminal, None);
+    assert_eq!(empty.language, "en");
+    for invalid in [
+        text.replace("dark-plus", "unknown"),
+        text.replace("monokai", "unknown"),
+        text.replace("language: fr", "language: de"),
+        text.replace("language: fr", "language: fr\n  typo: true"),
+    ] {
+        assert!(parse_config(&invalid).is_err());
+    }
+}
+
+#[test]
+fn global_appearance_is_not_copied_to_projects_or_saved_as_project_settings() {
+    let directory =
+        std::env::temp_dir().join(format!("appearance-project-test-{}", std::process::id()));
+    let text = format!("{DEFAULTS}\nappearance: {{application: light-plus, language: fr}}\n");
+    save_default_yaml(&directory, &text).unwrap();
+    load_project(&directory, 77).unwrap();
+    let project_yaml = read_project_yaml(&directory, 77).unwrap();
+    assert!(parse_config(&project_yaml).unwrap().appearance.is_none());
+    assert_eq!(parse(&project_yaml).unwrap()[0].name, "Bash");
+    assert!(save_project_yaml(&directory, 77, &text).is_err());
+    assert_eq!(read_project_yaml(&directory, 77).unwrap(), project_yaml);
+    assert_eq!(read_default_yaml(&directory).unwrap(), text);
+    let invalid = text.replace("light-plus", "unknown");
+    assert!(save_default_yaml(&directory, &invalid).is_err());
+    assert_eq!(read_default_yaml(&directory).unwrap(), text);
+    std::fs::remove_dir_all(directory).unwrap();
+}

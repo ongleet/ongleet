@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Input } from '../../components/Controls';
 import type { ConfigurationEditorProps } from '..';
 export function FilesConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
@@ -11,9 +12,9 @@ export function FilesConfigurationEditor({ value, onChange }: ConfigurationEdito
   }
   return (
     <label>
-      Initial folder
+      {t('Initial folder')}
       <Input
-        placeholder="Session directory"
+        placeholder={t('Session directory')}
         value={folder}
         onChange={(event) =>
           onChange(JSON.stringify({ ...config, folder: event.target.value || undefined }))

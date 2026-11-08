@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button, Input, TabPanel } from '../../components/Controls';
 import { useEffect, useState } from 'react';
 import { useSdk, useTabInteractions } from '../../sdk';
@@ -88,9 +89,9 @@ function Content({ tab, visible }: PluginContentProps) {
       hidden={!visible}
     >
       <div className="note-workspace">
-        <aside className="note-sidebar" aria-label="Notes">
+        <aside className="note-sidebar" aria-label={t('Notes')}>
           <div className="note-sidebar-heading">
-            <strong>Notes</strong>
+            <strong>{t('Notes')}</strong>
             <Button
               disabled={note.loading || !note.notes.length}
               onClick={() =>
@@ -99,7 +100,7 @@ function Content({ tab, visible }: PluginContentProps) {
                 })
               }
             >
-              Add note
+              {t('Add note')}
             </Button>
           </div>
           <div className="note-list">
@@ -117,12 +118,12 @@ function Content({ tab, visible }: PluginContentProps) {
         </aside>
         <div className="note-editor">
           <div className="note-toolbar">
-            <span>Markdown · saved automatically</span>
+            <span>{t('Markdown · saved automatically')}</span>
             <Button
               disabled={note.loading || note.saving}
               onClick={() => void note.load(true).catch(() => {})}
             >
-              {note.dirty ? 'Discard edits and reload' : 'Reload'}
+              {note.dirty ? t('Discard edits and reload') : t('Reload')}
             </Button>
           </div>
           {!!note.notes.length && (
@@ -145,14 +146,15 @@ function Content({ tab, visible }: PluginContentProps) {
       {(note.error || inputError) && <p role="alert">{inputError || note.error}</p>}
       <div className="plugin-statusbar" role="status">
         {note.loading
-          ? 'Loading…'
+          ? t('Loading…')
           : note.saving
-            ? 'Saving…'
+            ? t('Saving…')
             : note.dirty
-              ? 'Unsaved changes'
-              : 'Saved locally'}
+              ? t('Unsaved changes')
+              : t('Saved locally')}
         {' · '}
-        {new TextEncoder().encode(note.text).length} / 24576 bytes
+        {new TextEncoder().encode(note.text).length}
+        {t(' / 24576 bytes')}
       </div>
     </TabPanel>
   );
@@ -171,9 +173,9 @@ function NoteName({
   useEffect(() => setDraft(name), [name]);
   return (
     <label className="note-name">
-      Name
+      {t('Name')}
       <Input
-        aria-label="Note name"
+        aria-label={t('Note name')}
         value={draft}
         disabled={disabled}
         onChange={(event) => setDraft(event.target.value)}
@@ -190,7 +192,7 @@ function NoteName({
 }
 
 function ConfigurationEditor() {
-  return <p>Markdown notes saved locally with this tab. Archiving retains its contents.</p>;
+  return <p>{t('Markdown notes saved locally with this tab. Archiving retains its contents.')}</p>;
 }
 
 export default {

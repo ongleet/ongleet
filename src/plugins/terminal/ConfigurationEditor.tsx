@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Input, Select } from '../../components/Controls';
 import type { ConfigurationEditorProps } from '..';
 export type LaunchDraft = {
@@ -18,29 +19,29 @@ export function LaunchConfigurationEditor({
   return (
     <>
       <label>
-        Launch mode
+        {t('Launch mode')}
         <Select
           value={action.mode}
           onChange={(event) => patch({ mode: event.target.value as LaunchDraft['mode'] })}
         >
-          <option value="executable">Executable + arguments</option>
-          <option value="shell">Shell command</option>
+          <option value="executable">{t('Executable + arguments')}</option>
+          <option value="shell">{t('Shell command')}</option>
         </Select>
       </label>
       {action.mode === 'executable' ? (
         <>
           <label>
-            Executable
+            {t('Executable')}
             <Input
-              aria-label="Executable"
+              aria-label={t('Executable')}
               value={action.executable}
               onChange={(event) => patch({ executable: event.target.value })}
             />
           </label>
           <label>
-            Arguments (JSON array)
+            {t('Arguments (JSON array)')}
             <Input
-              aria-label="Arguments"
+              aria-label={t('Arguments')}
               value={action.args}
               onChange={(event) => patch({ args: event.target.value })}
             />
@@ -48,26 +49,26 @@ export function LaunchConfigurationEditor({
         </>
       ) : (
         <label>
-          Shell command
+          {t('Shell command')}
           <Input
-            aria-label="Shell command"
+            aria-label={t('Shell command')}
             value={action.shell}
             onChange={(event) => patch({ shell: event.target.value })}
           />
         </label>
       )}
       <label>
-        Directory override
+        {t('Directory override')}
         <Input
           value={action.cwd}
-          placeholder="Session directory"
+          placeholder={t('Session directory')}
           onChange={(event) => patch({ cwd: event.target.value })}
         />
       </label>
       <label>
-        Environment overrides (JSON)
+        {t('Environment overrides (JSON)')}
         <Input
-          aria-label="Environment overrides"
+          aria-label={t('Environment overrides')}
           value={action.env}
           onChange={(event) => patch({ env: event.target.value })}
         />
@@ -98,14 +99,14 @@ export function launchConfig(text: string): unknown {
   const args: unknown = action.mode === 'executable' ? JSON.parse(action.args) : [];
   const env: unknown = JSON.parse(action.env);
   if (!Array.isArray(args) || !args.every((value) => typeof value === 'string'))
-    throw new Error('Arguments must be a JSON array of strings.');
+    throw new Error(t('Arguments must be a JSON array of strings.'));
   if (
     !env ||
     typeof env !== 'object' ||
     Array.isArray(env) ||
     !Object.values(env).every((value) => typeof value === 'string')
   )
-    throw new Error('Environment must be a JSON object of strings.');
+    throw new Error(t('Environment must be a JSON object of strings.'));
   return {
     executable: action.mode === 'executable' ? action.executable : null,
     args,

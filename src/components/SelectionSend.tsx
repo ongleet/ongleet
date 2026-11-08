@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { Button, Dialog, Select, Textarea } from './Controls';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
@@ -83,7 +84,11 @@ export function SelectionSend({
       }
     } catch (error) {
       if (mounted.current)
-        setError(`Send failed; delivery may be ambiguous. No retry was made. ${String(error)}`);
+        setError(
+          t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
+            value0: String(error),
+          }),
+        );
     } finally {
       writing.current = false;
       if (mounted.current) setBusy(false);
@@ -97,7 +102,7 @@ export function SelectionSend({
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => void open()}
       >
-        Send selection…
+        {t('Send selection…')}
       </Button>
       {status && <span role="status">{status}</span>}
       {error && !selection && <span role="alert">{error}</span>}
@@ -105,7 +110,7 @@ export function SelectionSend({
         createPortal(
           <Dialog
             ref={dialog}
-            aria-label="Send selected code"
+            aria-label={t('Send selected code')}
             onCancel={(event) => {
               if (busy) event.preventDefault();
               else {
@@ -121,14 +126,14 @@ export function SelectionSend({
                 void send();
               }}
             >
-              <h2>Send selected code</h2>
+              <h2>{t('Send selected code')}</h2>
               <p>
                 {selection.path} · {selection.location}
-                {selection.unsaved ? ' · Unsaved buffer' : ''}
+                {selection.unsaved ? t(' · Unsaved buffer') : ''}
               </p>
               <pre className="selection-preview">{selection.text}</pre>
               <label>
-                Optional comment or question
+                {t('Optional comment or question')}
                 <Textarea
                   autoFocus
                   value={question}
@@ -138,7 +143,7 @@ export function SelectionSend({
               </label>
               {targets.length > 1 && (
                 <label>
-                  Send to
+                  {t('Send to')}
                   <Select
                     value={target ?? ''}
                     disabled={busy}
@@ -146,7 +151,7 @@ export function SelectionSend({
                       setTarget(event.target.value ? Number(event.target.value) : undefined)
                     }
                   >
-                    <option value="">Choose a tab</option>
+                    <option value="">{t('Choose a tab')}</option>
                     {targets.map((tab) => (
                       <option key={tab.id} value={tab.id}>
                         {tab.name}
@@ -156,9 +161,9 @@ export function SelectionSend({
                 </label>
               )}
               {loadingTargets ? (
-                <p>Finding receiving tabs…</p>
+                <p>{t('Finding receiving tabs…')}</p>
               ) : (
-                !targets.length && <p>No available receiving tabs in this session.</p>
+                !targets.length && <p>{t('No available receiving tabs in this session.')}</p>
               )}
               {error && <p role="alert">{error}</p>}
               <div className="dialog-actions">
@@ -170,10 +175,14 @@ export function SelectionSend({
                     attempt.current++;
                   }}
                 >
-                  Cancel
+                  {t('Cancel')}
                 </Button>
                 <Button type="submit" disabled={busy || target === undefined}>
-                  {busy ? 'Sending…' : targets.length === 1 ? `Send to ${targets[0].name}` : 'Send'}
+                  {busy
+                    ? t('Sending…')
+                    : targets.length === 1
+                      ? t('Send to {value0}', { value0: targets[0].name })
+                      : t('Send')}
                 </Button>
               </div>
             </form>

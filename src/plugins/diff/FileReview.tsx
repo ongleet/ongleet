@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Button } from '../../components/Controls';
 import { Checkbox } from '../../components/Checkbox';
 import type { ReactNode } from 'react';
@@ -33,7 +34,7 @@ export function FileReview({
         <Button
           type="button"
           className="diff-fold"
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${path}`}
+          aria-label={t(expanded ? 'Collapse {path}' : 'Expand {path}', { path })}
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
@@ -45,17 +46,17 @@ export function FileReview({
           </span>{' '}
           {path}
         </span>
-        <Button onClick={comment}>Comment</Button>
+        <Button onClick={comment}>{t('Comment')}</Button>
         <label className="diff-viewed">
           <Checkbox
             checked={viewed}
             disabled={patch === undefined || failed || !patch}
-            aria-label={`Mark ${path} as viewed`}
+            aria-label={t('Mark {value0} as viewed', { value0: path })}
             onChange={(event) => {
               setViewed(event.target.checked);
             }}
           />
-          Viewed
+          {t('Viewed')}
         </label>
       </header>
       {expanded && <div className="diff-file-content">{children}</div>}

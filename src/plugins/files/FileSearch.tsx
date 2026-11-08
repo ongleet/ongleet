@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/Controls';
 import { useSdk, type FileSearch as SearchResults } from '../../sdk';
@@ -58,7 +59,7 @@ export function FileSearch({
   }, [sdk, folder, query, showHidden, refresh]);
   if (!query) return null;
   return (
-    <div className="files-search-results" aria-label="File search results" aria-busy={busy}>
+    <div className="files-search-results" aria-label={t('File search results')} aria-busy={busy}>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -66,9 +67,12 @@ export function FileSearch({
       )}
       {result && (
         <p role="status" className="muted">
-          {result.matches.length} matching files
-          {result.truncated ? ' · Search limit reached; narrow your search' : ''}
-          {result.skipped > 0 ? ` · ${result.skipped} entries could not be searched` : ''}
+          {result.matches.length}
+          {t(' matching files')}
+          {result.truncated ? t(' · Search limit reached; narrow your search') : ''}
+          {result.skipped > 0
+            ? t(' · {value0} entries could not be searched', { value0: result.skipped })
+            : ''}
         </p>
       )}
       <ul className="file-list">

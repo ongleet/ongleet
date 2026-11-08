@@ -11,6 +11,11 @@ and run plugin actions. GUI and CLI control the same workspace.
 [Get started](#get-started) · [CLI workflow](#let-your-agent-drive) ·
 [Architecture](#built-for-continuity-and-control) · [Usage guide](docs/USAGE.md)
 
+The interface supports English (default) and French. Choose **Application →
+Configure… → Appearance → Language**, then save the configuration. Preferences
+are stored in the global YAML;
+terminal output, user content, and backend diagnostics keep their original language.
+
 ## One workspace for the whole task
 
 Organize work as **projects → sessions → tabs**. Keep agents, shells, files and

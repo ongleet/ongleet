@@ -1,3 +1,4 @@
+import { t, getLocale } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Input, TabPanel } from '../../components/Controls';
 import { SelectionSend } from '../../components/SelectionSend';
 import { captureDiffSelection } from './selection';
@@ -37,10 +38,10 @@ const Viewer = memo(
     loading: boolean;
   }) {
     try {
-      if (!patch) return <p>This file changed during the comparison. Refresh to update.</p>;
+      if (!patch) return <p>{t('This file changed during the comparison. Refresh to update.')}</p>;
       const files = parseDiff(patch);
       if (!files.length || (patch.includes('\n@@ ') && !files.some((file) => file.hunks.length)))
-        throw new Error('Patch parser returned no text hunks.');
+        throw new Error(t('Patch parser returned no text hunks.'));
       const metadata = patch
         .split('\n')
         .filter((line) =>
@@ -102,7 +103,10 @@ const Viewer = memo(
                         className="diff-line-comment"
                         data-comment-side={side}
                         data-comment-line={line}
-                        aria-label={`Comment on ${side} line ${line}`}
+                        aria-label={t('Comment on {value0} line {value1}', {
+                          value0: side,
+                          value1: line,
+                        })}
                         onClick={() => comment(side, line)}
                       >
                         <span className="diff-line-number">{renderDefault()}</span>
@@ -124,8 +128,8 @@ const Viewer = memo(
                         <Button
                           type="button"
                           className="diff-expand-context"
-                          aria-label="Show 20 more context lines"
-                          title="Show 20 more context lines"
+                          aria-label={t('Show 20 more context lines')}
+                          title={t('Show 20 more context lines')}
                           disabled={loading}
                           onClick={expand}
                         >
@@ -154,8 +158,8 @@ const Viewer = memo(
               <div key={i}>
                 <p>
                   {file.isBinary
-                    ? 'Binary file changed.'
-                    : 'Metadata-only change (permissions, rename, symlink or submodule).'}
+                    ? t('Binary file changed.')
+                    : t('Metadata-only change (permissions, rename, symlink or submodule).')}
                 </p>
                 <pre>{patch}</pre>
               </div>
@@ -164,7 +168,12 @@ const Viewer = memo(
         </>
       );
     } catch (error) {
-      return <p role="alert">Cannot render patch: {String(error)}</p>;
+      return (
+        <p role="alert">
+          {t('Cannot render patch: ')}
+          {String(error)}
+        </p>
+      );
     }
   },
   (previous, next) =>
@@ -212,7 +221,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   );
   const scopedGit = (current: () => boolean) =>
     new GitComparison((request) => {
-      if (!current()) throw new Error('Comparison cancelled.');
+      if (!current()) throw new Error(t('Comparison cancelled.'));
       return sdk.process.run(request);
     });
   const lane = useMemo(() => new Lane(sdk.process.cancel), [sdk]);
@@ -481,7 +490,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             try {
               if (bytes >= 8 * 1024 * 1024)
                 throw new Error(
-                  'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
+                  t(
+                    'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
+                  ),
                 );
               const text = await git.patch(
                 next,
@@ -491,7 +502,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
               const size = new TextEncoder().encode(text).length;
               if (bytes + size > 8 * 1024 * 1024)
                 throw new Error(
-                  'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
+                  t(
+                    'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
+                  ),
                 );
               bytes += size;
               if (!current()) return;
@@ -584,7 +597,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const composer = compose && (
     <div className="diff-discussion diff-new-thread">
       <p>
-        {compose.path} · {compose.side ?? 'file'} {compose.line ?? ''}
+        {compose.path} · {compose.side ?? t('file')} {compose.line ?? ''}
       </p>
       <Composer
         autoFocus
@@ -600,17 +613,17 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           setCompose(undefined);
         }}
       />
-      <Button onClick={() => setCompose(undefined)}>Cancel</Button>
+      <Button onClick={() => setCompose(undefined)}>{t('Cancel')}</Button>
     </div>
   );
   const labels: Record<string, string> = {
-    A: 'Added',
-    M: 'Modified',
-    D: 'Deleted',
-    R: 'Renamed',
-    T: 'Type changed',
-    C: 'Copied',
-    U: 'Unmerged',
+    A: t('Added'),
+    M: t('Modified'),
+    D: t('Deleted'),
+    R: t('Renamed'),
+    T: t('Type changed'),
+    C: t('Copied'),
+    U: t('Unmerged'),
   };
   return (
     <TabPanel
@@ -638,7 +651,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           tabId={tab.id}
           visible={visible}
           capture={() => {
-            if (!viewer.current || !comparison) throw new Error('Comparison unavailable.');
+            if (!viewer.current || !comparison) throw new Error(t('Comparison unavailable.'));
             return captureDiffSelection(
               viewer.current,
               tab.id,
@@ -651,26 +664,32 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             );
           }}
         />
-        <Button type="submit">Compare</Button>
+        <Button type="submit">{t('Compare')}</Button>
         <Button type="button" className="diff-refresh" onClick={refresh}>
           <span className="diff-spinner-slot">
             {loading && (
-              <span className="diff-spinner" role="status" aria-label="Loading comparison" />
+              <span className="diff-spinner" role="status" aria-label={t('Loading comparison')} />
             )}
           </span>
-          Refresh
+          {t('Refresh')}
         </Button>
       </form>
       {(commentError || comments.error) && <p role="alert">{commentError || comments.error}</p>}
-      {tagError && <p role="alert">Could not update the session change count: {tagError}</p>}
+      {tagError && (
+        <p role="alert">
+          {t('Could not update the session change count: ')}
+          {tagError}
+        </p>
+      )}
       {error && (
         <p role="alert">
-          {error} Check the folder, Git installation and revision expressions, then Compare again.
+          {error}
+          {t(' Check the folder, Git installation and revision expressions, then Compare again.')}
         </p>
       )}
       {!comparison && comments.threads.length > 0 && (
         <section>
-          <h3>Saved comments · comparison unavailable</h3>
+          <h3>{t('Saved comments · comparison unavailable')}</h3>
           {comments.threads.map(discussion)}
         </section>
       )}
@@ -678,10 +697,10 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
         <div className="diff-layout">
           <DiffSidebar>
             <label>
-              Filter filenames
+              {t('Filter filenames')}
               <Input value={filter} onChange={(e) => setFilter(e.target.value)} />
             </label>
-            <nav className="file-tree" ref={tree} aria-label="Changed files">
+            <nav className="file-tree" ref={tree} aria-label={t('Changed files')}>
               <FileTree
                 files={comparison.files.filter((f) =>
                   `${f.oldPath}\n${f.path}`.toLowerCase().includes(filter.toLowerCase()),
@@ -691,9 +710,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                 labels={labels}
               />
             </nav>
-            {!comparison.files.length && <p>No changes.</p>}
+            {!comparison.files.length && <p>{t('No changes.')}</p>}
           </DiffSidebar>
-          <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label="Unified diff">
+          <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label={t('Unified diff')}>
             <div className="diff-page">
               {comparison.files.map((file) => (
                 <article
@@ -785,24 +804,26 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                         }}
                       />
                     ) : (
-                      <p>{loading ? 'Loading patch…' : 'Patch unavailable. Refresh to retry.'}</p>
+                      <p>
+                        {loading ? t('Loading patch…') : t('Patch unavailable. Refresh to retry.')}
+                      </p>
                     )}
                   </FileReview>
                 </article>
               ))}
               {comments.threads.some((t) => t.orphan) && (
                 <section>
-                  <h3>Orphan comments</h3>
+                  <h3>{t('Orphan comments')}</h3>
                   {comments.threads.filter((t) => t.orphan).map(discussion)}
                 </section>
               )}
-              {!comparison.files.length && <p>No changes.</p>}
+              {!comparison.files.length && <p>{t('No changes.')}</p>}
             </div>
           </div>
         </div>
       )}
       {comparison && (
-        <footer className="plugin-statusbar diff-statusbar" aria-label="Diff status">
+        <footer className="plugin-statusbar diff-statusbar" aria-label={t('Diff status')}>
           <div className="diff-summary">
             {
               {
@@ -813,22 +834,26 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}
             {comparison.target
               ? `${comparison.targetLabel} (${comparison.target.slice(0, 12)})`
-              : 'Working directory'}{' '}
-            · Last successful refresh {new Date(comparison.time).toLocaleTimeString()}
-            {error && ' · Stale'}
+              : t('Working directory')}{' '}
+            {t('· Last successful refresh ')}
+            {new Date(comparison.time).toLocaleTimeString(getLocale())}
+            {error && t(' · Stale')}
           </div>
           <span>
-            {comparison.files.length} changed files ·{' '}
+            {comparison.files.length}
+            {t(' changed files ·')}{' '}
             {
               comparison.files.filter((file) =>
                 `${file.oldPath}\n${file.path}`.toLowerCase().includes(filter.toLowerCase()),
               ).length
             }{' '}
-            matching filter
+            {t('matching filter')}
           </span>
           {(loading || error) && (
             <span>
-              {loading ? 'Loading comparison…' : 'Refresh failed · Showing previous comparison'}
+              {loading
+                ? t('Loading comparison…')
+                : t('Refresh failed · Showing previous comparison')}
             </span>
           )}
         </footer>

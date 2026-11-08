@@ -199,6 +199,13 @@ Appearance fixtures use dummy authentication. Headless focus can return exit 2;
 do not count unavailable focus checks as passes. Restore production frontend
 assets after native-validation builds.
 
+On 2026-11-08, global configuration appearance/language acceptance passed on a
+private Wayland display (`wxhaphuj`): all six presets, retained terminal runtime/PID,
+hidden output, editor draft/undo/redo, computed Files/Diff surfaces, YAML/form
+roundtrips, live saved language changes and fresh-process YAML precedence over a
+stale WebView cache. Cleanup reported zero survivors. Physical focus, long French
+labels and localized CodeMirror search remain unverified.
+
 ## Manual checklist
 
 1. Test shell controls, Unicode, multiline selection/paste and

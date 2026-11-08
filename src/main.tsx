@@ -1,7 +1,8 @@
+import { t, useLocale } from './i18n';
 import { Button, Dialog, Input, Select, Tab, TabList } from './components/Controls';
 import { reconcileCommentSessions } from './diff-comment-cleanup';
 import { appearance, applyAppearance } from './appearance';
-import { AppearanceDialog } from './AppearanceDialog';
+import { applyApplicationAppearance, type ApplicationAppearance } from './application-settings';
 import './branding-storage';
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -56,20 +57,20 @@ function ConfirmationDialog({
   return (
     <Dialog
       ref={dialog}
-      aria-label="Confirm action"
+      aria-label={t('Confirm action')}
       onCancel={(event) => {
         event.preventDefault();
         choose(false);
       }}
     >
       <div className="confirmation-content">
-        <h2>Confirm action</h2>
+        <h2>{t('Confirm action')}</h2>
         <p>{message}</p>
         <div className="dialog-actions">
           <Button autoFocus onClick={() => choose(false)}>
-            Cancel
+            {t('Cancel')}
           </Button>
-          <Button onClick={() => choose(true)}>Confirm</Button>
+          <Button onClick={() => choose(true)}>{t('Confirm')}</Button>
         </div>
       </div>
     </Dialog>
@@ -140,9 +141,9 @@ function SessionEditor({
             .finally(() => setBusy(false));
         }}
       >
-        <h2 id="session-editor-title">{session ? 'Edit session' : 'New session'}</h2>
+        <h2 id="session-editor-title">{session ? t('Edit session') : t('New session')}</h2>
         <label>
-          Project
+          {t('Project')}
           <Select
             value={projectId}
             disabled={busy}
@@ -160,7 +161,7 @@ function SessionEditor({
           </Select>
         </label>
         <label>
-          Name
+          {t('Name')}
           <Input
             id="session-name"
             autoFocus
@@ -171,7 +172,7 @@ function SessionEditor({
           />
         </label>
         <label>
-          Base directory
+          {t('Base directory')}
           <Input
             id="session-directory"
             required
@@ -181,12 +182,13 @@ function SessionEditor({
           />
         </label>
         <Button type="button" onClick={() => void browse()} disabled={busy}>
-          Choose directory…
+          {t('Choose directory…')}
         </Button>
         {session && (
           <p className="muted">
-            Directory changes apply to future launches. Running processes keep their working
-            directory.
+            {t(
+              'Directory changes apply to future launches. Running processes keep their working directory.',
+            )}
           </p>
         )}
         {(error || externalError) && (
@@ -196,10 +198,10 @@ function SessionEditor({
         )}
         <div className="dialog-actions">
           <Button type="button" onClick={dismiss} disabled={busy}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button disabled={busy || !name.trim() || !directory}>
-            {busy ? 'Please wait…' : 'Save session'}
+            {busy ? t('Please wait…') : t('Save session')}
           </Button>
         </div>
       </form>
@@ -281,7 +283,7 @@ function SessionPane({
     <section className="session-pane" hidden={!visible} aria-label={session.name}>
       <div className="tab-bar">
         <TabList
-          aria-label={`${session.name} tabs`}
+          aria-label={t('{value0} tabs', { value0: session.name })}
           className="tab-list"
           onDragLeave={(event) => {
             if (
@@ -330,7 +332,11 @@ function SessionPane({
                 draggable={!disabled}
                 onKeyDown={(event) => navigate(event, index)}
                 onClick={() => void mutate('select_tab', { id: tab.id })}
-                title={`${tabTitles[tab.id] ?? tab.name} — ${tab.kind === 'terminal' ? (statuses[tab.id]?.state ?? 'stopped') : tab.kind} · Drag to reorder · Alt+← / Alt+→`}
+                title={t('{value0} — {value1} · Drag to reorder · Alt+← / Alt+→', {
+                  value0: tabTitles[tab.id] ?? tab.name,
+                  value1:
+                    tab.kind === 'terminal' ? (statuses[tab.id]?.state ?? 'stopped') : tab.kind,
+                })}
                 onDragStart={(event) => {
                   setDragTabId(tab.id);
                   event.dataTransfer.effectAllowed = 'move';
@@ -351,8 +357,8 @@ function SessionPane({
                 className="tab-icon tab-close"
                 disabled={disabled}
                 tabIndex={tab.id === active?.id ? 0 : -1}
-                aria-label={`Close ${tabTitles[tab.id] ?? tab.name}`}
-                title="Close and archive tab for 30 days"
+                aria-label={t('Close {value0}', { value0: tabTitles[tab.id] ?? tab.name })}
+                title={t('Close and archive tab for 30 days')}
                 onClick={() => closeTab(tab)}
               >
                 ×
@@ -377,7 +383,7 @@ function SessionPane({
       </div>
       {!active && (
         <div className="empty-state">
-          <p>No open tabs. Open the ⋮ menu to create a tab.</p>
+          <p>{t('No open tabs. Open the ⋮ menu to create a tab.')}</p>
         </div>
       )}
       {openTabs.map((tab) => (
@@ -398,7 +404,28 @@ function SessionPane({
 }
 
 function App() {
-  const [showAppearance, setShowAppearance] = useState(false);
+  useLocale();
+  const [appearanceReady, setAppearanceReady] = useState(!isTauri());
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    void invoke<string>('default_actions')
+      .then((yaml) =>
+        invoke<{ appearance?: ApplicationAppearance | null }>('parse_actions', { yaml }),
+      )
+      .then((settings) => {
+        if (active && settings.appearance) applyApplicationAppearance(settings.appearance);
+      })
+      .catch((error) => {
+        if (active) setError(String(error));
+      })
+      .finally(() => {
+        if (active) setAppearanceReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const [configurationTab, setConfigurationTab] = useState<PluginTab | null>(null);
   const [showArchives, setShowArchives] = useState(false);
   const [confirmation, setConfirmation] = useState<{
@@ -529,8 +556,14 @@ function App() {
         confirmed &&
         !(await confirm(
           delayed
-            ? `Close the window and force-stop ${status.runningTerminals} running terminal session(s) and their child processes in two minutes? Reopening the window cancels shutdown.`
-            : `Quit and force-stop ${status.runningTerminals} running terminal session(s) and their child processes?`,
+            ? t(
+                'Close the window and force-stop {value0} running terminal session(s) and their child processes in two minutes? Reopening the window cancels shutdown.',
+                { value0: status.runningTerminals },
+              )
+            : t(
+                'Quit and force-stop {value0} running terminal session(s) and their child processes?',
+                { value0: status.runningTerminals },
+              ),
         ))
       )
         return;
@@ -584,7 +617,11 @@ function App() {
     const confirmed = statuses[tab.id]?.state === 'running';
     if (
       confirmed &&
-      !(await confirm(`Archive “${tab.name}” for 30 days and terminate its session and jobs?`))
+      !(await confirm(
+        t('Archive “{value0}” for 30 days and terminate its session and jobs?', {
+          value0: tab.name,
+        }),
+      ))
     )
       return;
     void mutate('archive_tab', { id: tab.id, confirmed }).then((closed) => {
@@ -602,9 +639,7 @@ function App() {
   const disabled = busy;
   return (
     <main className="app">
-      {showAppearance && <AppearanceDialog close={() => setShowAppearance(false)} />}
       <WindowTitleBar
-        appearance={() => setShowAppearance(true)}
         archives={() => setShowArchives(true)}
         quit={() => void quit()}
         quitDisabled={!ready || disabled || restoring > 0}
@@ -643,7 +678,10 @@ function App() {
         removeProject={async (group) => {
           if (
             await confirm(
-              `Delete empty project “${group.name}”? Its directory and configuration file will remain untouched.`,
+              t(
+                'Delete empty project “{value0}”? Its directory and configuration file will remain untouched.',
+                { value0: group.name },
+              ),
             )
           )
             void mutate('close_project', { id: group.id });
@@ -665,7 +703,15 @@ function App() {
           const hasSessions = session.tabs.some((tab) => statuses[tab.id]?.state === 'running');
           if (
             !(await confirm(
-              `Archive session “${session.name}” and its saved tab definitions for 30 days?${hasSessions ? ' All its terminal sessions and jobs will be terminated.' : ''} The directory and its contents will remain untouched.`,
+              t(
+                'Archive session “{value0}” and its saved tab definitions for 30 days?{value1} The directory and its contents will remain untouched.',
+                {
+                  value0: session.name,
+                  value1: hasSessions
+                    ? t(' All its terminal sessions and jobs will be terminated.')
+                    : '',
+                },
+              ),
             ))
           )
             return;
@@ -687,8 +733,8 @@ function App() {
         )}
         {!state.sessions.length && (
           <div className="empty-state">
-            <h1>Welcome to Ongleet</h1>
-            <p>Create a session pointing to an existing directory.</p>
+            <h1>{t('Welcome to Ongleet')}</h1>
+            <p>{t('Create a session pointing to an existing directory.')}</p>
             <Button
               disabled={!ready || disabled}
               onClick={() => {
@@ -698,35 +744,36 @@ function App() {
                 } else setGroupEditor('new');
               }}
             >
-              {state.projects.length ? 'Create session' : 'Create project'}
+              {state.projects.length ? t('Create session') : t('Create project')}
             </Button>
           </div>
         )}
-        {state.sessions.map((session) => (
-          <SessionPane
-            key={session.id}
-            configureTab={setConfigurationTab}
-            archives={() => setShowArchives(true)}
-            configureSession={() => {
-              const project = state.projects.find((project) => project.id === session.projectId);
-              if (project) {
-                setError('');
-                setGroupEditorView('actions');
-                setGroupEditor(project);
-              }
-            }}
-            configurationTab={configurationTab}
-            dismissConfiguration={() => setConfigurationTab(null)}
-            session={session}
-            visible={session.id === state.selectedId}
-            statuses={statuses}
-            disabled={disabled}
-            reportStatus={reportStatus}
-            mutate={mutate}
-            markRestoring={markRestoring}
-            closeTab={archiveTab}
-          />
-        ))}
+        {appearanceReady &&
+          state.sessions.map((session) => (
+            <SessionPane
+              key={session.id}
+              configureTab={setConfigurationTab}
+              archives={() => setShowArchives(true)}
+              configureSession={() => {
+                const project = state.projects.find((project) => project.id === session.projectId);
+                if (project) {
+                  setError('');
+                  setGroupEditorView('actions');
+                  setGroupEditor(project);
+                }
+              }}
+              configurationTab={configurationTab}
+              dismissConfiguration={() => setConfigurationTab(null)}
+              session={session}
+              visible={session.id === state.selectedId}
+              statuses={statuses}
+              disabled={disabled}
+              reportStatus={reportStatus}
+              mutate={mutate}
+              markRestoring={markRestoring}
+              closeTab={archiveTab}
+            />
+          ))}
       </div>
       {configurationTab &&
         !plugins.find((plugin) => plugin.id === configurationTab.kind)?.contentConfiguration && (

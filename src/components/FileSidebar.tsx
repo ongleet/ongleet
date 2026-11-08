@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -74,12 +75,12 @@ export function FileSidebar({
         className="file-sidebar-resizer"
         role="separator"
         tabIndex={0}
-        aria-label={`Resize ${label.toLowerCase()} sidebar`}
+        aria-label={t('Resize {value0} sidebar', { value0: label.toLowerCase() })}
         aria-orientation="vertical"
         aria-valuemin={minimum}
         aria-valuemax={limit}
         aria-valuenow={width}
-        title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+        title={t('Drag to resize · Arrow keys to adjust · Double-click to reset')}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();

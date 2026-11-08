@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { Button } from './components/Controls';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -160,19 +161,19 @@ export function SessionSidebar({
   }
 
   return (
-    <aside id="session-sidebar" className="sidebar" aria-label="Sessions" style={{ width }}>
+    <aside id="session-sidebar" className="sidebar" aria-label={t('Sessions')} style={{ width }}>
       <div className="sidebar-heading">
-        <strong>Projects</strong>
+        <strong>{t('Projects')}</strong>
         <Button
           disabled={!ready || disabled}
           onClick={createProject}
-          aria-label="Create project"
-          title="Create project"
+          aria-label={t('Create project')}
+          title={t('Create project')}
         >
           +
         </Button>
       </div>
-      <nav className="session-list" aria-label="Select session">
+      <nav className="session-list" aria-label={t('Select session')}>
         <ol
           onDragLeave={(event) => {
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
@@ -211,8 +212,8 @@ export function SessionSidebar({
                   className="session-grip"
                   draggable={!disabled}
                   disabled={disabled}
-                  aria-label={`Reorder project ${group.name}`}
-                  title="Drag to reorder · Alt+↑ / Alt+↓"
+                  aria-label={t('Reorder project {value0}', { value0: group.name })}
+                  title={t('Drag to reorder · Alt+↑ / Alt+↓')}
                   onDragStart={(event) => {
                     setGroupMenuId(null);
                     setMenuId(null);
@@ -262,8 +263,8 @@ export function SessionSidebar({
                 <Button
                   className="project-icon"
                   disabled={!ready || disabled}
-                  aria-label="Create session"
-                  title={`Create session in ${group.name}`}
+                  aria-label={t('Create session')}
+                  title={t('Create session in {value0}', { value0: group.name })}
                   onClick={() => create(group.id)}
                 >
                   +
@@ -272,7 +273,7 @@ export function SessionSidebar({
                   id={`project-menu-${group.id}`}
                   className="session-menu-trigger"
                   disabled={disabled}
-                  aria-label={`Actions for project ${group.name}`}
+                  aria-label={t('Actions for project {value0}', { value0: group.name })}
                   aria-haspopup="menu"
                   aria-expanded={groupMenuId === group.id}
                   onClick={() => {
@@ -332,8 +333,8 @@ export function SessionSidebar({
                           className="session-grip"
                           draggable={!disabled}
                           disabled={disabled}
-                          aria-label={`Reorder ${session.name}`}
-                          title="Drag to reorder · Alt+↑ / Alt+↓"
+                          aria-label={t('Reorder {value0}', { value0: session.name })}
+                          title={t('Drag to reorder · Alt+↑ / Alt+↓')}
                           onDragStart={(event) => {
                             setMenuId(null);
                             setDragId(session.id);
@@ -418,7 +419,7 @@ export function SessionSidebar({
                           id={`session-menu-${session.id}`}
                           className="session-menu-trigger"
                           disabled={disabled}
-                          aria-label={`Actions for ${session.name}`}
+                          aria-label={t('Actions for {value0}', { value0: session.name })}
                           aria-haspopup="menu"
                           aria-expanded={menuId === session.id}
                           aria-controls={menuId === session.id ? 'session-menu' : undefined}
@@ -441,13 +442,13 @@ export function SessionSidebar({
         className="sidebar-resizer"
         role="separator"
         tabIndex={0}
-        aria-label="Resize sidebar"
+        aria-label={t('Resize sidebar')}
         aria-orientation="vertical"
         aria-controls="session-sidebar"
         aria-valuemin={150}
         aria-valuemax={maxWidth}
         aria-valuenow={width}
-        title="Drag to resize · Arrow keys to adjust · Double-click to reset"
+        title={t('Drag to resize · Arrow keys to adjust · Double-click to reset')}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           event.preventDefault();
@@ -499,7 +500,7 @@ export function SessionSidebar({
         createPortal(
           <div
             role="menu"
-            aria-label={`${menuGroup.name} project actions`}
+            aria-label={t('{value0} project actions', { value0: menuGroup.name })}
             ref={menuRef}
             className="session-menu"
             style={{ top: menuPosition.top, left: menuPosition.left }}
@@ -537,19 +538,19 @@ export function SessionSidebar({
                 editProject(menuGroup);
               }}
             >
-              Edit project
+              {t('Edit project')}
             </Button>
             <Button
               role="menuitem"
               disabled={sessions.some((w) => w.projectId === menuGroup.id)}
-              title="Move or close its sessions before deleting the group"
+              title={t('Move or close its sessions before deleting the group')}
               className="danger"
               onClick={() => {
                 setGroupMenuId(null);
                 removeProject(menuGroup);
               }}
             >
-              Delete project
+              {t('Delete project')}
             </Button>
           </div>,
           document.body,
@@ -560,7 +561,7 @@ export function SessionSidebar({
           <div
             id="session-menu"
             role="menu"
-            aria-label={`${menuSession.name} actions`}
+            aria-label={t('{value0} actions', { value0: menuSession.name })}
             ref={menuRef}
             className="session-menu"
             style={{ top: menuPosition.top, left: menuPosition.left }}
@@ -599,7 +600,7 @@ export function SessionSidebar({
                 edit(menuSession);
               }}
             >
-              Edit session
+              {t('Edit session')}
             </Button>
             <div role="separator" />
             <Button
@@ -610,7 +611,7 @@ export function SessionSidebar({
                 remove(menuSession);
               }}
             >
-              Archive session
+              {t('Archive session')}
             </Button>
           </div>,
           document.body,

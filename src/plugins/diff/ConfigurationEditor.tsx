@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { Input, Select } from '../../components/Controls';
 import { Checkbox } from '../../components/Checkbox';
 import { useId } from 'react';
@@ -21,13 +22,13 @@ export function ComparisonFields({
   return (
     <>
       <label className="diff-mode-field">
-        Comparison
+        {t('Comparison')}
         <Select
           value={config.mode}
           onChange={(e) => onChange(changeMode(config, e.target.value as Settings['mode']))}
         >
-          <option value="branch">Branch changes</option>
-          <option value="refs">Between two refs</option>
+          <option value="branch">{t('Branch changes')}</option>
+          <option value="refs">{t('Between two refs')}</option>
         </Select>
       </label>
       <datalist id={referenceList}>
@@ -38,13 +39,13 @@ export function ComparisonFields({
       {config.mode === 'branch' ? (
         <>
           <label>
-            Compare from
+            {t('Compare from')}
             <Select
               value={config.compareFrom}
               onChange={(e) => onChange({ ...config, compareFrom: e.target.value })}
             >
-              <option value="divergence">Branch divergence (default)</option>
-              <option value="HEAD">Latest commit</option>
+              <option value="divergence">{t('Branch divergence (default)')}</option>
+              <option value="HEAD">{t('Latest commit')}</option>
               {!['divergence', 'HEAD'].includes(config.compareFrom) &&
                 !commits.some((commit) => commit.hash === config.compareFrom) && (
                   <option value={config.compareFrom}>{config.compareFrom}</option>
@@ -55,24 +56,30 @@ export function ComparisonFields({
                 </option>
               ))}
             </Select>
-            {commitError && <span role="alert">Could not load commits: {commitError}</span>}
+            {commitError && (
+              <span role="alert">
+                {t('Could not load commits: ')}
+                {commitError}
+              </span>
+            )}
           </label>
           <label className="diff-uncommitted-field">
             <Checkbox
               checked={config.includeUncommitted}
               onChange={(e) => onChange({ ...config, includeUncommitted: e.target.checked })}
             />
-            Include uncommitted changes
+            {t('Include uncommitted changes')}
           </label>
           <p className="diff-comparison-help">
-            Compare the starting snapshot with the latest commit. Local changes include staged,
-            unstaged, and untracked files.
+            {t(
+              'Compare the starting snapshot with the latest commit. Local changes include staged, unstaged, and untracked files.',
+            )}
           </p>
         </>
       ) : (
         <>
           <label>
-            From ref
+            {t('From ref')}
             <Input
               required
               list={referenceList}
@@ -82,7 +89,7 @@ export function ComparisonFields({
           </label>
           <span aria-hidden="true">→</span>
           <label>
-            To ref
+            {t('To ref')}
             <Input
               required
               list={referenceList}
@@ -104,10 +111,10 @@ export function ConfigurationEditor({ value, onChange }: ConfigurationEditorProp
   }
   return (
     <label>
-      Repository folder
+      {t('Repository folder')}
       <Input
         value={config.folder ?? ''}
-        placeholder="Session directory"
+        placeholder={t('Session directory')}
         onChange={(e) => onChange(JSON.stringify({ ...config, folder: e.target.value || null }))}
       />
     </label>

@@ -1,3 +1,4 @@
+import { t, subscribeLocale, editorPhrases } from '../../i18n';
 import { Button, Dialog } from '../../components/Controls';
 import { SelectionSend } from '../../components/SelectionSend';
 import { useEffect, useRef, useState } from 'react';
@@ -141,6 +142,11 @@ export function TextEditor({
     const clipboardError = (error: unknown) => setError(String(error));
     const languageCompartment = new Compartment();
     const themeCompartment = new Compartment();
+    const localeCompartment = new Compartment();
+    const localeExtensions = () => [
+      EditorState.phrases.of(editorPhrases()),
+      EditorView.contentAttributes.of({ 'aria-label': t('Text file contents') }),
+    ];
     const language = fileLanguage(document.path);
     baseline.current = document;
     let initialText = document.text;
@@ -173,7 +179,7 @@ export function TextEditor({
           search(),
           EditorState.tabSize.of(2),
           EditorView.contentAttributes.of({
-            'aria-label': 'Text file contents',
+            'aria-label': t('Text file contents'),
             spellcheck: 'false',
           }),
           keymap.of([
@@ -261,11 +267,15 @@ export function TextEditor({
             },
             '.cm-panels': { backgroundColor: 'var(--surface)', color: 'var(--text)' },
           }),
+          localeCompartment.of(localeExtensions()),
           themeCompartment.of(editorAppearance(sdk.theme.getSnapshot().application)),
         ],
       }),
     });
     view.current = editor;
+    const unsubscribeLocale = subscribeLocale(() =>
+      editor.dispatch({ effects: localeCompartment.reconfigure(localeExtensions()) }),
+    );
     const unsubscribeTheme = sdk.theme.subscribe(() => {
       editor.dispatch({
         effects: themeCompartment.reconfigure(
@@ -282,7 +292,9 @@ export function TextEditor({
         () => {
           if (view.current === editor)
             setError(
-              `Could not load ${language.name} syntax highlighting. Reopen the file to retry.`,
+              t('Could not load {value0} syntax highlighting. Reopen the file to retry.', {
+                value0: language.name,
+              }),
             );
         },
       );
@@ -293,6 +305,7 @@ export function TextEditor({
       view.current = null;
       mergeJob.current?.cancel();
       unsubscribeTheme();
+      unsubscribeLocale();
       editor.destroy();
       fileEditors.delete(id);
     };
@@ -346,7 +359,7 @@ export function TextEditor({
           statusRef.current.dirty
         )
           return;
-        if (!loaded) throw new Error('File is no longer supported text.');
+        if (!loaded) throw new Error(t('File is no longer supported text.'));
         if (loaded.revision !== previous.revision) {
           baseline.current = loaded;
           if (loaded.text !== before.toString()) {
@@ -401,9 +414,9 @@ export function TextEditor({
     const beforeReload = view.current?.state.doc;
     try {
       const loaded = await sdk.fs.readText(baseline.current.path);
-      if (!loaded) throw new Error('File is no longer supported text.');
+      if (!loaded) throw new Error(t('File is no longer supported text.'));
       if (view.current?.state.doc !== beforeReload)
-        throw new Error('Content changed while reloading; your edits have been kept.');
+        throw new Error(t('Content changed while reloading; your edits have been kept.'));
       baseline.current = loaded;
       setNotice('');
       view.current?.dispatch({
@@ -427,14 +440,14 @@ export function TextEditor({
     setError('');
     try {
       const disk = await sdk.fs.readText(original.path);
-      if (!disk) throw new Error('File is no longer supported text.');
+      if (!disk) throw new Error(t('File is no longer supported text.'));
       if (view.current !== editor) return;
       const job = startMerge(original.text, before.toString(), disk.text);
       mergeJob.current = job;
       const merged = await job.result;
       if (view.current !== editor) return;
       if (editor.state.doc !== before || baseline.current !== original)
-        throw new Error('Content changed while merging; your edits have been kept. Try again.');
+        throw new Error(t('Content changed while merging; your edits have been kept. Try again.'));
       baseline.current = disk;
       editor.dispatch({ changes: { from: 0, to: before.length, insert: merged.text } });
       publish(merged.text !== disk.text, false);
@@ -483,7 +496,7 @@ export function TextEditor({
           capture={() => {
             const editor = view.current;
             if (!editor || editor.state.selection.main.empty)
-              throw new Error('Select some text in the editor first.');
+              throw new Error(t('Select some text in the editor first.'));
             const { from, to } = editor.state.selection.main;
             const start = editor.state.doc.lineAt(from),
               end = editor.state.doc.lineAt(to);
@@ -505,14 +518,14 @@ export function TextEditor({
           }}
         />
         <Button ref={menuTrigger} popoverTarget={menuId} aria-haspopup="menu">
-          Actions ▾
+          {t('Actions ▾')}
         </Button>
         <div
           id={menuId}
           ref={menu}
           popover="auto"
           role="menu"
-          aria-label="Editor actions"
+          aria-label={t('Editor actions')}
           className="editor-menu"
           onToggle={(event) => {
             if (!event.currentTarget.matches(':popover-open')) return;
@@ -548,7 +561,7 @@ export function TextEditor({
               else void leave();
             }}
           >
-            Close file
+            {t('Close file')}
           </Button>
           <Button
             role="menuitem"
@@ -558,7 +571,8 @@ export function TextEditor({
               void save();
             }}
           >
-            Save <kbd>Ctrl+S</kbd>
+            {t('Save ')}
+            <kbd>Ctrl+S</kbd>
           </Button>
           <Button
             role="menuitem"
@@ -569,7 +583,7 @@ export function TextEditor({
               else void reload();
             }}
           >
-            Reload
+            {t('Reload')}
           </Button>
           <div role="separator" />
           <Button
@@ -582,7 +596,8 @@ export function TextEditor({
               }
             }}
           >
-            Undo <kbd>Ctrl+Z</kbd>
+            {t('Undo ')}
+            <kbd>Ctrl+Z</kbd>
           </Button>
           <Button
             role="menuitem"
@@ -594,7 +609,8 @@ export function TextEditor({
               }
             }}
           >
-            Redo <kbd>Ctrl+Shift+Z</kbd>
+            {t('Redo ')}
+            <kbd>Ctrl+Shift+Z</kbd>
           </Button>
           <Button
             role="menuitem"
@@ -603,10 +619,11 @@ export function TextEditor({
               if (view.current) openSearchPanel(view.current);
             }}
           >
-            Find / replace <kbd>Ctrl+F</kbd>
+            {t('Find / replace ')}
+            <kbd>Ctrl+F</kbd>
           </Button>
           <div role="separator" />
-          <div className="editor-menu-heading">Settings</div>
+          <div className="editor-menu-heading">{t('Settings')}</div>
           <Button
             role="menuitemcheckbox"
             aria-checked={wrap}
@@ -616,7 +633,8 @@ export function TextEditor({
               view.current?.focus();
             }}
           >
-            Wrap long lines <span>{wrap ? 'On' : 'Off'}</span>
+            {t('Wrap long lines ')}
+            <span>{wrap ? t('On') : t('Off')}</span>
           </Button>
         </div>
       </div>
@@ -632,32 +650,40 @@ export function TextEditor({
       )}
       {notice && <p role="status">{notice}</p>}
       <div className="editor-surface" ref={host} />
-      <footer className="plugin-statusbar editor-status" aria-label="Editor status">
-        Ln {position.line}, Col {position.column} · UTF-8{baseline.current.bom ? ' BOM' : ''} ·{' '}
+      <footer className="plugin-statusbar editor-status" aria-label={t('Editor status')}>
+        {t('Ln ')}
+        {position.line}
+        {t(', Col ')}
+        {position.column} · UTF-8{baseline.current.bom ? ' BOM' : ''} ·{' '}
         {baseline.current.lineEnding} ·{' '}
         <span className={dirty ? 'editor-modified-label' : undefined} role="status">
           {dirty
             ? draftError
-              ? 'Unsaved changes · Local draft unavailable'
-              : 'Unsaved changes · Draft saved locally'
-            : 'Saved'}
+              ? t('Unsaved changes · Local draft unavailable')
+              : t('Unsaved changes · Draft saved locally')
+            : t('Saved')}
         </span>
       </footer>
       {confirmation && (
         <Dialog
           ref={dialog}
-          aria-label={confirmation === 'overwrite' ? 'File changed on disk' : 'Unsaved changes'}
+          aria-label={
+            confirmation === 'overwrite' ? t('File changed on disk') : t('Unsaved changes')
+          }
           onCancel={() => setConfirmation(undefined)}
         >
-          <h2>{confirmation === 'overwrite' ? 'File changed on disk' : 'Unsaved changes'}</h2>
+          <h2>{confirmation === 'overwrite' ? t('File changed on disk') : t('Unsaved changes')}</h2>
           <p>
             {confirmation === 'overwrite'
-              ? `${document.path} changed on disk. Cancel to manage the changes yourself, force save to replace the disk version, or merge your edits into the latest disk version for review. Merging does not save the file.`
-              : `Discard your changes to ${document.path}?`}
+              ? t(
+                  '{value0} changed on disk. Cancel to manage the changes yourself, force save to replace the disk version, or merge your edits into the latest disk version for review. Merging does not save the file.',
+                  { value0: document.path },
+                )
+              : t('Discard your changes to {value0}?', { value0: document.path })}
           </p>
           <div className="dialog-actions">
             <Button autoFocus onClick={() => setConfirmation(undefined)}>
-              Cancel
+              {t('Cancel')}
             </Button>
             {confirmation === 'overwrite' && (
               <Button
@@ -667,7 +693,7 @@ export function TextEditor({
                   void mergeChanges();
                 }}
               >
-                Merge into editor
+                {t('Merge into editor')}
               </Button>
             )}
             <Button
@@ -681,7 +707,7 @@ export function TextEditor({
                 } else void reload();
               }}
             >
-              {confirmation === 'overwrite' ? 'Force save' : 'Discard changes'}
+              {confirmation === 'overwrite' ? t('Force save') : t('Discard changes')}
             </Button>
           </div>
         </Dialog>

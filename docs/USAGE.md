@@ -520,9 +520,9 @@ dependencies retain their respective licenses.
 
 ## Appearance
 
-**Application → Appearance…** offers six bundled presets for the app, Files editor,
-Diff viewer and new terminals, plus an optional terminal override. Changes save
-automatically. Ongleet Original remains the default. Existing terminal cell colors
+**Application → Configure… → Appearance** offers six bundled presets for the app, Files editor,
+Diff viewer and new terminals, plus an optional terminal override and interface language. Save the configuration
+to apply changes; the global YAML also accepts these settings. Ongleet Original remains the default. Existing terminal cell colors
 retain their launch palette because Ghostty 0.4.0 lacks live recoloring; cursor,
 selection and canvas background update immediately. See [appearance details and
 validation](APPEARANCE.md).

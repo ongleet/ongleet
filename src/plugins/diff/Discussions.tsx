@@ -1,3 +1,4 @@
+import { t, getLocale } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../components/Controls';
 import { useState } from 'react';
 import type { Location, Thread } from './comments';
@@ -25,15 +26,15 @@ export function Composer({
       }}
     >
       <Textarea
-        aria-label={label}
-        placeholder={label === 'Reply' ? 'Write a reply…' : 'Write a comment or question…'}
+        aria-label={t(label)}
+        placeholder={label === 'Reply' ? t('Write a reply…') : t('Write a comment or question…')}
         autoFocus={autoFocus}
         value={text}
         onChange={(e) => setText(e.target.value)}
         required
       />
       <div className="diff-composer-actions">
-        <Button type="submit">{label === 'Comment' ? 'Add comment' : 'Reply'}</Button>
+        <Button type="submit">{label === 'Comment' ? t('Add comment') : t('Reply')}</Button>
       </div>
     </form>
   );
@@ -55,15 +56,18 @@ export function Discussion({
   const [status, setStatus] = useState('');
   const location: Location = thread.orphan ? thread.original : thread.location;
   return (
-    <section className="diff-discussion" aria-label={`Thread ${thread.id}`}>
+    <section className="diff-discussion" aria-label={t('Thread {value0}', { value0: thread.id })}>
       <div className="diff-discussion-heading">
         <span>
           {location.side
-            ? `${location.side === 'old' ? 'Old' : 'New'} line ${location.line}`
-            : 'File discussion'}
+            ? t('{side} line {line}', {
+                side: location.side === 'old' ? t('Old') : t('New'),
+                line: location.line!,
+              })
+            : t('File discussion')}
         </span>
         <span className="diff-discussion-count">
-          {thread.comments.length} {thread.comments.length === 1 ? 'message' : 'messages'}
+          {thread.comments.length} {thread.comments.length === 1 ? t('message') : t('messages')}
         </span>
       </div>
       {thread.orphan && (
@@ -76,10 +80,13 @@ export function Discussion({
         {thread.comments.map((comment) => (
           <article className="diff-message" data-origin={comment.origin} key={comment.id}>
             <div className="diff-message-meta">
-              <span className="diff-message-author" title="Origin label; identity is not verified">
+              <span
+                className="diff-message-author"
+                title={t('Origin label; identity is not verified')}
+              >
                 {comment.origin}
               </span>
-              <time dateTime={comment.at}>{new Date(comment.at).toLocaleString()}</time>
+              <time dateTime={comment.at}>{new Date(comment.at).toLocaleString(getLocale())}</time>
             </div>
             <p className="diff-comment-text">{comment.text}</p>
             <Disclosure
@@ -91,7 +98,7 @@ export function Discussion({
                     .catch((error) => setStatus(String(error)));
               }}
             >
-              <DisclosureTrigger>Send to…</DisclosureTrigger>
+              <DisclosureTrigger>{t('Send to…')}</DisclosureTrigger>
               <div className="diff-message-recipients">
                 {recipients.map((target) => (
                   <Button
@@ -103,7 +110,10 @@ export function Discussion({
                         .then(() => setStatus('Write acknowledged; agent processing is unknown.'))
                         .catch((error) =>
                           setStatus(
-                            `Send failed; delivery may be ambiguous. No retry was made. ${String(error)}`,
+                            t(
+                              'Send failed; delivery may be ambiguous. No retry was made. {value0}',
+                              { value0: String(error) },
+                            ),
                           ),
                         );
                     }}
@@ -111,7 +121,7 @@ export function Discussion({
                     {target.name}
                   </Button>
                 ))}
-                {!recipients.length && <span>No available recipients.</span>}
+                {!recipients.length && <span>{t('No available recipients.')}</span>}
               </div>
             </Disclosure>
           </article>
@@ -119,7 +129,7 @@ export function Discussion({
       </div>
       <Composer label="Reply" submit={reply} />
       <Button type="button" className="diff-delete-thread" onClick={remove}>
-        Delete thread
+        {t('Delete thread')}
       </Button>
       {status && (
         <p className="diff-discussion-status" role="status">

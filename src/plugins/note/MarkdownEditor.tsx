@@ -1,3 +1,4 @@
+import { t, subscribeLocale } from '../../i18n';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Annotation, Compartment, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, drawSelection, keymap, placeholder } from '@codemirror/view';
@@ -30,6 +31,11 @@ export function MarkdownEditor({
     if (!host.current) return;
     const language = new Compartment();
     const theme = new Compartment();
+    const localization = new Compartment();
+    const localeExtensions = () => [
+      placeholder(t('# Session notes\n\n- [ ] Next task')),
+      EditorView.contentAttributes.of({ 'aria-label': t('Markdown note'), spellcheck: 'false' }),
+    ];
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({
@@ -43,8 +49,7 @@ export function MarkdownEditor({
           history(),
           keymap.of([...historyKeymap, ...defaultKeymap]),
           EditorState.tabSize.of(2),
-          placeholder('# Session notes\n\n- [ ] Next task'),
-          EditorView.contentAttributes.of({ 'aria-label': 'Markdown note', spellcheck: 'false' }),
+          localization.of(localeExtensions()),
           EditorView.updateListener.of((update) => {
             if (
               update.docChanged &&
@@ -67,6 +72,9 @@ export function MarkdownEditor({
       }),
     });
     view.current = editor;
+    const unsubscribeLocale = subscribeLocale(() =>
+      editor.dispatch({ effects: localization.reconfigure(localeExtensions()) }),
+    );
     const unsubscribe = sdk.theme.subscribe(() => {
       editor.dispatch({
         effects: theme.reconfigure(editorAppearance(sdk.theme.getSnapshot().application)),
@@ -85,6 +93,7 @@ export function MarkdownEditor({
     return () => {
       view.current = null;
       unsubscribe();
+      unsubscribeLocale();
       editor.destroy();
     };
   }, [sdk]);

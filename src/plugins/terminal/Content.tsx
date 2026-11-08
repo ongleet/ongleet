@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { TabPanel } from '../../components/Controls';
 import { useSdk, useTabInteractions, SdkError } from '../../sdk';
 import { useEffect, useRef, useState } from 'react';
@@ -97,8 +98,10 @@ export function TerminalContent({
       {starting && (
         <div role="status" className="terminal-startup">
           {slow
-            ? 'Terminal startup is taking longer than expected. Other tabs and sessions remain available.'
-            : 'Starting terminal…'}
+            ? t(
+                'Terminal startup is taking longer than expected. Other tabs and sessions remain available.',
+              )
+            : t('Starting terminal…')}
         </div>
       )}
       {error && (
@@ -107,18 +110,18 @@ export function TerminalContent({
         </div>
       )}
       <div ref={host} className="terminal" />
-      <footer className="plugin-statusbar" aria-label="Terminal status">
+      <footer className="plugin-statusbar" aria-label={t('Terminal status')}>
         <span>
           {starting
-            ? 'Starting…'
+            ? t('Starting…')
             : status?.state === 'exited'
-              ? `Exited (${status.code})`
+              ? t('Exited ({value0})', { value0: status.code })
               : status?.state === 'running'
-                ? 'Running'
-                : 'Stopped'}
+                ? t('Running')
+                : t('Stopped')}
         </span>
-        <span>Ctrl+Shift+C / V: copy / paste</span>
-        <span>Arrow keys on tab bar: navigate tabs</span>
+        <span>{t('Ctrl+Shift+C / V: copy / paste')}</span>
+        <span>{t('Arrow keys on tab bar: navigate tabs')}</span>
       </footer>
     </TabPanel>
   );

@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 // Keep editors mounted across navigation, and guard explicit GUI destruction.
 export const fileEditors = new Map<
   number,
@@ -13,7 +14,9 @@ export async function allowEditorClose(
   return (
     dirty.length === 0 ||
     confirm(
-      `Close with unsaved changes in ${dirty.map((editor) => editor.path).join(', ')}? Files on disk will not be updated.`,
+      t('Close with unsaved changes in {paths}? Files on disk will not be updated.', {
+        paths: dirty.map((editor) => editor.path).join(', '),
+      }),
     )
   );
 }

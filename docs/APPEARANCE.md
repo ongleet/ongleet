@@ -1,13 +1,33 @@
 # Appearance
 
-Choose an app preset and optional terminal override in **Application → Appearance…**.
-**Follow application** is the default. Changes apply and save immediately;
-**Done** closes the dialog. **Restore defaults** selects Ongleet Original and
-Follow application.
+Open **Application → Configure… → Appearance** to choose the application theme,
+terminal override and interface language. **Follow application** is the default
+terminal setting. Changes apply after **Save configuration**; closing without
+saving leaves the running appearance unchanged. **Restore defaults** resets the
+form to Ongleet Original, Follow application and English.
 
-Preferences are global to the local WebView profile. Version 1 preset IDs live in
-`ongleet.appearance`. Unknown IDs independently fall back to Original or
-inheritance. Storage failures keep changes in memory and show a notice.
+The global `actions.yaml` (path shown in configuration) accepts:
+
+```yaml
+appearance:
+  application: dark-plus
+  terminal: null
+  language: fr
+# Existing env and actions entries remain here.
+```
+
+Theme IDs: `original`, `dark-plus`, `light-plus`, `darcula`, `one-dark`, `monokai`.
+Languages: `en`, `fr`. `terminal: null` follows the application theme.
+The Appearance and YAML tabs share one draft. Saving validates all settings before
+writing; invalid values leave the file and running preferences unchanged. Saving
+YAML applies appearance immediately; external file edits apply on the next app
+start. Appearance is global and is neither copied into new project files nor
+accepted by project configuration saves.
+
+Existing configurations without `appearance` retain legacy WebView preferences
+until saved through the form. Removing the section in the YAML editor and saving
+resets the appearance and language to defaults. LocalStorage remains a startup
+cache; a configured YAML section takes precedence when the app starts.
 
 Presets cover chrome, controls, Files syntax/editor surfaces, PR surfaces and Diff
 additions/deletions. Diff blends the app preset's terminal ANSI green/red with its

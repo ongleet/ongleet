@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import {
   Button,
   Dialog,
@@ -78,11 +79,11 @@ export function SessionMenu({
           }
         }}
       >
-        <DisclosureTrigger aria-label="Session and tab menu" title="Session and tab menu">
+        <DisclosureTrigger aria-label={t('Session and tab menu')} title={t('Session and tab menu')}>
           <span aria-hidden="true">⋮</span>
         </DisclosureTrigger>
         <div className="app-menu-items">
-          {loading && <p role="status">Loading actions…</p>}
+          {loading && <p role="status">{t('Loading actions…')}</p>}
           {error && (
             <p className="error" role="alert">
               {error}
@@ -93,13 +94,13 @@ export function SessionMenu({
                   configure();
                 }}
               >
-                Open action settings…
+                {t('Open action settings…')}
               </Button>
             </p>
           )}
           {(sessionId === null ? [] : (['tabs', 'external'] as const)).map((group) => (
             <div key={group}>
-              <p className="muted">{group === 'tabs' ? 'New tab' : 'External actions'}</p>
+              <p className="muted">{group === 'tabs' ? t('New tab') : t('External actions')}</p>
               {actions
                 .filter((action) => (action.kind === 'command') === (group === 'external'))
                 .map((action) => (
@@ -107,7 +108,9 @@ export function SessionMenu({
                     key={action.id}
                     disabled={disabled || loading}
                     title={
-                      group === 'external' ? 'Launch an independent application' : 'Open a new tab'
+                      group === 'external'
+                        ? t('Launch an independent application')
+                        : t('Open a new tab')
                     }
                     onClick={() => {
                       menu.current!.open = false;
@@ -133,8 +136,8 @@ export function SessionMenu({
                     }}
                   >
                     {group === 'tabs'
-                      ? 'No tabs configured — configure…'
-                      : 'No actions configured — configure…'}
+                      ? t('No tabs configured — configure…')
+                      : t('No actions configured — configure…')}
                   </Button>
                 )}
               {group === 'tabs' && (
@@ -145,14 +148,14 @@ export function SessionMenu({
                     setCustom(true);
                   }}
                 >
-                  Custom tab…
+                  {t('Custom tab…')}
                 </Button>
               )}
             </div>
           ))}
           {activeTabName !== undefined && (
             <div>
-              <p className="muted">Tab</p>
+              <p className="muted">{t('Tab')}</p>
               <Button
                 disabled={disabled}
                 onClick={() => {
@@ -160,17 +163,17 @@ export function SessionMenu({
                   configureTab?.();
                 }}
               >
-                Configure…
+                {t('Configure…')}
               </Button>
               <Button
                 disabled={disabled}
-                title={`Archive “${activeTabName}” for 30 days`}
+                title={t('Archive “{value0}” for 30 days', { value0: activeTabName })}
                 onClick={() => {
                   menu.current!.open = false;
                   archiveTab?.();
                 }}
               >
-                Archive tab
+                {t('Archive tab')}
               </Button>
             </div>
           )}
@@ -181,7 +184,7 @@ export function SessionMenu({
               archives();
             }}
           >
-            Archives
+            {t('Archives')}
           </Button>
         </div>
       </Disclosure>
@@ -223,14 +226,14 @@ function CustomTab({
         dialog.current = node;
         if (node && !node.open) node.showModal();
       }}
-      aria-label="Custom tab"
+      aria-label={t('Custom tab')}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) dismiss();
       }}
     >
-      <h2>Custom tab</h2>
-      <p className="muted">Create an individual tab without changing project actions.</p>
+      <h2>{t('Custom tab')}</h2>
+      <p className="muted">{t('Create an individual tab without changing project actions.')}</p>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -258,7 +261,7 @@ function CustomTab({
       >
         <fieldset disabled={disabled || busy}>
           <label>
-            Name
+            {t('Name')}
             <Input
               autoFocus
               required
@@ -267,7 +270,7 @@ function CustomTab({
             />
           </label>
           <label>
-            Tab type
+            {t('Tab type')}
             <Select
               value={kind}
               onChange={(event) => {
@@ -282,7 +285,7 @@ function CustomTab({
                 .filter((plugin) => actionEditor(plugin.id))
                 .map((plugin) => (
                   <option key={plugin.id} value={plugin.id}>
-                    {plugin.label}
+                    {t(plugin.label)}
                   </option>
                 ))}
             </Select>
@@ -296,9 +299,9 @@ function CustomTab({
         )}
         <div className="dialog-actions">
           <Button type="button" disabled={busy} onClick={dismiss}>
-            Cancel
+            {t('Cancel')}
           </Button>
-          <Button disabled={disabled || busy || !name.trim()}>Create tab</Button>
+          <Button disabled={disabled || busy || !name.trim()}>{t('Create tab')}</Button>
         </div>
       </form>
     </Dialog>

@@ -1,3 +1,11 @@
+import { AppearanceSettings } from './AppearanceSettings';
+import {
+  applyApplicationAppearance,
+  currentApplicationAppearance,
+  defaultApplicationAppearance,
+  type ApplicationAppearance,
+} from './application-settings';
+import { t } from './i18n';
 import {
   Button,
   Dialog,
@@ -22,11 +30,15 @@ type Draft = {
   configVersion: number;
   pluginConfig: string;
 };
-type Settings = { env: Record<string, string>; actions: Action[] };
+type Settings = {
+  env: Record<string, string>;
+  actions: Action[];
+  appearance?: ApplicationAppearance | null;
+};
 type EnvRow = { id: string; name: string; value: string };
 const envRows = (env: Record<string, string>): EnvRow[] =>
   Object.entries(env).map(([name, value], index) => ({ id: `env-${index}`, name, value }));
-type View = 'general' | 'actions' | 'yaml';
+type View = 'general' | 'actions' | 'appearance' | 'yaml';
 const drafts = (actions: Action[]): Draft[] =>
   actions.map((action) => ({
     id: action.id,
@@ -71,6 +83,10 @@ export function ProjectEditor({
   const [view, setView] = useState<View>(defaults ? 'actions' : initialView);
   const [draft, setDraft] = useState<Draft[]>([]);
   const [yaml, setYaml] = useState('');
+  const [appearanceDraft, setAppearanceDraft] = useState(currentApplicationAppearance);
+  const views: View[] = defaults
+    ? ['actions', 'appearance', 'yaml']
+    : ['general', 'actions', 'yaml'];
   const [commonEnv, setCommonEnv] = useState<EnvRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -96,6 +112,8 @@ export function ProjectEditor({
             if (!disposed) {
               setDraft(drafts(settings.actions));
               setCommonEnv(envRows(settings.env));
+              if (defaults)
+                setAppearanceDraft(settings.appearance ?? currentApplicationAppearance());
             }
           } catch (error) {
             if (!disposed) {
@@ -117,12 +135,13 @@ export function ProjectEditor({
     const names = new Set<string>();
     for (const row of commonEnv) {
       if (!row.name || names.has(row.name))
-        throw new Error('Common environment variables require unique, nonempty names.');
+        throw new Error(t('Common environment variables require unique, nonempty names.'));
       names.add(row.name);
     }
     return {
       env: Object.fromEntries(commonEnv.map((row) => [row.name, row.value])),
       actions: actionsFrom(draft),
+      ...(defaults ? { appearance: appearanceDraft } : {}),
     };
   }
   function editEnv(id: string, changes: Partial<EnvRow>) {
@@ -136,12 +155,14 @@ export function ProjectEditor({
     setError('');
     setNotice('');
     try {
-      if (view === 'actions')
+      if (view === 'actions' || view === 'appearance')
         setYaml(await invoke<string>('format_actions', { config: settingsFromForm() }));
-      if (next === 'actions') {
+      if (view === 'yaml' && next !== 'yaml') {
         const settings = await invoke<Settings>('parse_actions', { yaml });
         setDraft(drafts(settings.actions));
         setCommonEnv(envRows(settings.env));
+        if (defaults)
+          setAppearanceDraft(settings.appearance ?? { ...defaultApplicationAppearance });
       }
       setView(next);
     } catch (error) {
@@ -150,23 +171,33 @@ export function ProjectEditor({
       setBusy(false);
     }
   }
-  async function saveActions() {
+  async function saveSettings() {
     if (!project && !defaults) return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
       const text =
-        view === 'actions'
+        view !== 'yaml'
           ? await invoke<string>('format_actions', { config: settingsFromForm() })
           : yaml;
+      const settings = await invoke<Settings>('parse_actions', { yaml: text });
       await invoke(defaults ? 'save_default_actions' : 'save_project_actions', {
         id: project?.id,
         yaml: text,
       });
+      if (defaults) {
+        const value = settings.appearance ?? { ...defaultApplicationAppearance };
+        setAppearanceDraft(value);
+        applyApplicationAppearance(value);
+      }
       setYaml(text);
       setDirty(false);
-      setNotice('Actions saved. New launches will use these settings.');
+      setNotice(
+        defaults
+          ? t('Configuration saved.')
+          : 'Actions saved. New launches will use these settings.',
+      );
     } catch (error) {
       setError(String(error));
     } finally {
@@ -197,19 +228,21 @@ export function ProjectEditor({
     <Dialog
       ref={dialog}
       className="project-editor"
-      aria-label={defaults ? 'Default actions' : 'Project editor'}
+      aria-label={defaults ? t('Application settings') : t('Project editor')}
       onCancel={(event) => {
         event.preventDefault();
         close();
       }}
     >
       <div className="project-editor-header">
-        <h2>{defaults ? 'Default actions' : project ? 'Edit project' : 'New project'}</h2>
+        <h2>
+          {defaults ? t('Application settings') : project ? t('Edit project') : t('New project')}
+        </h2>
         <Button
           type="button"
           className="project-editor-close"
-          aria-label="Close settings"
-          title="Close settings"
+          aria-label={t('Close settings')}
+          title={t('Close settings')}
           disabled={busy}
           onClick={close}
         >
@@ -220,17 +253,17 @@ export function ProjectEditor({
       </div>
       {defaults && (
         <p className="muted">
-          Copied to projects when their actions are first initialized. Existing project settings
-          stay unchanged.
+          {t(
+            'Copied to projects when their actions are first initialized. Existing project settings stay unchanged.',
+          )}
         </p>
       )}
       {defaults && configPath && <p className="muted">{configPath}</p>}
       {(project || defaults) && (
         <TabList
-          aria-label="Project settings"
+          aria-label={t('Project settings')}
           className="settings-tabs"
           onKeyDown={(event) => {
-            const views: View[] = defaults ? ['actions', 'yaml'] : ['general', 'actions', 'yaml'];
             const index = views.indexOf(view);
             const next =
               event.key === 'ArrowRight'
@@ -249,22 +282,26 @@ export function ProjectEditor({
             }
           }}
         >
-          {((defaults ? ['actions', 'yaml'] : ['general', 'actions', 'yaml']) as View[]).map(
-            (item) => (
-              <Tab
-                key={item}
-                id={`settings-${item}`}
-                type="button"
-                aria-selected={view === item}
-                aria-controls={`settings-panel-${item}`}
-                tabIndex={view === item ? 0 : -1}
-                disabled={busy || (item !== 'general' && !loaded)}
-                onClick={() => void switchView(item)}
-              >
-                {item === 'general' ? 'General' : item === 'actions' ? 'Actions' : 'YAML'}
-              </Tab>
-            ),
-          )}
+          {views.map((item) => (
+            <Tab
+              key={item}
+              id={`settings-${item}`}
+              type="button"
+              aria-selected={view === item}
+              aria-controls={`settings-panel-${item}`}
+              tabIndex={view === item ? 0 : -1}
+              disabled={busy || (item !== 'general' && !loaded)}
+              onClick={() => void switchView(item)}
+            >
+              {item === 'general'
+                ? t('General')
+                : item === 'actions'
+                  ? t('Actions')
+                  : item === 'appearance'
+                    ? t('Appearance')
+                    : t('YAML')}
+            </Tab>
+          ))}
         </TabList>
       )}
       <TabPanel
@@ -288,7 +325,7 @@ export function ProjectEditor({
           }}
         >
           <label>
-            Name
+            {t('Name')}
             <Input
               required
               autoFocus
@@ -298,7 +335,7 @@ export function ProjectEditor({
             />
           </label>
           <label>
-            Root directory
+            {t('Root directory')}
             <Input
               required
               value={directory}
@@ -319,14 +356,16 @@ export function ProjectEditor({
                 .finally(() => setBusy(false));
             }}
           >
-            Choose directory…
+            {t('Choose directory…')}
           </Button>
           <p className="muted">
-            The root is the default directory for new sessions. Existing paths stay unchanged.
+            {t(
+              'The root is the default directory for new sessions. Existing paths stay unchanged.',
+            )}
           </p>
           {configPath && (
             <label>
-              Actions file
+              {t('Actions file')}
               <Input
                 readOnly
                 value={configPath}
@@ -334,12 +373,14 @@ export function ProjectEditor({
               />
             </label>
           )}
-          {!project && <p className="muted">Save this project first to customize its actions.</p>}
+          {!project && (
+            <p className="muted">{t('Save this project first to customize its actions.')}</p>
+          )}
           <div className="dialog-actions">
             <Button type="button" disabled={busy} onClick={close}>
-              Cancel
+              {t('Cancel')}
             </Button>
-            <Button disabled={busy || !name.trim() || !directory}>Save project</Button>
+            <Button disabled={busy || !name.trim() || !directory}>{t('Save project')}</Button>
           </div>
         </form>
       </TabPanel>
@@ -350,30 +391,32 @@ export function ProjectEditor({
         className="action-form"
       >
         <p className="muted">
-          The first terminal action starts automatically in new sessions. External commands open
-          applications without a tab.
+          {t(
+            'The first terminal action starts automatically in new sessions. External commands open applications without a tab.',
+          )}
         </p>
-        <section className="common-env" aria-label="Common environment variables">
-          <h3>Common environment variables</h3>
+        <section className="common-env" aria-label={t('Common environment variables')}>
+          <h3>{t('Common environment variables')}</h3>
           <p className="muted">
-            Shared by all actions. Action-specific overrides take precedence. Changes apply to
-            future launches.
+            {t(
+              'Shared by all actions. Action-specific overrides take precedence. Changes apply to future launches.',
+            )}
           </p>
           {commonEnv.map((row) => (
             <div className="env-row" key={row.id}>
               <label>
-                Name
+                {t('Name')}
                 <Input
-                  aria-label="Common variable name"
+                  aria-label={t('Common variable name')}
                   disabled={busy}
                   value={row.name}
                   onChange={(event) => editEnv(row.id, { name: event.target.value })}
                 />
               </label>
               <label>
-                Value
+                {t('Value')}
                 <Input
-                  aria-label="Common variable value"
+                  aria-label={t('Common variable value')}
                   disabled={busy}
                   value={row.value}
                   onChange={(event) => editEnv(row.id, { value: event.target.value })}
@@ -388,7 +431,7 @@ export function ProjectEditor({
                   setNotice('');
                 }}
               >
-                Remove variable
+                {t('Remove variable')}
               </Button>
             </div>
           ))}
@@ -408,27 +451,27 @@ export function ProjectEditor({
               setNotice('');
             }}
           >
-            Add variable
+            {t('Add variable')}
           </Button>
         </section>
         <div className="action-grid">
           {draft.map((action, index) => (
             <fieldset key={action.id} disabled={busy}>
               <legend>
-                {index + 1}. {action.name || 'New action'}
+                {index + 1}. {action.name || t('New action')}
               </legend>
               <label>
-                Name
+                {t('Name')}
                 <Input
-                  aria-label="Action name"
+                  aria-label={t('Action name')}
                   value={action.name}
                   onChange={(event) => patch(action.id, { name: event.target.value })}
                 />
               </label>
               <label>
-                Action type
+                {t('Action type')}
                 <Select
-                  aria-label="Action type"
+                  aria-label={t('Action type')}
                   value={action.kind}
                   onChange={(event) =>
                     patch(action.id, {
@@ -444,18 +487,22 @@ export function ProjectEditor({
                 >
                   {plugins.map((plugin) => (
                     <option key={plugin.id} value={plugin.id}>
-                      {plugin.label} tab
+                      {t(plugin.label)}
+                      {t(' tab')}
                     </option>
                   ))}
-                  <option value="command">External command</option>
+                  <option value="command">{t('External command')}</option>
                 </Select>
               </label>
               {action.kind === 'command' && (
                 <p className="muted">
-                  Runs independently of session tabs. Arguments and directory support{' '}
-                  {'{{session.path}}'}, {'{{session.name}}'} and {'{{project.path}}'}. Output is
-                  discarded. Use SESSION_PATH and PROJECT_PATH environment variables in
-                  shell-command mode.
+                  {t('Runs independently of session tabs. Arguments and directory support')}{' '}
+                  {'{{session.path}}'}, {'{{session.name}}'}
+                  {t(' and ')}
+                  {'{{project.path}}'}
+                  {t(
+                    '. Output is discarded. Use SESSION_PATH and PROJECT_PATH environment variables in shell-command mode.',
+                  )}
                 </p>
               )}
               {(() => {
@@ -466,19 +513,22 @@ export function ProjectEditor({
                     onChange={(pluginConfig) => patch(action.id, { pluginConfig })}
                   />
                 ) : (
-                  <p>Plugin unavailable: {action.kind}</p>
+                  <p>
+                    {t('Plugin unavailable: ')}
+                    {action.kind}
+                  </p>
                 );
               })()}
               <div className="action-controls">
                 <Button type="button" disabled={index === 0} onClick={() => move(index, -1)}>
-                  Move earlier
+                  {t('Move earlier')}
                 </Button>
                 <Button
                   type="button"
                   disabled={index === draft.length - 1}
                   onClick={() => move(index, 1)}
                 >
-                  Move later
+                  {t('Move later')}
                 </Button>
                 <Button
                   type="button"
@@ -489,7 +539,7 @@ export function ProjectEditor({
                     setNotice('');
                   }}
                 >
-                  Remove action
+                  {t('Remove action')}
                 </Button>
               </div>
             </fieldset>
@@ -513,16 +563,35 @@ export function ProjectEditor({
             setNotice('');
           }}
         >
-          Add action
+          {t('Add action')}
         </Button>
       </TabPanel>
+      {defaults && (
+        <TabPanel
+          id="settings-panel-appearance"
+          aria-labelledby="settings-appearance"
+          hidden={view !== 'appearance'}
+        >
+          <AppearanceSettings
+            value={appearanceDraft}
+            disabled={busy || !loaded}
+            onChange={(value) => {
+              setAppearanceDraft(value);
+              setDirty(true);
+              setNotice('');
+            }}
+          />
+        </TabPanel>
+      )}
       <TabPanel
         id="settings-panel-yaml"
         aria-labelledby="settings-yaml"
         hidden={view !== 'yaml'}
         className="action-yaml"
       >
-        <label htmlFor="project-actions-yaml">Actions (YAML)</label>
+        <label htmlFor="project-actions-yaml">
+          {defaults ? t('Configuration (YAML)') : t('Actions (YAML)')}
+        </label>
         <Textarea
           id="project-actions-yaml"
           spellCheck={false}
@@ -536,7 +605,7 @@ export function ProjectEditor({
           }}
         />
         <p className="muted">
-          Use the actions list. The first terminal entry is the default for new sessions.
+          {t('Use the actions list. The first terminal entry is the default for new sessions.')}
         </p>
       </TabPanel>
       {(error || externalError) && (
@@ -545,18 +614,22 @@ export function ProjectEditor({
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {dirty && <p className="muted">Unsaved action changes</p>}
+      {dirty && (
+        <p className="muted">
+          {defaults ? t('Unsaved configuration changes') : t('Unsaved action changes')}
+        </p>
+      )}
       {view !== 'general' && (
         <div className="dialog-actions settings-footer">
           <Button type="button" disabled={busy} onClick={close}>
-            Close
+            {t('Close')}
           </Button>
           <Button
             type="button"
             disabled={busy || !loaded || !dirty}
-            onClick={() => void saveActions()}
+            onClick={() => void saveSettings()}
           >
-            Save actions
+            {defaults ? t('Save configuration') : t('Save actions')}
           </Button>
         </div>
       )}

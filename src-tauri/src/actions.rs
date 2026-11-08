@@ -17,6 +17,49 @@ pub struct Config {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub actions: Vec<Action>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<Appearance>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Appearance {
+    #[serde(default = "default_application_theme")]
+    pub application: String,
+    #[serde(default)]
+    pub terminal: Option<String>,
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+fn default_application_theme() -> String {
+    "original".into()
+}
+fn default_language() -> String {
+    "en".into()
+}
+impl Appearance {
+    fn validate(&self) -> Result<(), String> {
+        let themes = [
+            "original",
+            "dark-plus",
+            "light-plus",
+            "darcula",
+            "one-dark",
+            "monokai",
+        ];
+        if !themes.contains(&self.application.as_str())
+            || self
+                .terminal
+                .as_ref()
+                .is_some_and(|theme| !themes.contains(&theme.as_str()))
+        {
+            return Err("Unknown appearance theme".into());
+        }
+        if !["en", "fr"].contains(&self.language.as_str()) {
+            return Err("Appearance language must be en or fr".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -53,6 +96,9 @@ fn parse_config_policy(text: &str, allow_unavailable: bool) -> Result<Config, St
         return Err("Configuration exceeds 64 KiB".into());
     }
     let config: Config = serde_yaml_ng::from_str(text).map_err(|e| e.to_string())?;
+    if let Some(appearance) = &config.appearance {
+        appearance.validate()?;
+    }
     if config.actions.is_empty() || config.actions.len() > 100 {
         return Err("Expected between 1 and 100 actions".into());
     }
@@ -182,7 +228,12 @@ pub fn load_project_with(
     let result = (|| {
         if !path.exists() {
             let seed = read_default_yaml_with(system, directory)?;
-            parse_project_config(&seed)?;
+            let mut config = parse_project_config(&seed)?;
+            let seed = if config.appearance.take().is_some() {
+                serde_yaml_ng::to_string(&config).map_err(|error| error.to_string())?
+            } else {
+                seed
+            };
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             match std::fs::OpenOptions::new()
                 .write(true)
@@ -224,6 +275,9 @@ pub fn save_project_yaml_with(
     id: u64,
     text: &str,
 ) -> Result<(), String> {
+    if parse_config(text)?.appearance.is_some() {
+        return Err("Appearance belongs in the global configuration, not project actions".into());
+    }
     save_yaml_with(files, &project_path(directory, id), text)
 }
 

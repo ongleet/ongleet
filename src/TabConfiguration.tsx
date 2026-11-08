@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { Button, Dialog, Textarea } from './components/Controls';
 import { useEffect, useRef, useState } from 'react';
 import { actionEditor } from './plugins';
@@ -26,16 +27,21 @@ export function TabConfiguration({
   return (
     <Dialog
       ref={dialog}
-      aria-label="Tab configuration"
+      aria-label={t('Tab configuration')}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) dismiss();
       }}
     >
-      <h2>Configure {tab.name}</h2>
+      <h2>
+        {t('Configure ')}
+        {tab.name}
+      </h2>
       {tab.kind === 'terminal' && (
         <p className="muted">
-          Launch settings apply to future launches. The running process keeps its current settings.
+          {t(
+            'Launch settings apply to future launches. The running process keeps its current settings.',
+          )}
         </p>
       )}
       <form
@@ -49,7 +55,7 @@ export function TabConfiguration({
               if (await save(config)) dismiss();
               else
                 setError(
-                  'Unable to save tab configuration. See the application error for details.',
+                  t('Unable to save tab configuration. See the application error for details.'),
                 );
             } catch (error) {
               setError(String(error));
@@ -64,7 +70,7 @@ export function TabConfiguration({
             <Editor value={draft} onChange={setDraft} />
           ) : (
             <label>
-              Configuration (JSON)
+              {t('Configuration (JSON)')}
               <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} />
             </label>
           )}
@@ -76,9 +82,9 @@ export function TabConfiguration({
         )}
         <div className="dialog-actions">
           <Button type="button" disabled={busy} onClick={dismiss}>
-            Cancel
+            {t('Cancel')}
           </Button>
-          <Button disabled={busy}>Save configuration</Button>
+          <Button disabled={busy}>{t('Save configuration')}</Button>
         </div>
       </form>
     </Dialog>
