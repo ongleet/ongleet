@@ -104,6 +104,7 @@ impl Read for Connection {
         }
         if self.offset == self.pending.len() {
             let timeout = *self.read_timeout.lock().unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_millis(timeout as u64);
             let mut header = [0u8; 4];
             self.transfer_all(&mut header, false, timeout)?;
             let count = u32::from_le_bytes(header) as usize;
@@ -125,7 +126,11 @@ impl Read for Connection {
                 ));
             }
             let mut frame = vec![0u8; count];
-            self.transfer_all(&mut frame, false, timeout)?;
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            self.transfer_all(&mut frame, false, millis(remaining))?;
             self.pending = frame;
             self.offset = 0;
         }
@@ -209,6 +214,9 @@ impl ControlListener for Listener {
         operation.hEvent = event.0;
         let started = unsafe { ConnectNamedPipe(handle.0, &mut operation) };
         if started == 0 && unsafe { GetLastError() } != ERROR_PIPE_CONNECTED {
+            if unsafe { GetLastError() } != ERROR_IO_PENDING {
+                return Err(io::Error::last_os_error());
+            }
             unsafe {
                 complete(
                     handle.0,

@@ -11,6 +11,9 @@ mod paths;
 mod system;
 
 fn main() {
+    if system::run_helper_if_requested() {
+        return;
+    }
     let services = system::services();
     if codex::run_if_requested(&services) {
         return;

@@ -12,6 +12,12 @@ impl Image {
     pub fn capture() -> Self {
         Self((|| {
             let current = std::env::current_exe().map_err(|e| e.to_string())?;
+            #[cfg(test)]
+            let current = current
+                .parent()
+                .and_then(Path::parent)
+                .ok_or("Test binary directory unavailable")?
+                .join("terminal-pty-helper.exe");
             let directory = current.parent().ok_or("Executable directory unavailable")?;
             let mut entries = vec![(
                 current.clone(),
@@ -132,13 +138,13 @@ impl SystemPaths for super::Windows {
         for value in std::iter::once(executable).chain(args.iter().copied()) {
             wide(value).map_err(|e| e.to_string())?;
         }
-        Ok(format!(
-            "& {}",
-            std::iter::once(executable)
-                .chain(args.iter().copied())
-                .map(ps_quote)
-                .collect::<Vec<_>>()
-                .join(" ")
-        ))
+        // ProcessStartInfo avoids PowerShell 5's lossy native-argument quoting.
+        // The recorder inherits raw stdin, including large JSON hook payloads.
+        let arguments = args
+            .iter()
+            .map(|arg| super::process::quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        Ok(format!("$ongleetStart = New-Object System.Diagnostics.ProcessStartInfo; $ongleetStart.UseShellExecute = $false; $ongleetStart.CreateNoWindow = $true; $ongleetStart.FileName = {}; $ongleetStart.Arguments = {}; $ongleetChild = [System.Diagnostics.Process]::Start($ongleetStart); $ongleetChild.WaitForExit(); exit $ongleetChild.ExitCode", ps_quote(executable), ps_quote(&arguments)))
     }
 }

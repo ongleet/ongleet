@@ -12,7 +12,7 @@ use std::{
         io::{AsRawHandle, FromRawHandle},
     },
     path::Path,
-    ptr::{null, null_mut},
+    ptr::null_mut,
 };
 use windows_sys::Win32::{Foundation::*, Security::Cryptography::*, Storage::FileSystem::*};
 #[derive(Hash, PartialEq, Eq)]
@@ -41,30 +41,18 @@ impl SystemFiles for super::Windows {
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()> {
         let source = wide(source)?;
         let destination = wide(destination)?;
-        unsafe {
-            if ReplaceFileW(
-                destination.as_ptr(),
-                source.as_ptr(),
-                null(),
-                0,
-                null(),
-                null(),
-            ) != 0
-            {
-                return Ok(());
-            }
-            let error = GetLastError();
-            // Only fall back when there is no destination. Never remove a file first.
-            if error != ERROR_FILE_NOT_FOUND {
-                return Err(io::Error::from_raw_os_error(error as i32));
-            }
-            check(MoveFileExW(
+        // Same-volume rename supports an open temporary handle shared for
+        // deletion. ReplaceFileW opens the replacement exclusively and fails
+        // while shared callers still hold the flushed file for its metadata.
+        check(unsafe {
+            MoveFileExW(
                 source.as_ptr(),
                 destination.as_ptr(),
-                MOVEFILE_WRITE_THROUGH,
-            ))
-        }
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        })
     }
+
     fn sync_directory(&self, _: &Path) -> io::Result<()> {
         // Windows does not expose POSIX directory fsync; file flush precedes the
         // atomic replacement, and new-name moves request write-through.

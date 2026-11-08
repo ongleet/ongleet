@@ -235,6 +235,7 @@ impl TerminalService for super::Windows {
             .entry("COLORTERM".into())
             .or_insert_with(|| "truecolor".into());
         let child = super::process::spawn(
+            self,
             ProcessLaunch {
                 executable: launch
                     .executable

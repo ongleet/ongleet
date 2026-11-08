@@ -25,3 +25,7 @@ impl Windows {
         }
     }
 }
+
+pub(super) fn run_helper_if_requested() -> bool {
+    process::run_helper_if_requested()
+}

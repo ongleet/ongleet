@@ -8,5 +8,8 @@ mod cli;
 #[path = "../control/mod.rs"]
 mod control;
 fn main() {
+    if system::run_helper_if_requested() {
+        return;
+    }
     std::process::exit(cli::run(&system::services()));
 }

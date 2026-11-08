@@ -128,7 +128,7 @@ pub fn services() -> SystemServices {
 pub fn run_helper_if_requested() -> bool {
     #[cfg(target_os = "windows")]
     {
-        false
+        windows::run_helper_if_requested()
     }
     #[cfg(target_os = "linux")]
     {

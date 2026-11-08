@@ -189,3 +189,175 @@ fn dpapi_persistence_replacement_deletion_and_corruption() {
     super::secrets::test_roundtrip(&native, &path, attributes);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn failed_assignment_never_executes_user_code() {
+    let native = Windows::new();
+    let directory = root("assignment");
+    let marker = directory.join("must-not-exist");
+    super::process::FAIL_ASSIGNMENT.with(|flag| flag.set(true));
+    let result = ProcessService::spawn(
+        &native,
+        ProcessLaunch {
+            executable: helper(),
+            args: vec![
+                "--probe".into(),
+                "mark".into(),
+                marker.to_string_lossy().into_owned(),
+            ],
+            ..Default::default()
+        },
+        ProcessMode::Captured,
+    );
+    super::process::FAIL_ASSIGNMENT.with(|flag| flag.set(false));
+    assert!(result.err().unwrap().contains("before user execution"));
+    assert!(!marker.exists());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+#[test]
+fn owner_crash_closes_last_job_handle_and_kills_descendants() {
+    use std::io::BufRead;
+    use windows_sys::Win32::System::Threading::*;
+    struct Owner(std::process::Child);
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut owner = Owner(
+        std::process::Command::new(helper())
+            .args(["--probe", "owner"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let output = owner.0.stdout.take().unwrap();
+    let (send, receive) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let result = std::io::BufReader::new(output).read_line(&mut line);
+        let _ = send.send((result, line));
+    });
+    let (result, line) = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+    result.unwrap();
+    let pids: Vec<u32> = line
+        .trim()
+        .strip_prefix("TREE:")
+        .unwrap()
+        .split(':')
+        .map(|value| value.parse().unwrap())
+        .collect();
+    assert_eq!(pids.len(), 2);
+    let handles: Vec<_> = pids
+        .into_iter()
+        .map(|pid| {
+            super::native::Handle::new(unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) }).unwrap()
+        })
+        .collect();
+    owner.0.kill().unwrap();
+    owner.0.wait().unwrap();
+    for handle in handles {
+        assert_eq!(
+            unsafe { WaitForSingleObject(handle.0, 5000) },
+            windows_sys::Win32::Foundation::WAIT_OBJECT_0
+        );
+    }
+}
+#[test]
+fn executable_argument_quoting_preserves_unicode_and_metacharacters() {
+    let native = Windows::new();
+    let directory = root("quoting");
+    let executable = directory.join("helper with space 日本語.exe");
+    std::fs::copy(helper(), &executable).unwrap();
+    let expected = vec![
+        "",
+        "a b",
+        "it's quoted",
+        "\"inside\"",
+        "trailing\\",
+        "x&y|z<>^%!",
+        "日本語",
+    ];
+    let mut args = vec!["--probe".into(), "argv".into()];
+    args.extend(expected.iter().map(|s| s.to_string()));
+    let mut resources = ProcessService::spawn(
+        &native,
+        ProcessLaunch {
+            executable,
+            args,
+            ..Default::default()
+        },
+        ProcessMode::Captured,
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut buffer = [0u8; 4096];
+    loop {
+        match resources.stdout.as_mut().unwrap().read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert_eq!(resources.child.wait().unwrap().exit_code, 0);
+    let actual: Vec<String> = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(actual, expected);
+    drop(resources);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn command_shim_preserves_literal_arguments_in_a_contained_bootstrap() {
+    let native = Windows::new();
+    let directory = root("shim");
+    let shim = directory.join("command with spaces.cmd");
+    // A conventional Windows launcher forwards its original argument tail.
+    std::fs::write(
+        &shim,
+        format!("@\"{}\" --probe argv %*\r\n", helper().display()),
+    )
+    .unwrap();
+    let expected = vec![
+        "",
+        "a b",
+        "it's quoted",
+        "trailing\\",
+        "x&y|z<>^%!",
+        "日本語",
+    ];
+    let mut resources = ProcessService::spawn(
+        &native,
+        ProcessLaunch {
+            executable: shim,
+            args: expected.iter().map(|arg| arg.to_string()).collect(),
+            ..Default::default()
+        },
+        ProcessMode::Captured,
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 4096];
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        match resources.stdout.as_mut().unwrap().read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(e) => panic!("{e}"),
+        }
+    }
+    assert_eq!(resources.child.wait().unwrap().exit_code, 0);
+    let actual: Vec<String> = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(actual, expected);
+    drop(resources);
+    std::fs::remove_dir_all(directory).unwrap();
+}

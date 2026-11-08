@@ -21,6 +21,9 @@ use windows_sys::Win32::{
     },
 };
 
+#[cfg(test)]
+thread_local! { pub(super) static FAIL_ASSIGNMENT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
 /// MS CRT argument quoting, distinct from shell quoting.
 pub fn quote(argument: &str) -> String {
     let mut output = String::from("\"");
@@ -250,6 +253,7 @@ impl Drop for Attributes {
 }
 
 pub fn spawn(
+    native: &super::Windows,
     mut launch: ProcessLaunch,
     console: Option<HPCON>,
     stdio: Option<[HANDLE; 3]>,
@@ -263,25 +267,14 @@ pub fn spawn(
         .unwrap_or("")
         .to_ascii_lowercase();
     let executable = if matches!(extension.as_str(), "cmd" | "bat") {
-        // Use PowerShell's literal expression quoting to invoke Windows shims.
-        // Argument strings are never interpolated as shell syntax.
-        let script = format!(
-            "& {} {}; exit $LASTEXITCODE",
-            super::paths::ps_quote(&executable.to_string_lossy()),
-            launch
-                .args
-                .iter()
-                .map(|s| super::paths::ps_quote(s))
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-        launch.args = vec![
-            "-NoLogo".into(),
-            "-NoProfile".into(),
-            "-Command".into(),
-            script,
-        ];
-        PathBuf::from(super::paths::powershell())
+        // Rust's Windows Command implementation owns batch-file escaping.
+        // Run a one-shot bootstrap in the already assigned Job, then launch the
+        // shim with literal arguments. No user code runs before containment.
+        let helper = native.image.verified()?;
+        let mut arguments = vec![SHIM_FLAG.into(), executable.to_string_lossy().into_owned()];
+        arguments.append(&mut launch.args);
+        launch.args = arguments;
+        helper
     } else {
         executable
     };
@@ -359,6 +352,14 @@ pub fn spawn(
         if let Some(attrs) = &mut attributes {
             startup.lpAttributeList = attrs.pointer();
         }
+        if console.is_some() {
+            // Match ConPTY's console binding contract even when Ongleet itself
+            // was launched with redirected stdout/stderr (as on CI).
+            startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+            startup.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+            startup.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+            startup.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+        }
         if let Some([input, output, error]) = stdio {
             startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
             startup.StartupInfo.hStdInput = input;
@@ -390,7 +391,14 @@ pub fn spawn(
         let process = Handle::new(information.hProcess).map_err(|e| e.to_string())?;
         let thread = Handle::new(information.hThread).map_err(|e| e.to_string())?;
         if let Some(job) = &job {
-            if AssignProcessToJobObject(job.handle.0, process.0) == 0 {
+            let job_handle = job.handle.0;
+            #[cfg(test)]
+            let job_handle = if FAIL_ASSIGNMENT.with(|fail| fail.get()) {
+                null_mut()
+            } else {
+                job_handle
+            };
+            if AssignProcessToJobObject(job_handle, process.0) == 0 {
                 let error = io::Error::last_os_error();
                 TerminateProcess(process.0, 1);
                 WaitForSingleObject(process.0, INFINITE);
@@ -517,7 +525,7 @@ impl ProcessService for super::Windows {
             }
             Some([owned[0].0, owned[1].0, owned[2].0])
         };
-        let child = spawn(launch, None, handles, captured, detached)?;
+        let child = spawn(self, launch, None, handles, captured, detached)?;
         Ok(ProcessResources {
             child: Box::new(child),
             stdout: output,
@@ -527,4 +535,27 @@ impl ProcessService for super::Windows {
 }
 unsafe extern "system" fn ignore_interrupt(kind: u32) -> i32 {
     i32::from(kind == CTRL_C_EVENT || kind == CTRL_BREAK_EVENT)
+}
+
+const SHIM_FLAG: &str = "--internal-windows-command-shim";
+pub(super) fn run_helper_if_requested() -> bool {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new(SHIM_FLAG)) {
+        return false;
+    }
+    let Some(executable) = args.next() else {
+        eprintln!("Command shim executable is missing");
+        std::process::exit(2);
+    };
+    unsafe {
+        SetConsoleCtrlHandler(Some(ignore_interrupt), 1);
+    }
+    let result = std::process::Command::new(executable).args(args).status();
+    match result {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(error) => {
+            eprintln!("Cannot launch Windows command shim: {error}");
+            std::process::exit(1);
+        }
+    }
 }
