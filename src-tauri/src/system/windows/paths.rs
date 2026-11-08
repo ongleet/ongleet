@@ -212,13 +212,15 @@ impl SystemPaths for super::Windows {
         }
         // Redirect the native child's input explicitly. Inheriting stdin from
         // PowerShell can bind a console handle instead of the hook payload pipe.
-        // CopyTo streams raw UTF-8 bytes without line buffering or re-encoding.
+        // Framework Process uses Console.InputEncoding for its stdin writer.
+        // Disable its preamble before Start, then copy bytes and close the stream
+        // directly, so no text writer can append a BOM to the payload.
         let arguments = args
             .iter()
             .map(|arg| super::process::quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        Ok(format!("$ErrorActionPreference='Stop';$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.StandardInputEncoding=[Text.UTF8Encoding]::new($false);$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.BaseStream.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
+        Ok(format!("$ErrorActionPreference='Stop';[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.BaseStream.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
     }
 }
 
