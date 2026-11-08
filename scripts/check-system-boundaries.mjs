@@ -110,7 +110,7 @@ export function violations(source, file) {
     /\b(?:windows_sys|winapi|libc|gtk|gdk|gio|webkit2gtk|portable_pty|secret_service|objc2|objc2_app_kit|objc2_foundation|security_framework|core_foundation|objc|cocoa|objc2_web_kit|core_graphics|darwin_libproc|AppKit|Foundation|Security|WebKit|Darwin)\b/.test(
       code,
     ) ||
-    /\bwindows\s*:\s*:/.test(code) ||
+    (file !== 'src-tauri/src/system/mod.rs' && /\bwindows\s*:\s*:/.test(code)) ||
     /\b(?:hwnd|gtk_window|ns_window|with_webview|as_raw_fd|from_raw_fd|custom_flags|pre_exec|process_group)\b/.test(
       code,
     ) ||

@@ -71,7 +71,7 @@ fn document(
     Ok(Some(Document {
         path: path.to_str().ok_or("File path is not UTF-8")?.into(),
         text: text.replace("\r\n", "\n"),
-        revision: files.revision(bytes, metadata),
+        revision: files.revision(bytes, metadata, path),
         line_ending: line_ending.into(),
         bom,
     }))
@@ -103,7 +103,7 @@ pub fn save_with(
         return Err("Text editor limit is 1 MiB".into());
     }
     let (bytes, metadata) = read(files, path)?;
-    if files.revision(&bytes, &metadata) != expected_revision {
+    if files.revision(&bytes, &metadata, path) != expected_revision {
         return Err(
             "File changed on disk. Reload it before saving; your edits have been kept.".into(),
         );
@@ -144,7 +144,7 @@ pub fn save_with(
         files.preserve_attributes(&file, &metadata)?;
         file.sync_all().map_err(|e| e.to_string())?;
         let (current, current_metadata) = read(files, path)?;
-        if files.revision(&current, &current_metadata) != expected_revision {
+        if files.revision(&current, &current_metadata, path) != expected_revision {
             return Err("File changed on disk while saving; your edits have been kept".into());
         }
         files
@@ -161,6 +161,7 @@ pub fn save_with(
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};

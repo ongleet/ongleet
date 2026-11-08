@@ -82,6 +82,10 @@ pub fn search(
                 result.skipped += 1;
                 continue;
             };
+            let relative = relative
+                .split(std::path::MAIN_SEPARATOR)
+                .collect::<Vec<_>>()
+                .join("/");
             if !relative.to_lowercase().contains(&query) {
                 continue;
             }
@@ -137,6 +141,7 @@ mod tests {
         std::fs::write(root.join("Nested/Components/Button.tsx"), "unrelated text").unwrap();
         std::fs::write(root.join(".hidden/button.txt"), "").unwrap();
         std::fs::write(root.join("other.txt"), "button").unwrap();
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&root, root.join("loop")).unwrap();
         let cancel = AtomicBool::new(false);
         let folder = root.to_str().unwrap();

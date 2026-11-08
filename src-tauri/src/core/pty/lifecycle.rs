@@ -78,7 +78,7 @@ impl SessionRegistry {
         };
         let mut env = if let Some(directory) = &self.actions_directory {
             let yaml = crate::actions::read_project_yaml_with(
-                self.system.files.as_ref(),
+                &self.system,
                 directory,
                 session.project_id,
             )?;

@@ -131,7 +131,7 @@ mod tests {
     fn request(script: &str) -> Request {
         Request {
             executable: "python3".into(),
-            args: vec!["-c".into(), script.into()],
+            args: vec!["-c".into(), format!("import sys; sys.stdout.reconfigure(encoding='utf-8', newline='\\n'); sys.stderr.reconfigure(encoding='utf-8', newline='\\n'); {script}")],
             env: Default::default(),
             cwd: None,
             timeout_ms: Some(2_000),

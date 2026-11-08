@@ -36,6 +36,8 @@ impl Drop for Directory {
 
 mod projects;
 
+#[cfg(unix)]
+#[cfg(unix)]
 #[test]
 fn codex_wrapper_receives_stable_context_and_records_from_a_contained_pty() {
     use std::os::unix::fs::PermissionsExt;
@@ -143,6 +145,7 @@ fn metadata_operations_preserve_identity_order_selection_and_directories() {
     assert!(other.0.is_dir());
 }
 
+#[cfg(unix)]
 #[test]
 fn invalid_updates_are_atomic_and_missing_directory_does_not_prevent_rename() {
     let directory = Directory::new();
@@ -222,6 +225,7 @@ fn read_cwd(registry: &SessionRegistry, session: u64, receive: &mpsc::Receiver<O
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn session_navigation_keeps_independent_ptys_and_closure_requires_confirmation() {
     let first_directory = Directory::new();
@@ -349,6 +353,7 @@ fn tab_order_names_selection_and_last_tab_close_are_session_local() {
     assert!(registry.sessions[0].selected_tab_id.unwrap() > c);
 }
 
+#[cfg(unix)]
 #[test]
 fn sibling_ptys_survive_tab_changes_and_session_close_preflights_all_sessions() {
     let directory = Directory::new();
@@ -421,6 +426,7 @@ fn read_line(registry: &SessionRegistry, tab: u64, receive: &mpsc::Receiver<Outp
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shell() {
     let old_directory = Directory::new();
@@ -548,6 +554,7 @@ fn new_tab_names_avoid_open_sibling_collisions() {
     assert_eq!(create(&mut registry, other).1, "Bash");
 }
 
+#[cfg(unix)]
 #[test]
 fn reload_connect_reuses_live_session_and_never_starts_stopped_tabs() {
     let directory = Directory::new();
@@ -628,6 +635,7 @@ fn yaml_types_reload_without_changing_existing_openings() {
     assert_eq!(saved.name, "Custom");
 }
 
+#[cfg(unix)]
 #[test]
 fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_resume_flags() {
     let data = Directory::new();
@@ -736,6 +744,7 @@ fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_res
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn failed_terminal_spawn_keeps_startup_intent_across_restart() {
     let data = Directory::new();
@@ -777,6 +786,8 @@ fn failed_terminal_spawn_keeps_startup_intent_across_restart() {
     assert!(!restored.sessions[0].tabs[0].resume_on_start);
 }
 
+#[cfg(unix)]
+#[cfg(unix)]
 #[test]
 fn codex_launch_failure_retries_saved_conversation_after_restart_unless_explicitly_stopped() {
     use std::os::unix::fs::PermissionsExt;
@@ -877,6 +888,7 @@ fn codex_launch_failure_retries_saved_conversation_after_restart_unless_explicit
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn sqlite_stop_and_natural_exit_are_not_relaunched_and_missing_directories_are_retained() {
     let data = Directory::new();

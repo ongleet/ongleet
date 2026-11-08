@@ -44,15 +44,25 @@ mod tests {
     }
     #[test]
     fn rejects_invalid_names_and_unbounded_or_non_utf8_values() {
-        use std::os::unix::ffi::OsStringExt;
         for name in ["", "A=B", "A\0B"] {
             assert!(read(name, |_| panic!("invalid names must not be read")).is_err());
         }
         assert!(read("TOKEN", |_| Some(OsString::from("x".repeat(65_537))))
             .unwrap_err()
             .contains("64 KiB"));
-        assert!(read("TOKEN", |_| Some(OsString::from_vec(vec![255])))
-            .unwrap_err()
-            .contains("UTF-8"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            assert!(read("TOKEN", |_| Some(OsString::from_vec(vec![255])))
+                .unwrap_err()
+                .contains("UTF-8"));
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+            assert!(read("TOKEN", |_| Some(OsString::from_wide(&[0xd800])))
+                .unwrap_err()
+                .contains("UTF-8"));
+        }
     }
 }

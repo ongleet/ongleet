@@ -5,14 +5,18 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-compile_error!("Ongleet supports Linux and macOS only");
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+compile_error!("Ongleet supports Linux, macOS and Windows x64");
 #[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
 compile_error!("The macOS preview requires Apple Silicon");
+#[cfg(all(target_os = "windows", not(target_arch = "x86_64")))]
+compile_error!("The Windows backend requires x64");
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +39,10 @@ pub trait SystemPaths: Send + Sync {
     #[allow(dead_code)] // Used by the CLI composition, not the GUI.
     fn sibling_executable(&self, name: &str) -> Result<PathBuf, String>;
     fn default_shell(&self) -> String;
+    /// An optional platform-specific seed for newly created shell actions.
+    fn shell_action_seed(&self) -> Option<(&'static str, String)> {
+        None
+    }
     /// Construct explicit shell mode; literal executable launches bypass this.
     fn shell_command(&self, script: &str) -> (String, Vec<String>);
     /// A command interpreted by the native Codex hook shell.
@@ -105,6 +113,8 @@ pub fn services() -> SystemServices {
     let native = Arc::new(linux::Linux);
     #[cfg(target_os = "macos")]
     let native = Arc::new(macos::Macos::new());
+    #[cfg(target_os = "windows")]
+    let native = Arc::new(windows::Windows::new());
     SystemServices {
         desktop: native.clone(),
         secrets: native.clone(),
@@ -116,6 +126,10 @@ pub fn services() -> SystemServices {
     }
 }
 pub fn run_helper_if_requested() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        false
+    }
     #[cfg(target_os = "linux")]
     {
         linux::containment::run_helper_if_requested()
@@ -167,7 +181,7 @@ pub trait SystemFiles: Send + Sync {
     fn try_lock(&self, path: &Path) -> Result<Box<dyn FileLock>, String>;
     fn nonce(&self) -> Result<String, String>;
     fn open_editor(&self, path: &Path) -> io::Result<std::fs::File>;
-    fn revision(&self, bytes: &[u8], metadata: &std::fs::Metadata) -> String;
+    fn revision(&self, bytes: &[u8], metadata: &std::fs::Metadata, path: &Path) -> String;
     fn editable(&self, metadata: &std::fs::Metadata) -> bool;
     fn preserve_attributes(
         &self,
@@ -387,6 +401,7 @@ mod contract_tests {
         std::fs::remove_dir_all(directory).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn hook_command_preserves_literal_arguments_through_the_native_shell() {
         // Both currently supported backends use POSIX hooks. Windows will need

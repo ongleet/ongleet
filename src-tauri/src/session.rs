@@ -198,11 +198,10 @@ impl SessionRegistry {
             .ok_or("Create a project first")?;
         self.project(group)?;
         // Validate the YAML before changing metadata. Each opening owns its copy.
-        let action =
-            crate::actions::load_project_with(self.system.files.as_ref(), config_directory, group)?
-                .into_iter()
-                .find(|action| crate::plugins::has_runtime(&action.kind))
-                .ok_or("Project needs a terminal action to initialize a session")?;
+        let action = crate::actions::load_project_with(&self.system, config_directory, group)?
+            .into_iter()
+            .find(|action| crate::plugins::has_runtime(&action.kind))
+            .ok_or("Project needs a terminal action to initialize a session")?;
         crate::plugins::validate(&action.kind, action.config_version, &action.config)?;
         self.insert_session(group, name, directory, Some(action))
     }

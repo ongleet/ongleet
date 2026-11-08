@@ -62,7 +62,7 @@ impl SessionRegistry {
             .find(|w| w.id == session_id)
             .ok_or("Session is unavailable")?;
         let group = self.project(session.project_id)?;
-        let yaml = super::read_project_yaml_with(self.system.files.as_ref(), directory, group.id)?;
+        let yaml = super::read_project_yaml_with(&self.system, directory, group.id)?;
         let settings = super::parse_project_config(&yaml)?;
         let Action {
             name, kind, config, ..

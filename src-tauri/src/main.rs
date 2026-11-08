@@ -70,11 +70,7 @@ fn actions(
         .lock()
         .map_err(|e| e.to_string())?
         .session_project(session_id)?;
-    actions::load_project_with(
-        services.files.as_ref(),
-        &services.paths.config_directory()?,
-        group,
-    )
+    actions::load_project_with(&services, &services.paths.config_directory()?, group)
 }
 
 #[tauri::command]
@@ -85,7 +81,7 @@ fn project_config(
 ) -> Result<String, String> {
     state.0.lock().map_err(|e| e.to_string())?.project(id)?;
     let directory = services.paths.config_directory()?;
-    actions::load_project_with(services.files.as_ref(), &directory, id)?;
+    actions::load_project_with(&services, &directory, id)?;
     Ok(actions::project_path(&directory, id)
         .to_string_lossy()
         .into())
@@ -98,11 +94,7 @@ fn project_actions(
     id: u64,
 ) -> Result<String, String> {
     state.0.lock().map_err(|e| e.to_string())?.project(id)?;
-    actions::read_project_yaml_with(
-        services.files.as_ref(),
-        &services.paths.config_directory()?,
-        id,
-    )
+    actions::read_project_yaml_with(&services, &services.paths.config_directory()?, id)
 }
 
 #[tauri::command]
@@ -124,7 +116,7 @@ fn save_project_actions(
 
 #[tauri::command]
 fn default_actions(services: State<'_, system::SystemServices>) -> Result<String, String> {
-    actions::read_default_yaml_with(services.files.as_ref(), &services.paths.config_directory()?)
+    actions::read_default_yaml_with(&services, &services.paths.config_directory()?)
 }
 
 #[tauri::command]

@@ -1,0 +1,16 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Ongleet \u2014 preview",
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "width": 1100,
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 400
+      }
+    ]
+  }
+}

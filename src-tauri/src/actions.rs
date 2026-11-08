@@ -174,14 +174,14 @@ pub fn project_path(directory: &Path, id: u64) -> std::path::PathBuf {
 }
 
 pub fn load_project_with(
-    files: &dyn crate::system::SystemFiles,
+    system: &crate::system::SystemServices,
     directory: &Path,
     id: u64,
 ) -> Result<Vec<Action>, String> {
     let path = project_path(directory, id);
     let result = (|| {
         if !path.exists() {
-            let seed = read_default_yaml_with(files, directory)?;
+            let seed = read_default_yaml_with(system, directory)?;
             parse_project_config(&seed)?;
             std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
             match std::fs::OpenOptions::new()
@@ -206,13 +206,13 @@ pub fn format(config: Config) -> Result<String, String> {
 }
 
 pub fn read_project_yaml_with(
-    files: &dyn crate::system::SystemFiles,
+    system: &crate::system::SystemServices,
     directory: &Path,
     id: u64,
 ) -> Result<String, String> {
     let path = project_path(directory, id);
     if !path.exists() {
-        load_project_with(files, directory, id)?;
+        load_project_with(system, directory, id)?;
     }
     // Read existing malformed YAML too, so the editor can repair it.
     read_config(&path).map_err(|error| format!("{}: {error}", path.display()))
@@ -228,12 +228,22 @@ pub fn save_project_yaml_with(
 }
 
 pub fn read_default_yaml_with(
-    files: &dyn crate::system::SystemFiles,
+    system: &crate::system::SystemServices,
     directory: &Path,
 ) -> Result<String, String> {
+    let files = system.files.as_ref();
     let path = directory.join("actions.yaml");
     if !path.try_exists().map_err(|e| e.to_string())? {
-        save_yaml_with(files, &path, DEFAULTS)?;
+        let mut defaults = DEFAULTS.to_string();
+        if let Some((name, executable)) = system.paths.shell_action_seed() {
+            let mut config = parse_project_config(DEFAULTS)?;
+            let shell = &mut config.actions[0];
+            shell.id = "shell".into();
+            shell.name = name.into();
+            shell.config["executable"] = executable.into();
+            defaults = format(config)?;
+        }
+        save_yaml_with(files, &path, &defaults)?;
     }
     read_config(&path)
 }
@@ -301,15 +311,15 @@ impl Action {
 
 #[cfg(test)]
 pub(crate) fn load_project(directory: &Path, id: u64) -> Result<Vec<Action>, String> {
-    load_project_with(crate::system::services().files.as_ref(), directory, id)
+    load_project_with(&crate::system::services(), directory, id)
 }
 #[cfg(test)]
 pub(crate) fn read_project_yaml(directory: &Path, id: u64) -> Result<String, String> {
-    read_project_yaml_with(crate::system::services().files.as_ref(), directory, id)
+    read_project_yaml_with(&crate::system::services(), directory, id)
 }
 #[cfg(test)]
 fn read_default_yaml(directory: &Path) -> Result<String, String> {
-    read_default_yaml_with(crate::system::services().files.as_ref(), directory)
+    read_default_yaml_with(&crate::system::services(), directory)
 }
 #[cfg(test)]
 pub(crate) fn save_project_yaml(directory: &Path, id: u64, text: &str) -> Result<(), String> {

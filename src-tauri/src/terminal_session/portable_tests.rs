@@ -23,7 +23,10 @@ fn rust_fixture_roundtrip_preserves_unicode_and_enter() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("terminal-pty-helper");
+        .join(format!(
+            "terminal-pty-helper{}",
+            std::env::consts::EXE_SUFFIX
+        ));
     let launch = Launch {
         executable: Some(helper.to_string_lossy().into_owned()),
         args: vec!["--probe".into(), "echo".into()],
@@ -75,7 +78,10 @@ fn escaped_descendant_cannot_hold_drain_open_and_detached_apps_survive_close() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("terminal-pty-helper");
+        .join(format!(
+            "terminal-pty-helper{}",
+            std::env::consts::EXE_SUFFIX
+        ));
     let mut external = services
         .processes
         .spawn(
@@ -198,7 +204,10 @@ fn strict_containment_can_bound_a_reader_that_remains_open_after_exit() {
         .unwrap()
         .parent()
         .unwrap()
-        .join("terminal-pty-helper");
+        .join(format!(
+            "terminal-pty-helper{}",
+            std::env::consts::EXE_SUFFIX
+        ));
     let launch = Launch {
         executable: Some(helper.to_string_lossy().into_owned()),
         args: vec!["--probe".into(), "echo".into()],

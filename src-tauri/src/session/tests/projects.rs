@@ -42,6 +42,7 @@ fn project_reordering_persists_without_changing_sessions_or_selection() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn projects_persist_defaults_membership_and_folding_without_touching_directories_or_ptys() {
     let data = Directory::new();
@@ -217,6 +218,7 @@ fn failed_project_migration_rolls_back_schema_and_keeps_existing_rows() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically() {
     let data = Directory::new();
@@ -263,6 +265,7 @@ fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically(
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
     let data = Directory::new();

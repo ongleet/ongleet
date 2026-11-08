@@ -55,6 +55,7 @@ fn protocol_rejects_unknown_fields_and_accepts_activation_frame() {
     .is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn socket_reader_bounds_bytes_and_wait_time_on_real_unix_streams() {
     use std::{

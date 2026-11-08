@@ -363,7 +363,7 @@ pub fn handle(
                 .config_directory()
                 .map_err(failed)?;
             let actions: Vec<_> = crate::actions::load_project_with(
-                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &app.state::<crate::system::SystemServices>(),
                 &directory,
                 session.project_id,
             )
@@ -403,7 +403,7 @@ pub fn handle(
                 .config_directory()
                 .map_err(failed)?;
             let action = crate::actions::load_project_with(
-                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &app.state::<crate::system::SystemServices>(),
                 &directory,
                 session.project_id,
             )
@@ -510,7 +510,7 @@ pub fn handle(
                 .config_directory()
                 .map_err(failed)?;
             let yaml = crate::actions::read_project_yaml_with(
-                app.state::<crate::system::SystemServices>().files.as_ref(),
+                &app.state::<crate::system::SystemServices>(),
                 &directory,
                 id,
             )

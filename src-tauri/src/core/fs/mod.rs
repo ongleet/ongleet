@@ -145,6 +145,7 @@ pub fn list(
 }
 
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::os::unix::fs::{symlink, PermissionsExt};

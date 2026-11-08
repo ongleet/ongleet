@@ -77,7 +77,7 @@ impl SystemFiles for super::Linux {
             .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
             .open(path)
     }
-    fn revision(&self, bytes: &[u8], metadata: &fs::Metadata) -> String {
+    fn revision(&self, bytes: &[u8], metadata: &fs::Metadata, _path: &Path) -> String {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         bytes.hash(&mut hash);
         (

@@ -27,11 +27,13 @@ pub fn run() -> bool {
             }
         }
         Some("escape") => {
+            #[cfg(unix)]
             use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
             command
                 .args(["--probe", "hold"])
                 .stdout(std::process::Stdio::piped());
+            #[cfg(unix)]
             unsafe {
                 command.pre_exec(|| {
                     if libc::setsid() < 0 {

@@ -176,6 +176,7 @@ fn retention_uses_archive_time_and_purges_only_matching_application_artifacts() 
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn archive_transaction_failure_rolls_back_active_metadata_and_cleanup_is_retryable() {
     let fixture = Fixture::new("rollback");

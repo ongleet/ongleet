@@ -11,6 +11,7 @@ fn placeholders_are_literal_single_pass_and_unknown_variables_fail() {
     assert!(expand("{{session.path", &values).is_err());
 }
 
+#[cfg(unix)]
 #[test]
 fn external_command_launches_without_a_pty_and_reports_failure_and_reaps() {
     let root = std::env::temp_dir().join(format!("external-action-test-{}", std::process::id()));
