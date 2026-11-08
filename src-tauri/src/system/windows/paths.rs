@@ -172,14 +172,15 @@ impl SystemPaths for super::Windows {
         for value in std::iter::once(executable).chain(args.iter().copied()) {
             wide(value).map_err(|e| e.to_string())?;
         }
-        // ProcessStartInfo avoids PowerShell 5's lossy native-argument quoting.
-        // The recorder inherits raw stdin, including large JSON hook payloads.
+        // Redirect the native child's input explicitly. Inheriting stdin from
+        // PowerShell can bind a console handle instead of the hook payload pipe.
+        // CopyTo streams raw UTF-8 bytes without line buffering or re-encoding.
         let arguments = args
             .iter()
             .map(|arg| super::process::quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        Ok(format!("$ongleetStart = New-Object System.Diagnostics.ProcessStartInfo; $ongleetStart.UseShellExecute = $false; $ongleetStart.CreateNoWindow = $true; $ongleetStart.FileName = {}; $ongleetStart.Arguments = {}; $ongleetChild = [System.Diagnostics.Process]::Start($ongleetStart); $ongleetChild.WaitForExit(); exit $ongleetChild.ExitCode", ps_quote(executable), ps_quote(&arguments)))
+        Ok(format!("$ErrorActionPreference='Stop';$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
     }
 }
 

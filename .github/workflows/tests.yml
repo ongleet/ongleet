@@ -188,6 +188,7 @@ jobs:
         run: >-
           python scripts/check-codex-wrapper-windows.py
           --wrapper src-tauri/target/x86_64-pc-windows-msvc/debug/ong-codex.exe
+          --helper src-tauri/target/x86_64-pc-windows-msvc/debug/terminal-pty-helper.exe
       - name: Build bundled release executables
         run: >-
           mise exec -- cargo build --locked --release --manifest-path src-tauri/Cargo.toml

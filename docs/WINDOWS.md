@@ -44,8 +44,9 @@ truncation is reported through the shared worker contract.
 
 Native executables use Windows argument quoting. Windows command shims run through
 a one-shot Ongleet bootstrap after Job assignment, using Rust's Windows batch-file
-escaping. Codex hooks use PowerShell literal strings plus native ProcessStartInfo
-arguments; hook payloads retain raw stdin. Helper launches verify captured running
+escaping. Codex hooks use PowerShell literal strings, native ProcessStartInfo
+arguments and an explicitly redirected raw stdin stream into the recorder,
+without changing user shell configuration. Helper launches verify captured running
 and sibling executable identities and require restart after replacement.
 
 Local-only named pipes use a data-directory/user/logon endpoint, a protected DACL,

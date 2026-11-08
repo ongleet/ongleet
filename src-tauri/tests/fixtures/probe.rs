@@ -91,6 +91,55 @@ pub fn run() -> bool {
                 std::thread::park();
             }
         }
+        Some("supervise") => {
+            let services = crate::system::services();
+            let mut resources = services
+                .processes
+                .spawn(
+                    crate::system::ProcessLaunch {
+                        executable: args.next().expect("supervised executable").into(),
+                        args: args.collect(),
+                        ..Default::default()
+                    },
+                    crate::system::ProcessMode::Captured,
+                )
+                .unwrap();
+            fn drain(input: &mut dyn std::io::Read, output: &mut dyn std::io::Write) {
+                let mut bytes = [0u8; 8192];
+                for _ in 0..64 {
+                    match input.read(&mut bytes) {
+                        Ok(0) => break,
+                        Ok(count) => output.write_all(&bytes[..count]).unwrap(),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(error) => panic!("Supervised output failed: {error}"),
+                    }
+                }
+                output.flush().unwrap();
+            }
+            loop {
+                drain(
+                    resources.stdout.as_mut().unwrap().as_mut(),
+                    &mut std::io::stdout(),
+                );
+                drain(
+                    resources.stderr.as_mut().unwrap().as_mut(),
+                    &mut std::io::stderr(),
+                );
+                if let Some(status) = resources.child.try_wait().unwrap() {
+                    drain(
+                        resources.stdout.as_mut().unwrap().as_mut(),
+                        &mut std::io::stdout(),
+                    );
+                    drain(
+                        resources.stderr.as_mut().unwrap().as_mut(),
+                        &mut std::io::stderr(),
+                    );
+                    drop(resources);
+                    std::process::exit(status.exit_code);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
         Some("owner") => {
             let services = crate::system::services();
             let mut resources = services

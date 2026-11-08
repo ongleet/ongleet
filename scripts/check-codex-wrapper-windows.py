@@ -10,7 +10,7 @@ import sys
 import tempfile
 
 
-def check(wrapper: Path) -> None:
+def check(wrapper: Path, helper: Path) -> None:
     if sys.platform != "win32":
         raise RuntimeError("This fixture requires native Windows")
     with tempfile.TemporaryDirectory(prefix="ongleet-codex-") as temporary:
@@ -54,7 +54,7 @@ sys.exit(23)
             attempts = root / f"attempts-{session}-{tab}.jsonl"
             attempts.unlink(missing_ok=True)
             result = subprocess.run(
-                [str(executable), "--session-id", str(session), "--tab-id", str(tab),
+                [str(helper), "--probe", "supervise", str(executable), "--session-id", str(session), "--tab-id", str(tab),
                  *([] if restart else ["--no-restart"]), *options],
                 cwd=root, env=dict(env, TEST_ATTEMPTS=str(attempts)),
                 capture_output=True, timeout=45,
@@ -86,4 +86,6 @@ sys.exit(23)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wrapper", required=True, type=Path)
-    check(parser.parse_args().wrapper.resolve())
+    parser.add_argument("--helper", required=True, type=Path)
+    options = parser.parse_args()
+    check(options.wrapper.resolve(), options.helper.resolve())
