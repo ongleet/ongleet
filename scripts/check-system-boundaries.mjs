@@ -99,6 +99,7 @@ export function production(source) {
 }
 
 export function violations(source, file) {
+  file = file.replaceAll('\\', '/');
   const live = production(source);
   const code = live
     .filter((t) => !t.string)
@@ -106,10 +107,11 @@ export function violations(source, file) {
     .join(' ');
   const errors = [];
   if (
-    /\b(?:libc|gtk|gdk|gio|webkit2gtk|portable_pty|secret_service|objc2|objc2_app_kit|objc2_foundation|security_framework|core_foundation|objc|cocoa|objc2_web_kit|core_graphics|darwin_libproc|AppKit|Foundation|Security|WebKit|Darwin)\b/.test(
+    /\b(?:windows_sys|winapi|libc|gtk|gdk|gio|webkit2gtk|portable_pty|secret_service|objc2|objc2_app_kit|objc2_foundation|security_framework|core_foundation|objc|cocoa|objc2_web_kit|core_graphics|darwin_libproc|AppKit|Foundation|Security|WebKit|Darwin)\b/.test(
       code,
     ) ||
-    /\b(?:gtk_window|ns_window|with_webview|as_raw_fd|from_raw_fd|custom_flags|pre_exec|process_group)\b/.test(
+    /\bwindows\s*:\s*:/.test(code) ||
+    /\b(?:hwnd|gtk_window|ns_window|with_webview|as_raw_fd|from_raw_fd|custom_flags|pre_exec|process_group)\b/.test(
       code,
     ) ||
     /\bos\s*:\s*:\s*(?:\{[^}]*\b(?:unix|linux|fd|windows)\b|(?:unix|linux|fd|windows)\b)/.test(
@@ -155,8 +157,10 @@ async function files(directory) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   const failures = [];
-  for (const file of await files('src-tauri/src')) {
-    if (!file.endsWith('.rs') || /^src-tauri\/src\/system\/(linux|macos)\//.test(file)) continue;
+  for (const nativePath of await files('src-tauri/src')) {
+    const file = nativePath.replaceAll('\\', '/');
+    if (!file.endsWith('.rs') || /^src-tauri\/src\/system\/(linux|macos|windows)\//.test(file))
+      continue;
     // These modules are only reached through cfg(test) declarations.
     if (file.endsWith('/tests.rs') || file.endsWith('_tests.rs') || file.includes('/tests/'))
       continue;

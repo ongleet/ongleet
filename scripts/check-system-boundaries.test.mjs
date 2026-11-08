@@ -16,6 +16,10 @@ test('native calls, grouped imports, paths and feature factories are rejected', 
     'use std::{os::fd::OwnedFd};',
     'use std::{os::{unix::{net::UnixStream}}};',
     'unsafe { libc::setsid(); }',
+    'use windows_sys::Win32::System::Console;',
+    'use windows::Win32::System::Console;',
+    'use std::os::windows::io::AsRawHandle;',
+    'window.hwnd();',
     'window.gtk_window();',
     'window.ns_window();',
     'use objc2_app_kit::NSPasteboard;',
@@ -34,7 +38,25 @@ test('native calls, grouped imports, paths and feature factories are rejected', 
     assert.ok(violations(source, feature).length > 0, source);
   assert.deepEqual(violations('let system = system::services();', 'src-tauri/src/main.rs'), []);
   assert.deepEqual(
-    violations('use std::fs; // gtk:: is a comment\nfn f() { std::process::id(); }', feature),
+    violations(
+      'use std::fs; // gtk:: is a comment\nfn f() { std::process::id(); let pairs = bytes.windows(2); }',
+      feature,
+    ),
+    [],
+  );
+});
+
+test('Windows paths retain backend selection and entrypoint restrictions', () => {
+  assert.deepEqual(violations('let system = system::services();', 'src-tauri\\src\\main.rs'), []);
+  assert.deepEqual(
+    violations('let system = system::services();', 'src-tauri\\src\\bin\\ongleet.rs'),
+    [],
+  );
+  assert.ok(
+    violations('let system = system::services();', 'src-tauri\\src\\session.rs').length > 0,
+  );
+  assert.deepEqual(
+    violations('#[cfg(target_os = "windows")] mod windows;', 'src-tauri\\src\\system\\mod.rs'),
     [],
   );
 });

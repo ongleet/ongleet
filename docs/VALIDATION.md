@@ -257,3 +257,28 @@ Rust formatting and formatting checks on changed frontend/documentation files
 passed. The repository-wide Prettier check still reports four untouched files:
 `.playwright-mcp/page-2026-10-27T20-35-19-474Z.yml`, `docs/PLUGINS.md`,
 `src-tauri/linux/Ongleet.desktop.hbs` and `src/native-validation.ts`.
+
+## Windows prerequisites (2026-11-08)
+
+The shared contracts now delegate explicit shell commands, Codex hook quoting,
+atomic replacement and directory synchronization to native services. Containment
+strength and post-exit output-drain deadlines are independent capabilities.
+The boundary checker recognizes Windows native imports and the reserved private
+Windows backend directory.
+
+On Linux, the production frontend build, boundary checker tests and 174 active
+Rust tests across all targets passed. Two native credential tests remained
+ignored. New real-file checks cover first installation, replacement and failed
+commit retention; real shell checks cover literal Unicode and metacharacters.
+A real-PTY worker test confirms strict containment can coexist with bounded
+post-exit drainage. An initial sandbox run rejected socket credentials; a native
+rerun passed. One native run observed an existing watch-test startup race; the
+subsequent complete run passed without changing the watcher.
+
+**The Windows backend is not implemented.** A `windows-2025` x64 CI job is now
+configured, with all-target Rust tests and gated release ZIP publication. Workflow
+lint, frontend build, boundary tests and Python syntax checks passed locally.
+Packaging/smoke checks passed using Linux binaries staged under `.exe` names;
+this checks script behavior, not Windows execution. No successful Windows build,
+Windows executable artifact or Windows 11 qualification is established.
+See [the remaining Windows work](WINDOWS.md).

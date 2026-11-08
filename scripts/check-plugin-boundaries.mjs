@@ -14,7 +14,8 @@ async function files(directory) {
   ).flat();
 }
 let failed = false;
-for (const file of await files('src/plugins')) {
+for (const nativePath of await files('src/plugins')) {
+  const file = nativePath.replaceAll('\\', '/');
   // The host creates attachments; plugin entrypoints and implementations cannot.
   if (file === 'src/plugins/index.tsx' || !/\.[jt]sx?$/.test(file)) continue;
   const source = ts.createSourceFile(
@@ -39,7 +40,7 @@ for (const file of await files('src/plugins')) {
     )
       specifier = node.arguments[0].text;
     if (specifier) {
-      const resolved = path.normalize(path.join(path.dirname(file), specifier));
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier));
       if (
         specifier.startsWith('@tauri-apps/') ||
         (resolved.startsWith('src/sdk/') &&

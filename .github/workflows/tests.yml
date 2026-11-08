@@ -138,3 +138,65 @@ jobs:
             mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml \
               --bin ongleet-gui --target aarch64-apple-darwin \
               isolated_keychain_persistent_refs_replacement_and_lock_errors -- --ignored
+
+  windows:
+    name: Windows / x64 native tests and executables
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify Windows x64 MSVC toolchain
+        run: |
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') {
+            throw 'The Windows backend requires an x64 host'
+          }
+          mise exec -- rustc --version --verbose
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          mise exec -- rustup show active-toolchain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          mise exec -- node --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install frontend dependencies
+        run: mise exec -- npm ci
+      - name: Check Rust formatting
+        run: mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Test native boundary enforcement
+        run: mise exec -- node --test scripts/check-system-boundaries.test.mjs
+      - name: Build production frontend
+        run: mise exec -- npm run build
+      - name: Check Python syntax
+        run: python -m compileall -q scripts
+      # This is a required gate, including while the backend is unfinished.
+      # Do not skip unsupported targets or accept a failed Windows compilation.
+      - name: Run Rust and Windows integration tests
+        run: >-
+          mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml
+          --all-targets --target x86_64-pc-windows-msvc
+      - name: Build bundled release executables
+        run: >-
+          mise exec -- cargo build --locked --release --manifest-path src-tauri/Cargo.toml
+          --target x86_64-pc-windows-msvc --features tauri/custom-protocol
+          --bin ongleet-gui --bin ongleet --bin ong-codex
+      - name: Stage, smoke-test and package executable deployment
+        run: >-
+          python scripts/package-windows.py
+          --binary-directory src-tauri/target/x86_64-pc-windows-msvc/release
+          --output artifacts/ongleet-windows-x64.zip
+      - name: Upload executable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ongleet-windows-x64
+          path: artifacts/ongleet-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
