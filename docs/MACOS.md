@@ -143,3 +143,22 @@ and WKWebView page-load/content-process-termination events enter the common type
 logging path. Key traces may reveal typed input. Load-failure/resource counters
 are not currently exposed by the Tauri macOS hooks used here and remain a native
 diagnostic coverage limitation.
+
+## GitHub Actions
+
+`.github/workflows/tests.yml` runs on pushes, pull requests and manual dispatch.
+The `macos-15` job verifies ARM64, builds the production frontend and executes
+all Rust targets against `aarch64-apple-darwin`, including the Darwin PTY,
+watchdog, socket, file and cancellation tests. A separate step runs the ignored
+keychain integration test against a disposable default keychain on the ephemeral
+runner and restores the previous default afterward.
+
+The Linux job runs the Rust suite, Python syntax checks, the Python Codex wrapper
+subprocess fixture and the production native service checks on private Wayland
+and XWayland displays. Its temporary systemd user service supplies the required
+cgroup delegation. Native reports are retained as workflow artifacts for seven
+days, including when a test fails.
+
+The workflow does not run the other interactive Python acceptance harnesses or
+produce a macOS installer. A passing hosted job does not certify Finder launch,
+physical keyboard/IME behavior or all WKWebView/Ghostty desktop interactions.

@@ -1,0 +1,115 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux / Rust and Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux native test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
+            weston xwayland dbus-x11 python3
+      - uses: jdx/mise-action@v4
+      - name: Install frontend dependencies
+        run: mise exec -- npm ci
+      - name: Check Rust formatting and native boundaries
+        run: |
+          mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml --check
+          mise exec -- node --test scripts/check-system-boundaries.test.mjs
+      - name: Build production frontend
+        run: mise exec -- npm run build
+      - name: Prepare delegated cgroup on the disposable runner
+        run: |
+          uid=$(id -u)
+          sudo systemctl start "user@${uid}.service"
+          group="/sys/fs/cgroup/user.slice/user-${uid}.slice/user@${uid}.service"
+          test -f "$group/cgroup.kill"
+          test "$(stat -c %u "$group")" = "$uid"
+          test -w "$group"
+      - name: Run Rust integration tests
+        run: mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+      - name: Build bundled native executables
+        run: mise exec -- cargo build --locked --manifest-path src-tauri/Cargo.toml --bins --features tauri/custom-protocol
+      - name: Check Python syntax
+        run: python3 -m compileall -q scripts
+      - name: Run Python Codex wrapper subprocess tests
+        run: python3 scripts/check-codex-wrapper.py src-tauri/target/debug/ong-codex
+      - name: Run Python native service tests / Wayland
+        run: |
+          dbus-run-session -- python3 scripts/check-system-native.py --backend wayland \
+            --application "$PWD/src-tauri/target/debug/ongleet-gui" \
+            --cli "$PWD/src-tauri/target/debug/ongleet"
+      - name: Run Python native service tests / XWayland
+        run: |
+          dbus-run-session -- python3 scripts/check-system-native.py --backend xwayland \
+            --application "$PWD/src-tauri/target/debug/ongleet-gui" \
+            --cli "$PWD/src-tauri/target/debug/ongleet"
+      - name: Upload native service reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-native-service-reports
+          path: /tmp/ongleet-system-native-*/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  macos:
+    name: macOS / Apple Silicon native tests
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v4
+      - name: Verify Apple Silicon host
+        run: |
+          test "$(uname -m)" = arm64
+          mise exec -- npm run check:host
+      - name: Install frontend dependencies
+        run: mise exec -- npm ci
+      - name: Check Rust formatting
+        run: mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - name: Build production frontend
+        run: mise exec -- npm run build
+      - name: Run Rust and Darwin integration tests
+        run: |
+          mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml \
+            --all-targets --target aarch64-apple-darwin
+      - name: Run isolated keychain integration test
+        shell: bash
+        run: |
+          keychain="$RUNNER_TEMP/ongleet-ci.keychain-db"
+          password=$(openssl rand -hex 24)
+          original=$(security default-keychain -d user | tr -d '"' | xargs)
+          cleanup() {
+            security default-keychain -d user -s "$original"
+            security delete-keychain "$keychain"
+          }
+          trap cleanup EXIT
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security default-keychain -d user -s "$keychain"
+          ONGLEET_TEST_KEYCHAIN="$keychain" \
+          ONGLEET_TEST_KEYCHAIN_PASSWORD="$password" \
+            mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml \
+              --bin ongleet-gui --target aarch64-apple-darwin \
+              isolated_keychain_persistent_refs_replacement_and_lock_errors -- --ignored
