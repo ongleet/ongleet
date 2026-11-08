@@ -1,8 +1,8 @@
 # Windows implementation status
 
 The Windows x64 backend implements all seven injected system services. It uses
-WebView2, Ghostty WASM and Rust-owned ConPTY terminals. Hosted validation is in
-progress; a Windows 11 desktop has not been qualified.
+WebView2, Ghostty WASM and Rust-owned ConPTY terminals. CI validates the backend
+on Windows Server; a Windows 11 desktop has not been qualified.
 
 ## Executable deployment
 
@@ -46,7 +46,8 @@ Native executables use Windows argument quoting. Windows command shims run throu
 a one-shot Ongleet bootstrap after Job assignment, using Rust's Windows batch-file
 escaping. Codex hooks use PowerShell literal strings, native ProcessStartInfo
 arguments and an explicitly redirected raw stdin stream into the recorder,
-without changing user shell configuration. Helper launches verify captured running
+with BOM-free input encoding restored immediately after child launch, without
+changing user shell configuration. Helper launches verify captured running
 and sibling executable identities and require restart after replacement.
 
 Local-only named pipes use a data-directory/user/logon endpoint, a protected DACL,

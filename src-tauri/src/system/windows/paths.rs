@@ -220,7 +220,7 @@ impl SystemPaths for super::Windows {
             .map(|arg| super::process::quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        Ok(format!("$ErrorActionPreference='Stop';[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.BaseStream.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
+        Ok(format!("$ErrorActionPreference='Stop';$i=[Console]::InputEncoding;$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.FileName={};$s.Arguments={};try{{[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);$p=[Diagnostics.Process]::Start($s)}}finally{{[Console]::InputEncoding=$i}};[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.BaseStream.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
     }
 }
 

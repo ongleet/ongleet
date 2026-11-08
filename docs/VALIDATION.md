@@ -258,7 +258,7 @@ passed. The repository-wide Prettier check still reports four untouched files:
 `.playwright-mcp/page-2026-10-27T20-35-19-474Z.yml`, `docs/PLUGINS.md`,
 `src-tauri/linux/Ongleet.desktop.hbs` and `src/native-validation.ts`.
 
-## Windows prerequisites (2026-11-08)
+## Windows backend validation (2026-11-08)
 
 The shared contracts now delegate explicit shell commands, Codex hook quoting,
 atomic replacement and directory synchronization to native services. Containment
@@ -275,15 +275,20 @@ post-exit drainage. An initial sandbox run rejected socket credentials; a native
 rerun passed. One native run observed an existing watch-test startup race; the
 subsequent complete run passed without changing the watcher.
 
-The Windows backend now compiles as a complete Tauri application on the hosted
-x64 runner. At `da24b61`, twelve native service scenarios passed, covering ConPTY
-Unicode/resize, blocked I/O cancellation, assignment refusal before execution,
-owner-death descendant cleanup, executable/shim argument quoting, authenticated
-pipe half-close/deadlines/bounds, file replacement/watches and DPAPI persistence,
+The complete Tauri backend compiles on the hosted Windows x64 runner. At
+`b1746c3`, all 187 Windows Rust tests passed. Native scenarios cover ConPTY
+Unicode/resize, blocked I/O cancellation and saturated-output teardown, assignment
+refusal before execution, owner-death descendant cleanup, detached applications,
+executable/shim argument quoting and image-replacement guards, authenticated pipe
+half-close/deadlines/bounds, file replacement/watches and DPAPI persistence,
 attribute isolation, replacement/deletion, corruption and the 64 KiB limit.
-The Windows editor revision/format regression also passed.
+Editor revision/format checks and legacy directory migrations also passed. The
+metadata writer lease follows directory identity without holding a child file open.
 
-That run still failed three legacy directory migration tests while writer locks
-were held. Linux and macOS passed. All-platform qualification and Windows artifact
-publication remain open until the replacement pipeline succeeds. Windows 11
-physical desktop behavior is untested; see [the acceptance checklist](WINDOWS.md).
+The native Windows Codex subprocess fixture passed with Unicode/quoted deployment
+paths, literal shell metacharacters, a 3 MiB hook event, conversation recording,
+resume, fresh launch and bounded restart. Linux and macOS jobs passed in that run.
+The workflow additionally requires a bundled release build, staged executable
+smoke checks and ZIP upload; inspect the completed [Tests workflow](https://github.com/ongleet/ongleet/actions/workflows/tests.yml)
+for the result at the deployed commit. Windows 11 physical desktop behavior is
+untested; see [the acceptance checklist](WINDOWS.md).
