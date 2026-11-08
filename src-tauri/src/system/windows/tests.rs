@@ -111,6 +111,7 @@ fn blocked_conpty_io_is_independently_cancellable() {
         }
         sent.send(()).unwrap();
     });
+    assert!(written.recv_timeout(Duration::from_millis(100)).is_err());
     writer_cancel.cancel();
     written.recv_timeout(Duration::from_secs(3)).unwrap();
     assert!(!reader_cancel.is_cancelled());
@@ -415,7 +416,9 @@ fn dpapi_public_contract_isolates_attributes_and_enforces_payload_limits() {
     std::fs::write(&path, b"invalid encrypted store").unwrap();
     assert!(block_on(native.ensure_available()).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), b"invalid encrypted store");
-    native.secret_path = Some(directory.clone());
+    let invalid = directory.join("directory-instead-of-store");
+    std::fs::create_dir(&invalid).unwrap();
+    native.secret_path = Some(invalid);
     assert!(block_on(native.ensure_available()).is_err());
     std::fs::remove_dir_all(directory).unwrap();
 }
