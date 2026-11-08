@@ -8,7 +8,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc, Arc,
     },
     thread::JoinHandle,
 };
@@ -36,10 +36,13 @@ impl Watch {
         let pending = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let worker_pending = pending.clone();
+        let previous = stamp(&path);
+        let (ready, receive) = mpsc::sync_channel(1);
         let worker = std::thread::Builder::new()
             .name("file-watch".into())
             .spawn(move || {
-                let mut previous = stamp(&path);
+                let mut previous = previous;
+                let mut ready = Some(ready);
                 while !worker_stop.cancelled() {
                     // Watch the target for in-place writes and ancestors for replacement,
                     // deletion and recreation. Rebuild after every directory event.
@@ -73,9 +76,20 @@ impl Watch {
                         libc::EV_ADD,
                         0,
                     ));
-                    let Ok(q) = events::queue(&changes) else {
-                        break;
+                    let q = match events::queue(&changes) {
+                        Ok(q) => q,
+                        Err(error) => {
+                            if let Some(ready) = ready.take() {
+                                let _ = ready.send(Err(error));
+                            }
+                            break;
+                        }
                     };
+                    // Publish readiness only after the native registrations exist.
+                    // Edits immediately after watch() returns must not be lost.
+                    if let Some(ready) = ready.take() {
+                        let _ = ready.send(Ok(()));
+                    }
                     let current = stamp(&path);
                     if current != previous {
                         previous = current;
@@ -102,6 +116,15 @@ impl Watch {
                 }
             })
             .map_err(|e| e.to_string())?;
+        let registration = receive
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .map_err(|_| "File watch registration timed out".to_string())
+            .and_then(|result| result);
+        if let Err(error) = registration {
+            stop.cancel();
+            let _ = worker.join();
+            return Err(error);
+        }
         Ok(Self {
             pending,
             stop,
