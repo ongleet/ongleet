@@ -115,7 +115,6 @@ fn escaped_descendant_cannot_hold_drain_open_and_detached_apps_survive_close() {
     )
     .unwrap();
     let mut bytes = Vec::new();
-    let mut truncated = false;
     let mut escaped = None;
     loop {
         let output = receive.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -136,18 +135,104 @@ fn escaped_descendant_cannot_hold_drain_open_and_detached_apps_survive_close() {
             Output::Size { seq, .. } | Output::Ready { seq } => session.acknowledge(seq).unwrap(),
             Output::Error { message } => {
                 assert!(message.contains("two-second drain deadline"), "{message}");
-                truncated = true;
             }
             Output::Eof => break,
             _ => (),
         }
     }
     assert!(escaped.is_some());
-    assert!(truncated);
+    // Darwin may revoke the PTY slave immediately. EOF and bounded truncation
+    // are both valid; the escaped process must not hold closure indefinitely.
+    assert_eq!(
+        unsafe { libc::kill(escaped.as_ref().unwrap().0 as i32, 0) },
+        0
+    );
     assert!(start.elapsed() < Duration::from_secs(5));
     session.close().unwrap();
     assert!(external.child.try_wait().unwrap().is_none());
     drop(external_guard);
     external.child.wait().unwrap();
     drop(escaped);
+}
+
+#[test]
+fn best_effort_deadline_cancels_a_reader_that_remains_open_after_exit() {
+    // Simulate the native boundary retaining a readable stream after child exit.
+    // The real PTY/process and all shared workers remain in the test path.
+    struct Cancel(Mutex<Option<mpsc::Sender<()>>>);
+    impl Cancellation for Cancel {
+        fn cancel(&self) {
+            self.0.lock().unwrap().take();
+        }
+        fn is_cancelled(&self) -> bool {
+            self.0.lock().unwrap().is_none()
+        }
+    }
+    struct Reader(mpsc::Receiver<()>);
+    impl crate::system::TerminalReader for Reader {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::ErrorKind::WouldBlock.into())
+        }
+        fn wait(&self) -> Result<bool, String> {
+            let _ = self.0.recv();
+            Ok(false)
+        }
+    }
+    struct HeldStream<'a>(&'a dyn TerminalService);
+    impl TerminalService for HeldStream<'_> {
+        fn cleanup_guarantee(&self) -> crate::system::CleanupGuarantee {
+            crate::system::CleanupGuarantee::BestEffort
+        }
+        fn spawn(&self, launch: Launch) -> Result<crate::system::TerminalIo, String> {
+            let mut io = self.0.spawn(launch)?;
+            let (send, receive) = mpsc::channel();
+            io.reader = Box::new(Reader(receive));
+            io.cancel_read = Arc::new(Cancel(Mutex::new(Some(send))));
+            Ok(io)
+        }
+    }
+    let services = crate::system::services();
+    let helper = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("terminal-pty-helper");
+    let launch = Launch {
+        executable: Some(helper.to_string_lossy().into_owned()),
+        args: vec!["--probe".into(), "echo".into()],
+        cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+        env: BTreeMap::new(),
+        cols: 80,
+        rows: 24,
+    };
+    let (output, receive) = channel();
+    let mut session = TerminalSession::spawn_with(
+        &HeldStream(services.terminal.as_ref()),
+        services.paths.as_ref(),
+        902,
+        launch,
+        output,
+    )
+    .unwrap();
+    session
+        .queue_text(b"exit".to_vec(), true)
+        .unwrap()
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    let mut deadline_reported = false;
+    loop {
+        match receive.recv_timeout(Duration::from_secs(5)).unwrap() {
+            Output::Error { message } => {
+                assert!(message.contains("two-second drain deadline"), "{message}");
+                deadline_reported = true;
+            }
+            Output::Eof => break,
+            _ => (),
+        }
+    }
+    assert!(deadline_reported);
+    session.close().unwrap();
 }

@@ -384,8 +384,11 @@ fn bootstrap(
     if ack != [1] {
         return Err("Application registration refused".into());
     }
-    drop(ready);
-    Err(Command::new(executable).args(args).exec().to_string())
+    // Keep the CLOEXEC socket alive through exec. EOF acknowledges successful
+    // execution; a failed exec sends its error before closing the connection.
+    let error = Command::new(executable).args(args).exec().to_string();
+    let _ = ready.write_all(error.as_bytes());
+    Err(error)
 }
 pub fn run_helper_if_requested() -> bool {
     let mut args = std::env::args_os().skip(1);
@@ -450,6 +453,17 @@ impl Handshake {
                     }
                     let group = registered(pid)?;
                     s.write_all(&[1]).map_err(|e| e.to_string())?;
+                    let mut failure = Vec::new();
+                    (&mut s)
+                        .take(4097)
+                        .read_to_end(&mut failure)
+                        .map_err(|e| e.to_string())?;
+                    if !failure.is_empty() {
+                        return Err(format!(
+                            "Terminal launch failed: {}",
+                            String::from_utf8_lossy(&failure)
+                        ));
+                    }
                     return Ok(group);
                 }
                 Err(e)

@@ -130,7 +130,7 @@ mod tests {
     use super::*;
     fn request(script: &str) -> Request {
         Request {
-            executable: "/usr/bin/python3".into(),
+            executable: "python3".into(),
             args: vec!["-c".into(), script.into()],
             env: Default::default(),
             cwd: None,
@@ -178,6 +178,9 @@ mod tests {
         let mut options =
             request("import sys;\nwhile True: sys.stdout.write('x'*8192); sys.stdout.flush()");
         options.timeout_ms = Some(80);
+        // Give interpreter startup its own margin; the flood must hit the
+        // output cap rather than racing an unrelated startup deadline.
+        options.timeout_ms = Some(2_000);
         options.output_limit = Some(1024);
         assert!(execute(options, Arc::new(AtomicBool::new(false)))
             .unwrap_err()

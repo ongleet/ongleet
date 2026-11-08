@@ -22,7 +22,7 @@ impl Directory {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&path).unwrap();
-        Self(path)
+        Self(fs::canonicalize(path).unwrap())
     }
     fn path(&self) -> String {
         self.0.to_str().unwrap().into()
@@ -41,7 +41,7 @@ fn codex_wrapper_receives_stable_context_and_records_from_a_contained_pty() {
     use std::os::unix::fs::PermissionsExt;
     let directory = Directory::new();
     let fake = directory.0.join("codex");
-    fs::write(&fake, r#"#!/usr/bin/python3
+    fs::write(&fake, r#"#!/usr/bin/env python3
 import json, os, subprocess, sys, tomllib
 args = sys.argv[1:]
 config = next(tomllib.loads(args[i+1]) for i, a in enumerate(args) if a == '-c' and args[i+1].startswith('hooks.'))
@@ -176,7 +176,7 @@ fn start_test(
     channel: Channel<Output>,
 ) -> u64 {
     registry.configure_tab(tab, TabConfig {
-            executable: Some("/usr/bin/python3".into()),
+            executable: Some("python3".into()),
             args: vec!["-u".into(), "-c".into(), "import os,time; print(os.getcwd(),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into()],
             cwd_override: Some(directory), ..Default::default()
         }).unwrap();
@@ -430,7 +430,7 @@ fn tab_config_launches_direct_args_overrides_default_directory_and_explicit_shel
         .unwrap();
     let a = registry.sessions[0].tabs[0].id;
     let mut config = TabConfig {
-            executable: Some("/usr/bin/python3".into()),
+            executable: Some("python3".into()),
             args: vec!["-u".into(), "-c".into(), "import os,sys,json,time; print(json.dumps([os.getcwd(),sys.argv[1],os.environ['TAB_VALUE'],'PATH' in os.environ,os.environ['ONGLEET_SESSION_ID'],os.environ['ONGLEET_PROJECT_ID'],os.environ['ONGLEET_TAB_ID']]),flush=True); input(); print(os.getcwd(),flush=True); time.sleep(60)".into(), "literal; echo $(shell-syntax)".into()],
             env: BTreeMap::from([("TAB_VALUE".into(), "explicit".into()), ("ONGLEET_SESSION_ID".into(), "999".into()), ("ONGLEET_PROJECT_ID".into(), "999".into()), ("ONGLEET_TAB_ID".into(), "999".into())]), ..Default::default()
         };
@@ -897,7 +897,7 @@ fn sqlite_stop_and_natural_exit_are_not_relaunched_and_missing_directories_are_r
             .configure_tab(
                 exited,
                 TabConfig {
-                    executable: Some("/usr/bin/python3".into()),
+                    executable: Some("python3".into()),
                     args: vec!["-c".into(), "raise SystemExit(9)".into()],
                     ..Default::default()
                 },

@@ -29,7 +29,9 @@ pub fn run() -> bool {
         Some("escape") => {
             use std::os::unix::process::CommandExt;
             let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-            command.args(["--probe", "hold"]);
+            command
+                .args(["--probe", "hold"])
+                .stdout(std::process::Stdio::piped());
             unsafe {
                 command.pre_exec(|| {
                     if libc::setsid() < 0 {
@@ -38,7 +40,15 @@ pub fn run() -> bool {
                     Ok(())
                 });
             }
-            let child = command.spawn().unwrap();
+            let mut child = command.spawn().unwrap();
+            // Ensure setsid and readiness precede leader exit. Darwin may revoke
+            // the old slave on leader death, so late writes would kill the probe.
+            use std::io::BufRead;
+            let mut ready = String::new();
+            std::io::BufReader::new(child.stdout.take().unwrap())
+                .read_line(&mut ready)
+                .unwrap();
+            assert!(ready.starts_with("HOLD:"));
             println!("ESCAPED:{}", child.id());
         }
         _ => std::process::exit(2),

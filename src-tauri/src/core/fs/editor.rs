@@ -167,6 +167,7 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("ongleet-editor-reject-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         let target = root.join("target.txt");
         let link = root.join("link.txt");
         std::fs::write(&target, "original").unwrap();
@@ -194,6 +195,7 @@ mod tests {
     fn editing_preserves_format_permissions_and_rejects_conflicts_and_binary_files() {
         let root = std::env::temp_dir().join(format!("ongleet-editor-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         let path = root.join("test.txt");
         let name = path.to_str().unwrap();
         std::fs::write(&path, b"\xef\xbb\xbfone\r\ntwo\r\n").unwrap();

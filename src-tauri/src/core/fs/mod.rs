@@ -152,6 +152,7 @@ mod tests {
     fn search_matches_names_case_insensitively_before_pagination() {
         let root = std::env::temp_dir().join(format!("plugin-files-search-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         for index in 0..210 {
             std::fs::write(root.join(format!("noise-{index}")), b"").unwrap();
         }
@@ -204,6 +205,7 @@ mod tests {
     fn hidden_entries_are_filtered_before_pagination_and_can_be_shown() {
         let root = std::env::temp_dir().join(format!("plugin-files-hidden-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         std::fs::create_dir(root.join(".config")).unwrap();
         for index in 0..210 {
             std::fs::write(root.join(format!(".hidden-{index:03}")), b"").unwrap();
@@ -233,6 +235,7 @@ mod tests {
     fn sorts_by_size_and_modified_date_in_both_directions_with_folders_first() {
         let root = std::env::temp_dir().join(format!("plugin-files-sort-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         std::fs::create_dir(root.join("z-folder")).unwrap();
         for (name, seconds, size) in [("z.rs", 100, 10), ("a.txt", 300, 0), ("b.rs", 200, 30)] {
             let file = std::fs::File::create(root.join(name)).unwrap();
@@ -277,6 +280,7 @@ mod tests {
     fn paginated_read_only_browsing_follows_symlinks_and_reports_failures() {
         let root = std::env::temp_dir().join(format!("plugin-files-{}", std::process::id()));
         std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
         for index in 0..450 {
             std::fs::write(root.join(format!("entry-{index}")), b"unchanged").unwrap();
         }
