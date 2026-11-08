@@ -611,3 +611,43 @@ fn environment_layers_treat_names_case_insensitively_and_preserve_reserved_conte
     assert_eq!(values["ONGLEET_SESSION_ID"], "123");
     assert_eq!(values["ongleet_session_id"], "123");
 }
+
+#[test]
+fn saturated_conpty_output_cannot_hold_explicit_teardown_open() {
+    let native = Windows::new();
+    let io = native.spawn_terminal(launch("flood"));
+    let mut reader = io.reader;
+    let (send, receive) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut bytes = [0u8; 4096];
+        loop {
+            let count = reader.read(&mut bytes).unwrap();
+            assert!(count > 0);
+            if bytes[..count].contains(&b'x') {
+                send.send(reader).unwrap();
+                return;
+            }
+        }
+    });
+    let reader = match receive.recv_timeout(Duration::from_secs(5)) {
+        Ok(reader) => reader,
+        Err(error) => {
+            io.cancel_read.cancel();
+            io.cancel_input.cancel();
+            let _ = io.control.stop();
+            let _ = worker.join();
+            panic!("Flood did not start: {error}");
+        }
+    };
+    worker.join().unwrap();
+    // Stop reading while the child keeps writing; the application-side pipe
+    // reaches backpressure before closure. Teardown must not wait on drainage.
+    std::thread::sleep(Duration::from_millis(100));
+    let start = std::time::Instant::now();
+    io.cancel_input.cancel();
+    io.cancel_read.cancel();
+    io.control.stop().unwrap();
+    drop(reader);
+    let _ = io.wait.wait();
+    assert!(start.elapsed() < Duration::from_secs(3));
+}
