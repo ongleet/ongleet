@@ -85,7 +85,7 @@ jobs:
             --cli "$PWD/src-tauri/target/debug/ongleet"
       - name: Upload native service reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: linux-native-service-reports
           path: /tmp/ongleet-system-native-*/
@@ -200,7 +200,7 @@ jobs:
           --binary-directory src-tauri/target/x86_64-pc-windows-msvc/release
           --output artifacts/ongleet-windows-x64.zip
       - name: Upload executable ZIP
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ongleet-windows-x64
           path: artifacts/ongleet-windows-x64.zip
