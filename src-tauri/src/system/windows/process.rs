@@ -279,6 +279,8 @@ pub fn spawn(
     } else {
         executable
     };
+    let executable = std::fs::canonicalize(executable).map_err(|e| e.to_string())?;
+    let _image_guards = native.image.launch_guard(&executable)?;
     let mut command = wide(
         std::iter::once(executable.to_string_lossy().into_owned())
             .chain(launch.args)

@@ -33,6 +33,44 @@ impl Image {
             Ok(entries)
         })())
     }
+    pub fn launch_guard(&self, executable: &Path) -> Result<Vec<std::fs::File>, String> {
+        use std::os::windows::fs::OpenOptionsExt;
+        let entries = self.0.as_ref().map_err(Clone::clone)?;
+        let bundled = entries
+            .iter()
+            .any(|(path, _)| std::fs::canonicalize(path).is_ok_and(|path| path == executable));
+        if !bundled {
+            return Ok(Vec::new());
+        }
+        let mut guards = Vec::new();
+        for (path, original) in entries {
+            match original {
+                Some(original) => {
+                    // Deny writes and replacement while CreateProcess binds the
+                    // verified image. No inheritable file handles reach children.
+                    let file = std::fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ)
+                        .open(path)
+                        .map_err(|e| {
+                            format!("Cannot guard application image; restart Ongleet: {e}")
+                        })?;
+                    if super::files::file_identity(&file).map_err(|e| e.to_string())? != *original {
+                        return Err("Application executable was replaced; restart Ongleet before launching helpers".into());
+                    }
+                    guards.push(file);
+                }
+                None if path.exists() => {
+                    return Err(
+                        "Application executables changed; restart Ongleet before launching helpers"
+                            .into(),
+                    )
+                }
+                None => (),
+            }
+        }
+        Ok(guards)
+    }
     pub fn bootstrap(&self) -> Result<PathBuf, String> {
         let current = self.verified()?;
         let entries = self.0.as_ref().map_err(Clone::clone)?;
@@ -180,7 +218,7 @@ impl SystemPaths for super::Windows {
             .map(|arg| super::process::quote(arg))
             .collect::<Vec<_>>()
             .join(" ");
-        Ok(format!("$ErrorActionPreference='Stop';$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
+        Ok(format!("$ErrorActionPreference='Stop';$s=[Diagnostics.ProcessStartInfo]::new();$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardInput=$true;$s.StandardInputEncoding=[Text.UTF8Encoding]::new($false);$s.FileName={};$s.Arguments={};$p=[Diagnostics.Process]::Start($s);[Console]::OpenStandardInput().CopyTo($p.StandardInput.BaseStream);$p.StandardInput.BaseStream.Close();$p.WaitForExit();exit $p.ExitCode", ps_quote(executable),ps_quote(&arguments)))
     }
 }
 
@@ -215,6 +253,11 @@ mod tests {
         assert_eq!(image.verified().unwrap(), current);
         let replacement = root.join("replacement");
         std::fs::write(&replacement, b"changed helper").unwrap();
+        let guards = image
+            .launch_guard(&std::fs::canonicalize(&current).unwrap())
+            .unwrap();
+        assert!(native.atomic_replace(&replacement, &helper).is_err());
+        drop(guards);
         native.atomic_replace(&replacement, &helper).unwrap();
         assert!(image.verified().unwrap_err().contains("restart"));
         let image = capture();

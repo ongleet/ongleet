@@ -19,6 +19,9 @@ use windows_sys::Win32::{Foundation::*, Security::Cryptography::*, Storage::File
 pub struct Identity(u32, u32, u32, u64, u64);
 pub fn identity(path: &Path) -> io::Result<Identity> {
     let file = File::open(path)?;
+    file_identity(&file)
+}
+pub(super) fn file_identity(file: &File) -> io::Result<Identity> {
     let mut info = unsafe { zeroed::<BY_HANDLE_FILE_INFORMATION>() };
     check(unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) })?;
     Ok(Identity(
