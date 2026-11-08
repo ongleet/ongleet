@@ -111,6 +111,9 @@ Read the [architecture guide](docs/STACK.md) and
 
 ## Get started
 
+Windows x64 executable deployment, WebView2 requirements and the separate
+Windows 11 desktop checklist are documented in [the Windows guide](docs/WINDOWS.md).
+
 Ongleet is a **Linux preview**, validated on the Ubuntu host documented
 in the [native validation guide](docs/VALIDATION.md). It requires a graphical
 desktop, systemd cgroup v2 delegation, `cgroup.kill` and pidfds. Other Linux setups
