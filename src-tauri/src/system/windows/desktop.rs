@@ -120,7 +120,14 @@ impl DesktopService for super::Windows {
         })
     }
     fn local_file(&self, uri: &str) -> Option<PathBuf> {
-        reqwest::Url::parse(uri).ok()?.to_file_path().ok()
+        let url = reqwest::Url::parse(uri).ok()?;
+        if url
+            .host_str()
+            .is_some_and(|host| !host.is_empty() && host != "localhost")
+        {
+            return None;
+        }
+        url.to_file_path().ok()
     }
     fn file_uri(&self, path: &Path) -> String {
         reqwest::Url::from_file_path(path)

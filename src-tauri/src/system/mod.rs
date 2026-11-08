@@ -39,6 +39,7 @@ pub trait SystemPaths: Send + Sync {
     #[allow(dead_code)] // Used by the CLI composition, not the GUI.
     fn sibling_executable(&self, name: &str) -> Result<PathBuf, String>;
     fn default_shell(&self) -> String;
+    fn quote_shell_argument(&self, value: &str) -> String;
     /// An optional platform-specific seed for newly created shell actions.
     fn shell_action_seed(&self) -> Option<(&'static str, String)> {
         None
@@ -171,6 +172,9 @@ pub trait FileWatch: Send {
     fn acknowledge(&self);
 }
 pub trait SystemFiles: Send + Sync {
+    fn move_directory(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        std::fs::rename(source, destination)
+    }
     /// Atomically install a same-volume temporary file, replacing an existing file.
     /// The caller flushes the temporary file before committing it.
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()>;

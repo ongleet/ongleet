@@ -23,7 +23,9 @@ impl Drop for Fixture {
 fn note_text_survives_session_archive_and_restart_until_purged() {
     let fixture = Fixture::new("note");
     let mut registry = fixture.open();
-    registry.create("Notes".into(), "/tmp".into()).unwrap();
+    registry
+        .create("Notes".into(), fixture.0.to_string_lossy().into_owned())
+        .unwrap();
     let session = registry.sessions[0].id;
     registry
         .create_plugin_tab(

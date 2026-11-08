@@ -33,6 +33,25 @@ impl Image {
             Ok(entries)
         })())
     }
+    pub fn bootstrap(&self) -> Result<PathBuf, String> {
+        let current = self.verified()?;
+        let entries = self.0.as_ref().map_err(Clone::clone)?;
+        if let Some((path, _)) = entries.iter().find(|(path, identity)| {
+            identity.is_some()
+                && path
+                    .file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("ong-codex.exe"))
+        }) {
+            return Ok(path.clone());
+        }
+        if current
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("ongleet-gui.exe"))
+        {
+            return Err("The bundled ong-codex.exe console helper is missing".into());
+        }
+        Ok(current)
+    }
     pub fn verified(&self) -> Result<PathBuf, String> {
         let entries = self.0.as_ref().map_err(Clone::clone)?;
         if entries
@@ -100,7 +119,7 @@ impl SystemPaths for super::Windows {
         ))))
     }
     fn executable(&self) -> Result<PathBuf, String> {
-        self.image.verified()
+        self.image.bootstrap()
     }
     fn application_executable(&self) -> Result<PathBuf, String> {
         self.image.verified()
@@ -115,6 +134,9 @@ impl SystemPaths for super::Windows {
             .parent()
             .ok_or("Executable directory unavailable")?
             .join(format!("{name}.exe")))
+    }
+    fn quote_shell_argument(&self, value: &str) -> String {
+        ps_quote(value)
     }
     fn shell_action_seed(&self) -> Option<(&'static str, String)> {
         Some(("PowerShell", powershell()))

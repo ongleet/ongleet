@@ -1076,7 +1076,10 @@ fn plugin_tabs_restore_mixed_openings_and_unavailable_configuration_without_star
     assert!(!registry.sessions[0].tabs.iter().any(|t| t.resume_on_start));
     assert!(registry.terminals.is_empty());
     registry
-        .configure_plugin_tab(files, serde_json::json!({"folder":"/missing/retained"}))
+        .configure_plugin_tab(
+            files,
+            serde_json::json!({"folder":directory.0.join("missing/retained").to_string_lossy().into_owned()}),
+        )
         .unwrap();
     assert!(registry
         .configure_plugin_tab(files, serde_json::json!({"executable":"bash"}))
@@ -1099,7 +1102,14 @@ fn plugin_tabs_restore_mixed_openings_and_unavailable_configuration_without_star
     let session = &restored.sessions[0];
     assert_eq!(session.selected_tab_id, Some(files));
     assert_eq!(session.tabs[0].id, files);
-    assert_eq!(session.tabs[0].config["folder"], "/missing/retained");
+    assert_eq!(
+        session.tabs[0].config["folder"],
+        directory
+            .0
+            .join("missing/retained")
+            .to_string_lossy()
+            .into_owned()
+    );
     assert_eq!(
         session.pull_request.as_ref().unwrap().repository,
         "example/repository"

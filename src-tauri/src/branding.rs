@@ -156,7 +156,8 @@ pub fn migrate_with(
             .map_err(|e| e.to_string())?;
     }
     for (source, target) in moves {
-        fs::rename(&source, &target)
+        files
+            .move_directory(&source, &target)
             .map_err(|e| format!("Cannot migrate {}: {e}", source.display()))?;
     }
     if !profile_moves.is_empty() {

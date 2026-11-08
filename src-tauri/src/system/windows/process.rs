@@ -270,7 +270,7 @@ pub fn spawn(
         // Rust's Windows Command implementation owns batch-file escaping.
         // Run a one-shot bootstrap in the already assigned Job, then launch the
         // shim with literal arguments. No user code runs before containment.
-        let helper = native.image.verified()?;
+        let helper = native.image.bootstrap()?;
         let mut arguments = vec![SHIM_FLAG.into(), executable.to_string_lossy().into_owned()];
         arguments.append(&mut launch.args);
         launch.args = arguments;

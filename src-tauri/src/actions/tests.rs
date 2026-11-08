@@ -1,4 +1,8 @@
 use super::*;
+#[cfg(unix)]
+const SEED_NAME: &str = "Bash";
+#[cfg(windows)]
+const SEED_NAME: &str = "PowerShell";
 
 #[test]
 fn project_actions_are_independent_and_reloadable() {
@@ -6,12 +10,12 @@ fn project_actions_are_independent_and_reloadable() {
         std::env::temp_dir().join(format!("project-actions-test-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
 
-    assert_eq!(load_project(&directory, 10).unwrap()[0].name, "Bash");
-    assert_eq!(load_project(&directory, 11).unwrap()[0].name, "Bash");
+    assert_eq!(load_project(&directory, 10).unwrap()[0].name, SEED_NAME);
+    assert_eq!(load_project(&directory, 11).unwrap()[0].name, SEED_NAME);
     let path = project_path(&directory, 10);
     std::fs::write(&path, DEFAULTS.replace("name: Bash", "name: Group ten")).unwrap();
     assert_eq!(load_project(&directory, 10).unwrap()[0].name, "Group ten");
-    assert_eq!(load_project(&directory, 11).unwrap()[0].name, "Bash");
+    assert_eq!(load_project(&directory, 11).unwrap()[0].name, SEED_NAME);
     std::fs::write(&path, "not valid: [").unwrap();
     assert!(load_project(&directory, 10)
         .err()
@@ -80,7 +84,7 @@ fn action_editor_roundtrips_and_rejects_invalid_saves_without_overwriting() {
         assert!(save_project_yaml(&directory, 8, &invalid).is_err());
         assert_eq!(read_project_yaml(&directory, 8).unwrap(), edited);
     }
-    assert_eq!(load_project(&directory, 9).unwrap()[0].name, "Bash");
+    assert_eq!(load_project(&directory, 9).unwrap()[0].name, SEED_NAME);
     let path = project_path(&directory, 8);
     std::fs::write(&path, "actions: [").unwrap();
     assert_eq!(read_project_yaml(&directory, 8).unwrap(), "actions: [");
@@ -151,7 +155,7 @@ fn global_defaults_seed_new_projects_without_changing_existing_projects() {
         load_project(&directory, 2).unwrap()[0].name,
         "Preferred shell"
     );
-    assert_eq!(load_project(&directory, 1).unwrap()[0].name, "Bash");
+    assert_eq!(load_project(&directory, 1).unwrap()[0].name, SEED_NAME);
     assert!(save_default_yaml(&directory, "actions: []").is_err());
     assert_eq!(read_default_yaml(&directory).unwrap(), edited);
     std::fs::write(directory.join("actions.yaml"), "actions: [").unwrap();

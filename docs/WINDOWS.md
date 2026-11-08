@@ -1,59 +1,77 @@
 # Windows implementation status
 
-Windows is not supported yet. The shared service prerequisites have been
-implemented, and a Windows CI gate is configured. The native backend remains
-unfinished. Existing Linux and macOS support selection remains unchanged.
+The Windows x64 backend implements all seven injected system services. It uses
+WebView2, Ghostty WASM and Rust-owned ConPTY terminals. Hosted validation is in
+progress; a Windows 11 desktop has not been qualified.
 
-## Remaining backend work
+## Executable deployment
 
-- Implement all seven services in a private `system/windows/` backend with
-  target-specific `windows-sys` dependencies and x64 selection.
-- Implement direct ConPTY, suspended launch, Job assignment before resume,
-  application-owned non-inheritable kill-on-close Jobs and completion cleanup.
-  Use independent overlapped read/write cancellation and a two-second post-exit
-  drain deadline with strict containment. Teardown must not depend on draining
-  output. Supervise captured commands separately; preserve detached applications.
-- Implement Windows executable/shim resolution, command-line and hook-shell
-  quoting, native Codex recording/restart/resume and PowerShell defaults for new
-  actions. Preserve existing YAML and literal executable/argument behavior.
-- Implement absolute XDG overrides, AppData defaults, verified sibling executable
-  identities and no automatic Unix-data import.
-- Implement local-only named pipes with restrictive ACLs, user/logon identity,
-  reciprocal process-token verification, framing, half-close and deadlines.
-- Implement private DACLs, locks, file identities, atomic replacement,
-  cancellable directory watches armed before return and editor revision safety.
-- Implement an atomic, private, user-scoped DPAPI credential store supporting the
-  shared 64 KiB contract; never fall back to plaintext.
-- Implement opaque WebView2 behavior, activation, geometry, clipboard formats,
-  file links, Ctrl shortcuts, instance-local primary selection and typed
-  diagnostics gated by `ONGLEET_DEBUG`.
+Keep `ongleet-gui.exe`, `ongleet.exe` and `ong-codex.exe` together in one directory.
+The CI ZIP contains these three executables only. Installers, signing, ARM64 and
+WSL are outside this version. Windows requires the Microsoft Edge WebView2
+Evergreen Runtime. The application does not install it or change PATH, system
+links, shell profiles or personal Codex configuration. The Windows CI build uses
+the static MSVC CRT so deployment does not add a Visual C++ runtime DLL to the ZIP.
 
-## CI and distribution
+Run `ongleet-gui.exe` to open the application. The CLI addresses an existing
+instance; `ongleet.exe --help` lists commands. Ongleet prepends its executable
+directory only to its own terminal environment, so its CLI and wrapper are
+available inside managed terminals without editing the user's environment.
 
-Port portable fixtures and isolate Unix-only tests. Add real Windows integration
-coverage for ConPTY bytes/resize/cancellation/saturation, containment failures and
-crashes, detached processes, authenticated transport rejection/deadlines/bounds,
-files/watches/conflicts, DPAPI failures and Codex stand-ins with spaces, Unicode
-and metacharacters.
+Data defaults to `%LOCALAPPDATA%\Ongleet`; configuration defaults to
+`%APPDATA%\Ongleet`. Explicit absolute `XDG_DATA_HOME` and `XDG_CONFIG_HOME` values
+instead use their `ongleet` subdirectory. Relative overrides are rejected. There
+is no automatic Unix-data import. Newly seeded shell actions use built-in Windows
+PowerShell; existing action files retain their commands. `shellCommand` uses
+PowerShell with `-NoProfile`; explicit executables and argument arrays stay literal.
 
-The existing workflow now includes `windows-2025` x64 MSVC CI using mise and
-Python 3.13, without changing the Linux and macOS jobs. It runs boundary tests,
-frontend build, Python syntax checks and all Rust targets. After those pass, it
-builds bundled release executables, stages only `ongleet-gui.exe`, `ongleet.exe`
-and `ong-codex.exe`, smoke-tests CLI/Codex help and isolated unavailable-instance
-errors, and uploads an executable ZIP. A failed build/test prevents publication.
+## Native resource ownership
 
-The current code explicitly rejects Windows in `system/mod.rs`, so this gate is
-expected to fail until the native backend and portable fixtures are implemented.
-Do not skip or suppress that failure. All three platform jobs must pass before
-calling the backend CI-tested. Windows-specific backend integration scenarios
-listed above still need implementing; `cargo test --all-targets` does not create
-that coverage by itself.
+Each terminal starts suspended, is assigned to a non-inheritable Job with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and resumes only after assignment succeeds.
+Ongleet alone retains the Job handles. Explicit closure terminates the Job and
+waits for its active-process completion; application death closes the last handle
+and terminates descendants. Captured commands have separate Jobs. Detached
+external actions request breakaway and outlive Ongleet; an enclosing host Job can
+forbid breakaway, in which case launch fails rather than silently attaching the
+application to terminal lifetime. No installed service or watchdog is used.
 
-Deployment documentation must describe executable layout and the WebView2
-prerequisite. Do not automatically install dependencies, change PATH, create
-system links or edit personal shell/Codex configuration. Installers, signing,
-ARM64 and WSL remain deferred.
+ConPTY uses synchronous pseudoconsole handles and application-side overlapped
+pipes. Independent cancellation events interrupt blocked reader/writer operations
+through `CancelIoEx`. Pseudoconsole teardown runs independently of output reading.
+Strict containment is separate from the two-second post-exit output-drain deadline;
+truncation is reported through the shared worker contract.
+
+Native executables use Windows argument quoting. Windows command shims run through
+a one-shot Ongleet bootstrap after Job assignment, using Rust's Windows batch-file
+escaping. Codex hooks use PowerShell literal strings plus native ProcessStartInfo
+arguments; hook payloads retain raw stdin. Helper launches verify captured running
+and sibling executable identities and require restart after replacement.
+
+Local-only named pipes use a data-directory/user/logon endpoint, a protected DACL,
+reciprocal process-token checks, bounded frames and overlapped deadlines. An EOF
+frame and acknowledgement preserve half-close without discarding unread replies.
+Private files use protected DACLs, native locks, file identities and same-volume
+atomic moves. Directory watches are armed before returning and survive target
+replacement/recreation. Windows has no POSIX directory fsync equivalent; temporary
+files are flushed before replacement and moves request write-through. As elsewhere,
+editor saves cannot eliminate unrelated external-writer races or preserve every
+original ACL/attribute.
+
+Credentials live in a separate user-scoped DPAPI-encrypted store with private
+ACLs, exclusive update locking and atomic replacement. The shared 64 KiB payload
+limit is retained. Decryption/access failures are errors; there is no plaintext
+fallback.
+
+## CI qualification
+
+The existing workflow runs `windows-2025` x64 MSVC checks with mise and Python 3.13,
+while retaining Linux and macOS jobs. Windows runs formatting, boundary checks,
+production frontend build, all applicable Rust tests and a native Codex subprocess
+fixture. Only successful tests permit the bundled release build, staged CLI smoke
+checks and executable ZIP upload. Hosted Windows Server results establish backend
+coverage, not Windows 11 desktop qualification. All three jobs must pass before
+calling the backend CI-tested.
 
 ## Windows 11 desktop acceptance
 

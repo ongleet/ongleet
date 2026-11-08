@@ -58,6 +58,9 @@ pub fn socket_path(data: &Path) -> Result<PathBuf, String> {
 }
 
 impl super::super::SystemPaths for super::Linux {
+    fn quote_shell_argument(&self, value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
     fn shell_command(&self, script: &str) -> (String, Vec<String>) {
         (self.default_shell(), vec!["-lc".into(), script.into()])
     }

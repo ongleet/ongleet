@@ -361,3 +361,128 @@ fn command_shim_preserves_literal_arguments_in_a_contained_bootstrap() {
     drop(resources);
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+fn block_on<T>(future: SystemFuture<'_, T>) -> Result<T, String> {
+    struct Wake(std::thread::Thread);
+    impl std::task::Wake for Wake {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = std::task::Waker::from(Arc::new(Wake(std::thread::current())));
+    let mut context = std::task::Context::from_waker(&waker);
+    let mut future = future;
+    loop {
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(value) => return value,
+            std::task::Poll::Pending => std::thread::park(),
+        }
+    }
+}
+#[test]
+fn dpapi_public_contract_isolates_attributes_and_enforces_payload_limits() {
+    let directory = root("secret-contract");
+    let mut native = Windows::new();
+    let path = directory.join("private.bin");
+    native.secret_path = Some(path.clone());
+    let first = BTreeMap::from([
+        ("plugin".into(), "a".into()),
+        ("token".into(), "one".into()),
+    ]);
+    let second = BTreeMap::from([
+        ("plugin".into(), "b".into()),
+        ("token".into(), "two".into()),
+    ]);
+    let payload = vec![b'x'; 64 * 1024];
+    block_on(native.ensure_available()).unwrap();
+    block_on(native.create(&first, &payload, true)).unwrap();
+    block_on(native.create(&second, b"other", true)).unwrap();
+    assert!(block_on(native.create(&first, &vec![0; 64 * 1024 + 1], true)).is_err());
+    let search = block_on(native.search(&BTreeMap::from([("plugin".into(), "a".into())]))).unwrap();
+    assert_eq!(search.records.len(), 1);
+    assert_eq!(block_on(native.read(&search.records[0])).unwrap(), payload);
+    block_on(native.create(&first, b"replacement", true)).unwrap();
+    assert!(block_on(native.read(&search.records[0])).is_err());
+    let search = block_on(native.search(&first)).unwrap();
+    assert_eq!(search.records.len(), 1);
+    assert_eq!(
+        block_on(native.read(&search.records[0])).unwrap(),
+        b"replacement"
+    );
+    block_on(native.remove(&search.records[0])).unwrap();
+    assert!(block_on(native.search(&first)).unwrap().records.is_empty());
+    assert_eq!(block_on(native.search(&second)).unwrap().records.len(), 1);
+    std::fs::write(&path, b"invalid encrypted store").unwrap();
+    assert!(block_on(native.ensure_available()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"invalid encrypted store");
+    native.secret_path = Some(directory.clone());
+    assert!(block_on(native.ensure_available()).is_err());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+#[test]
+fn named_pipe_read_deadline_and_missing_peer_are_bounded() {
+    let native = Windows::new();
+    let directory = root("pipe-timeout");
+    let endpoint = native.control_endpoint(&directory).unwrap();
+    let listener = native.listen(&endpoint).unwrap();
+    let (ready, receive) = mpsc::channel();
+    let (done, finish) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let connection = listener.accept().unwrap();
+        ready.send(()).unwrap();
+        finish.recv_timeout(Duration::from_secs(10)).unwrap();
+        drop(connection);
+    });
+    let mut connection = native.connect(&endpoint).unwrap();
+    receive.recv_timeout(Duration::from_secs(3)).unwrap();
+    connection.read_timeout(Duration::from_millis(80)).unwrap();
+    let start = std::time::Instant::now();
+    let error = connection.read(&mut [0u8; 1]).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(2));
+    done.send(()).unwrap();
+    worker.join().unwrap();
+    assert!(native.connect(&endpoint).is_err());
+    assert!(super::native::verify_pid(0).is_err());
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn oversized_native_pipe_frames_are_rejected_before_payload_allocation() {
+    use windows_sys::Win32::{Foundation::*, Storage::FileSystem::*};
+    let native = Windows::new();
+    let directory = root("pipe-frame");
+    let endpoint = native.control_endpoint(&directory).unwrap();
+    let listener = native.listen(&endpoint).unwrap();
+    let (send, receive) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let mut connection = listener.accept().unwrap();
+        let error = connection.read(&mut [0u8; 1]).unwrap_err();
+        send.send(error.kind()).unwrap();
+    });
+    let name = endpoint.0.downcast_ref::<String>().unwrap();
+    let handle = super::native::Handle::new(unsafe {
+        CreateFileW(
+            super::native::wide(name).unwrap().as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            0,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OVERLAPPED,
+            std::ptr::null_mut(),
+        )
+    })
+    .unwrap();
+    let io = super::native::PipeIo {
+        handle: Arc::new(handle),
+        cancel: super::native::Cancel::new().unwrap(),
+    };
+    let mut header = (1024 * 1024 + 1u32).to_le_bytes();
+    assert_eq!(io.transfer(header.as_mut_ptr(), 4, true, 2000).unwrap(), 4);
+    assert_eq!(
+        receive.recv_timeout(Duration::from_secs(3)).unwrap(),
+        std::io::ErrorKind::InvalidData
+    );
+    worker.join().unwrap();
+    std::fs::remove_dir_all(directory).unwrap();
+}

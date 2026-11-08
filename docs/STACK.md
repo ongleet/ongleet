@@ -7,7 +7,8 @@ terminal engine or daemon.
 ## Runtime boundaries
 
 Feature code depends on the seven injected contracts in `system/mod.rs`.
-The private `system/linux/` implementation owns native mechanisms and resources;
+The private `system/linux/`, `system/macos/` and `system/windows/` implementations
+own native mechanisms and resources;
 GUI, CLI and helper entry points share the same composition factory. No native
 backend types appear in feature code. See [engineering](ENGINEERING.md#native-service-boundary)
 for ownership, async contracts and the build-time boundary check.
@@ -15,7 +16,7 @@ for ownership, async contracts and the build-time boundary check.
 - Rust owns PTYs, process containment, metadata and shared UI/CLI operations. React retains one Ghostty controller per stable tab ID; navigation changes visibility, not process ownership.
 - Ghostty parses raw bytes and owns screen state. TypeScript supplies rendering/input/selection. Validate browser behavior in WebKitGTK; engine tests alone are insufficient.
 - Vite bundles local WASM through `?url`; no runtime CDN. `write(Uint8Array)` parses synchronously in 0.4.0, so ACK follows parsing rather than waiting for an animation frame. Recheck on upgrade.
-- Require delegated systemd cgroup v2, `cgroup.kill` and pidfds. Bootstrap through `/proc/<app-pid>/exe`. No process-group fallback; non-systemd Linux, restricted containers and macOS are unsupported.
+- On Linux, require delegated systemd cgroup v2, `cgroup.kill` and pidfds. Bootstrap through `/proc/<app-pid>/exe`. There is no process-group fallback for non-systemd Linux or restricted containers. macOS and Windows use their private native backends.
 - One separate watchdog process per application instance monitors all terminals using pidfds. Each terminal retains its own cgroup; registration completes before user exec. Watchdog failure stops the terminal groups and prevents further launches until application restart.
 
 ## Bounds and recovery
@@ -64,3 +65,8 @@ Bundled frontend plugins call the scoped SDK in `src/sdk/`; native implementatio
 The [macOS Apple Silicon backend](MACOS.md) is prepared but unvalidated. It uses
 WKWebView/AppKit, kqueue, Security.framework and best-effort session cleanup;
 Linux retains its strict cgroup requirements. Native acceptance requires a Mac.
+
+The [Windows x64 backend](WINDOWS.md) uses ConPTY, strict Job Object containment,
+local named pipes, DPAPI and opaque WebView2. Windows CI includes native backend
+and executable packaging checks; Windows 11 physical desktop acceptance remains
+separate. Linux retains its cgroup requirements.

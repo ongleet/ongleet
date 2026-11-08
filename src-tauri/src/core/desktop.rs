@@ -24,7 +24,11 @@ pub async fn terminal_clipboard(
     {
         ClipboardContent::Text(text) => clipboard_text(&text),
         ClipboardContent::Image => Ok(Paste::Image),
-        ClipboardContent::Files(paths) => quote_paths(paths.into_iter()).map(Paste::Text),
+        ClipboardContent::Files(paths) => quote_paths(
+            app.state::<crate::system::SystemServices>().paths.as_ref(),
+            paths.into_iter(),
+        )
+        .map(Paste::Text),
     }
 }
 
@@ -47,7 +51,10 @@ pub async fn write_primary_selection(app: tauri::AppHandle, text: String) -> Res
         .await
 }
 
-fn quote_paths(paths: impl Iterator<Item = std::path::PathBuf>) -> Result<String, String> {
+fn quote_paths(
+    shell: &dyn crate::system::SystemPaths,
+    paths: impl Iterator<Item = std::path::PathBuf>,
+) -> Result<String, String> {
     let mut quoted_paths = Vec::new();
     let mut length = 0;
     for path in paths {
@@ -58,7 +65,7 @@ fn quote_paths(paths: impl Iterator<Item = std::path::PathBuf>) -> Result<String
         if path.chars().any(char::is_control) {
             return Err("Clipboard path contains control characters".into());
         }
-        let quoted = format!("'{}'", path.replace('\'', "'\\''"));
+        let quoted = shell.quote_shell_argument(path);
         length += quoted.len() + 1;
         if length > 65500 {
             return Err("Clipboard paths exceed the terminal input limit".into());
@@ -97,14 +104,24 @@ mod tests {
     use super::*;
     #[test]
     fn clipboard_files_decode_and_quote_paths_without_shell_expansion() {
-        assert_eq!(
-            file_paths(["file:///tmp/a%20b.png", "file:///tmp/it%27s%20%24HOME.png"].into_iter())
-                .unwrap(),
-            "'/tmp/a b.png' '/tmp/it'\\''s $HOME.png'"
+        #[cfg(unix)]
+        let (uris, expected) = (
+            ["file:///tmp/a%20b.png", "file:///tmp/it%27s%20%24HOME.png"],
+            "'/tmp/a b.png' '/tmp/it'\\''s $HOME.png'",
         );
+        #[cfg(windows)]
+        let (uris, expected) = (
+            [
+                "file:///C:/tmp/a%20b.png",
+                "file:///C:/tmp/it%27s%20%24HOME.png",
+            ],
+            "'C:\\tmp\\a b.png' 'C:\\tmp\\it''s $HOME.png'",
+        );
+        assert_eq!(file_paths(uris.into_iter()).unwrap(), expected);
         assert!(file_paths(["https://example.com/image.png"].into_iter()).is_err());
-        assert!(file_paths(["file:///tmp/bad%0Apath"].into_iter()).is_err());
-        assert!(file_paths(std::iter::repeat_n("file:///tmp/image.png", 33)).is_err());
+        let bad = uris[0].replace("a%20b", "bad%0Apath");
+        assert!(file_paths([bad.as_str()].into_iter()).is_err());
+        assert!(file_paths(std::iter::repeat_n(uris[0], 33)).is_err());
     }
 }
 
@@ -122,5 +139,5 @@ fn file_paths<'a>(uris: impl Iterator<Item = &'a str>) -> Result<String, String>
                 .ok_or_else(|| "Clipboard file is not local".to_string())
         })
         .collect::<Result<Vec<_>, _>>()?;
-    quote_paths(paths.into_iter())
+    quote_paths(system.paths.as_ref(), paths.into_iter())
 }

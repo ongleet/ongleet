@@ -234,3 +234,8 @@ fn save(path: &str, text: &str, expected_revision: &str) -> Result<Document, Str
         expected_revision,
     )
 }
+
+#[cfg(test)]
+#[cfg(windows)]
+#[path = "editor_windows_tests.rs"]
+mod windows_tests;

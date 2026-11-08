@@ -131,6 +131,9 @@ pub fn runtime() -> Result<PathBuf, String> {
     Ok(path)
 }
 impl SystemPaths for super::Macos {
+    fn quote_shell_argument(&self, value: &str) -> String {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
     fn shell_command(&self, script: &str) -> (String, Vec<String>) {
         (self.default_shell(), vec!["-lc".into(), script.into()])
     }

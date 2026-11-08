@@ -132,6 +132,10 @@ pub(super) fn with_store<T>(
     Ok(result)
 }
 fn path(native: &super::Windows) -> Result<PathBuf, String> {
+    #[cfg(test)]
+    if let Some(path) = &native.secret_path {
+        return Ok(path.clone());
+    }
     Ok(native
         .data_directory("ongleet")?
         .join("credentials/dpapi-v1.bin"))

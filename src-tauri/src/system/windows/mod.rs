@@ -13,6 +13,8 @@ mod transport;
 mod watch;
 pub(super) struct Windows {
     primary: Mutex<String>,
+    #[cfg(test)]
+    secret_path: Option<std::path::PathBuf>,
     image: paths::Image,
     diagnostics: Arc<Mutex<Option<Arc<dyn Fn(super::NativeDiagnostic) + Send + Sync>>>>,
 }
@@ -20,6 +22,8 @@ impl Windows {
     pub fn new() -> Self {
         Self {
             primary: Mutex::new(String::new()),
+            #[cfg(test)]
+            secret_path: None,
             image: paths::Image::capture(),
             diagnostics: Arc::new(Mutex::new(None)),
         }

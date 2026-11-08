@@ -38,6 +38,43 @@ impl Drop for Lock {
     }
 }
 impl SystemFiles for super::Windows {
+    fn move_directory(&self, source: &Path, destination: &Path) -> io::Result<()> {
+        let source = wide(source)?;
+        let destination = wide(destination)?;
+        let handle = Handle::new(unsafe {
+            CreateFileW(
+                source.as_ptr(),
+                DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                null_mut(),
+            )
+        })?;
+        let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
+        let length = offset + (destination.len() - 1) * 2;
+        let mut storage = vec![0usize; length.div_ceil(std::mem::size_of::<usize>())];
+        let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+        unsafe {
+            // FILE_RENAME_FLAG_POSIX_SEMANTICS: keep existing writer handles
+            // valid while the directory name changes. No replacement flag is set.
+            (*info).Anonymous.Flags = 2;
+            (*info).RootDirectory = null_mut();
+            (*info).FileNameLength = ((destination.len() - 1) * 2) as u32;
+            std::ptr::copy_nonoverlapping(
+                destination.as_ptr(),
+                (*info).FileName.as_mut_ptr(),
+                destination.len() - 1,
+            );
+            check(SetFileInformationByHandle(
+                handle.0,
+                FileRenameInfoEx,
+                info.cast(),
+                length as u32,
+            ))
+        }
+    }
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()> {
         let source = wide(source)?;
         let destination = wide(destination)?;
