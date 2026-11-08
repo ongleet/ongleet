@@ -37,7 +37,6 @@ impl Drop for Directory {
 mod projects;
 
 #[cfg(unix)]
-#[cfg(unix)]
 #[test]
 fn codex_wrapper_receives_stable_context_and_records_from_a_contained_pty() {
     use std::os::unix::fs::PermissionsExt;
@@ -145,7 +144,6 @@ fn metadata_operations_preserve_identity_order_selection_and_directories() {
     assert!(other.0.is_dir());
 }
 
-#[cfg(unix)]
 #[test]
 fn invalid_updates_are_atomic_and_missing_directory_does_not_prevent_rename() {
     let directory = Directory::new();
@@ -744,7 +742,6 @@ fn sqlite_roundtrip_restores_definitions_openings_selection_and_only_running_res
     );
 }
 
-#[cfg(unix)]
 #[test]
 fn failed_terminal_spawn_keeps_startup_intent_across_restart() {
     let data = Directory::new();
@@ -786,7 +783,6 @@ fn failed_terminal_spawn_keeps_startup_intent_across_restart() {
     assert!(!restored.sessions[0].tabs[0].resume_on_start);
 }
 
-#[cfg(unix)]
 #[cfg(unix)]
 #[test]
 fn codex_launch_failure_retries_saved_conversation_after_restart_unless_explicitly_stopped() {
