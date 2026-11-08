@@ -13,6 +13,14 @@ fn lock_with(
         "Close the previous application instance before migrating Ongleet data".to_string()
     })
 }
+fn lock_writer_with(
+    files: &dyn crate::system::SystemFiles,
+    directory: &Path,
+) -> Result<Box<dyn crate::system::FileLock>, String> {
+    files.try_writer_lock(directory).map_err(|_| {
+        "Close the previous application instance before migrating Ongleet data".to_string()
+    })
+}
 fn exists(path: &Path) -> Result<bool, String> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -145,7 +153,7 @@ pub fn migrate_with(
     ] {
         let old = data.with_file_name(name);
         if old.is_dir() {
-            writers.push(lock_with(files, &old.join("metadata.lock"))?);
+            writers.push(lock_writer_with(files, &old)?);
         }
     }
     if !profile_moves.is_empty() && !resume_profile {
@@ -156,8 +164,7 @@ pub fn migrate_with(
             .map_err(|e| e.to_string())?;
     }
     for (source, target) in moves {
-        files
-            .move_directory(&source, &target)
+        fs::rename(&source, &target)
             .map_err(|e| format!("Cannot migrate {}: {e}", source.display()))?;
     }
     if !profile_moves.is_empty() {
@@ -443,5 +450,8 @@ fn migrate(data: &Path, config: &Path) -> Result<(), String> {
 }
 #[cfg(test)]
 fn lock(path: &Path) -> Result<Box<dyn crate::system::FileLock>, String> {
-    lock_with(crate::system::services().files.as_ref(), path)
+    lock_writer_with(
+        crate::system::services().files.as_ref(),
+        path.parent().unwrap(),
+    )
 }

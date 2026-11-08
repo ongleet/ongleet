@@ -52,7 +52,10 @@ Local-only named pipes use a data-directory/user/logon endpoint, a protected DAC
 reciprocal process-token checks, bounded frames and overlapped deadlines. An EOF
 frame and acknowledgement preserve half-close without discarding unread replies.
 Private files use protected DACLs, native locks, file identities and same-volume
-atomic moves. Directory watches are armed before returning and survive target
+atomic moves. The metadata writer lease is a private kernel mutex keyed by the
+data directory's volume/file identity, owned by a dedicated blocking thread. It
+survives directory rename without keeping a child file open. Other file locks use
+`LockFileEx`. Directory watches are armed before returning and survive target
 replacement/recreation. Windows has no POSIX directory fsync equivalent; temporary
 files are flushed before replacement and moves request write-through. As elsewhere,
 editor saves cannot eliminate unrelated external-writer races or preserve every

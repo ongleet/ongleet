@@ -38,71 +38,6 @@ impl Drop for Lock {
     }
 }
 impl SystemFiles for super::Windows {
-    fn move_directory(&self, source: &Path, destination: &Path) -> io::Result<()> {
-        let parent = destination.parent().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Migration destination has no parent",
-            )
-        })?;
-        let name = destination.file_name().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Migration destination has no name",
-            )
-        })?;
-        let source = wide(source)?;
-        let destination = wide(name)?;
-        let handle = Handle::new(unsafe {
-            CreateFileW(
-                source.as_ptr(),
-                DELETE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                null_mut(),
-            )
-        })
-        .map_err(|e| io::Error::new(e.kind(), format!("Open migration source: {e}")))?;
-        let parent = Handle::new(unsafe {
-            CreateFileW(
-                wide(parent)?.as_ptr(),
-                FILE_TRAVERSE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                std::ptr::null(),
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                null_mut(),
-            )
-        })
-        .map_err(|e| io::Error::new(e.kind(), format!("Open migration destination parent: {e}")))?;
-        let offset = std::mem::offset_of!(FILE_RENAME_INFO, FileName);
-        let length = offset + (destination.len() - 1) * 2;
-        let mut storage = vec![0usize; length.div_ceil(std::mem::size_of::<usize>())];
-        let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
-        unsafe {
-            // FILE_RENAME_FLAG_POSIX_SEMANTICS: keep existing writer handles
-            // valid while the directory name changes. No replacement flag is set.
-            (*info).Anonymous.Flags = 2;
-            (*info).RootDirectory = parent.0;
-            (*info).FileNameLength = ((destination.len() - 1) * 2) as u32;
-            std::ptr::copy_nonoverlapping(
-                destination.as_ptr(),
-                (*info).FileName.as_mut_ptr(),
-                destination.len() - 1,
-            );
-            check(SetFileInformationByHandle(
-                handle.0,
-                FileRenameInfoEx,
-                info.cast(),
-                length as u32,
-            ))
-            .map_err(|e| {
-                io::Error::new(e.kind(), format!("Rename locked migration directory: {e}"))
-            })
-        }
-    }
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()> {
         let source = wide(source)?;
         let destination = wide(destination)?;
@@ -180,6 +115,9 @@ impl SystemFiles for super::Windows {
         security.apply(path)?;
         Ok(file)
     }
+    fn try_writer_lock(&self, directory: &Path) -> Result<Box<dyn FileLock>, String> {
+        directory_lease(directory)
+    }
     fn try_lock(&self, path: &Path) -> Result<Box<dyn FileLock>, String> {
         let file = self
             .open_private(path, PrivateOpen::Lock)
@@ -251,5 +189,96 @@ impl SystemFiles for super::Windows {
         changed: Box<dyn Fn() + Send>,
     ) -> Result<Box<dyn FileWatch>, String> {
         Ok(Box::new(super::watch::Watch::start(path, changed)?))
+    }
+}
+
+/// A metadata writer lease must not keep a child file open: Windows otherwise
+/// refuses to rename the data directory during a branding migration. Bind the
+/// lease to the directory's volume/file identity so it follows that rename.
+struct DirectoryLease {
+    release: Option<std::sync::mpsc::SyncSender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+impl FileLock for DirectoryLease {}
+impl Drop for DirectoryLease {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            let _ = release.send(());
+        }
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+fn directory_lease(directory: &Path) -> Result<Box<dyn FileLock>, String> {
+    use windows_sys::Win32::System::Threading::*;
+    let name = (|| -> io::Result<_> {
+        let directory = Handle::new(unsafe {
+            CreateFileW(
+                wide(directory)?.as_ptr(),
+                FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                null_mut(),
+            )
+        })?;
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { zeroed() };
+        check(unsafe { GetFileInformationByHandle(directory.0, &mut info) })?;
+        wide(format!(
+            r"Global\Ongleet-metadata-{}-{:08x}-{:08x}{:08x}",
+            current_identity()?.sid,
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow
+        ))
+    })()
+    .map_err(|e| e.to_string())?;
+    let (release, wait) = std::sync::mpsc::sync_channel(1);
+    let (ready, receive) = std::sync::mpsc::sync_channel(1);
+    // Win32 mutex ownership is thread-affine. Keep it on this owned worker so
+    // FileLock can safely move between registry/UI threads until Drop releases it.
+    let worker = std::thread::Builder::new()
+        .name("metadata-lease".into())
+        .spawn(move || {
+            let acquired = (|| -> io::Result<Handle> {
+                let security = Security::private(false)?;
+                let handle =
+                    Handle::new(unsafe { CreateMutexW(&security.attributes(), 0, name.as_ptr()) })?;
+                match unsafe { WaitForSingleObject(handle.0, 0) } {
+                    WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(handle),
+                    WAIT_TIMEOUT => Err(io::Error::new(
+                        io::ErrorKind::WouldBlock,
+                        "Metadata writer lease is already held",
+                    )),
+                    _ => Err(io::Error::last_os_error()),
+                }
+            })();
+            match acquired {
+                Ok(handle) => {
+                    if ready.send(Ok(())).is_ok() {
+                        let _ = wait.recv();
+                    }
+                    unsafe {
+                        ReleaseMutex(handle.0);
+                    }
+                }
+                Err(error) => {
+                    let _ = ready.send(Err(error.to_string()));
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    match receive.recv() {
+        Ok(Ok(())) => Ok(Box::new(DirectoryLease {
+            release: Some(release),
+            worker: Some(worker),
+        })),
+        result => {
+            drop(release);
+            let _ = worker.join();
+            Err(format!("Cannot acquire metadata writer lease: {result:?}"))
+        }
     }
 }

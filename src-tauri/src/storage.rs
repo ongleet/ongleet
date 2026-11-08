@@ -46,7 +46,11 @@ impl MetadataStore {
     fn open_inner(directory: &Path, files: &dyn crate::system::SystemFiles) -> StorageResult<Self> {
         fs::create_dir_all(directory)?;
         files.private_permissions(directory, true)?;
-        let lock = files.try_lock(&directory.join("metadata.lock")).map_err(|e| format!("Cannot lock session metadata; another application instance may be running: {e}"))?;
+        let lock = files.try_writer_lock(directory).map_err(|e| {
+            format!(
+                "Cannot lock session metadata; another application instance may be running: {e}"
+            )
+        })?;
         let path = directory.join("workspaces.sqlite3");
         let mut connection =
             SqliteConnection::establish(path.to_str().ok_or("Session database path is not UTF-8")?)

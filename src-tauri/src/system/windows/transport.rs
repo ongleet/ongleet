@@ -229,7 +229,6 @@ impl ControlListener for Listener {
         }
         *next = Some(server(&self.name, false)?);
         let connection = Connection::new(handle, true)?;
-        connection.verify_owner().map_err(io::Error::other)?;
         Ok(Box::new(connection))
     }
 }
@@ -252,7 +251,6 @@ impl ControlTransport for super::Windows {
         })
         .map_err(|e| e.to_string())?;
         let connection = Connection::new(Arc::new(handle), false).map_err(|e| e.to_string())?;
-        connection.verify_owner()?;
         Ok(Box::new(connection))
     }
     fn listen(&self, endpoint_value: &ControlEndpoint) -> Result<Box<dyn ControlListener>, String> {

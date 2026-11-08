@@ -651,3 +651,19 @@ fn saturated_conpty_output_cannot_hold_explicit_teardown_open() {
     let _ = io.wait.wait();
     assert!(start.elapsed() < Duration::from_secs(3));
 }
+
+#[test]
+fn metadata_lease_follows_directory_rename_and_can_drop_on_another_thread() {
+    let native = Windows::new();
+    let directory = root("metadata-lease");
+    let old = directory.join("old");
+    let new = directory.join("new");
+    std::fs::create_dir(&old).unwrap();
+    let lease = native.try_writer_lock(&old).unwrap();
+    assert!(native.try_writer_lock(&old).is_err());
+    std::fs::rename(&old, &new).unwrap();
+    assert!(native.try_writer_lock(&new).is_err());
+    std::thread::spawn(move || drop(lease)).join().unwrap();
+    drop(native.try_writer_lock(&new).unwrap());
+    std::fs::remove_dir_all(directory).unwrap();
+}

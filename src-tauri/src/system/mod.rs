@@ -179,9 +179,6 @@ pub trait FileWatch: Send {
     fn acknowledge(&self);
 }
 pub trait SystemFiles: Send + Sync {
-    fn move_directory(&self, source: &Path, destination: &Path) -> io::Result<()> {
-        std::fs::rename(source, destination)
-    }
     /// Atomically install a same-volume temporary file, replacing an existing file.
     /// The caller flushes the temporary file before committing it.
     fn atomic_replace(&self, source: &Path, destination: &Path) -> io::Result<()>;
@@ -190,6 +187,10 @@ pub trait SystemFiles: Send + Sync {
     fn private_permissions(&self, path: &Path, directory: bool) -> io::Result<()>;
     fn open_private(&self, path: &Path, mode: PrivateOpen) -> io::Result<std::fs::File>;
     fn try_lock(&self, path: &Path) -> Result<Box<dyn FileLock>, String>;
+    /// Exclusive metadata writer ownership, retained across directory migration.
+    fn try_writer_lock(&self, directory: &Path) -> Result<Box<dyn FileLock>, String> {
+        self.try_lock(&directory.join("metadata.lock"))
+    }
     fn nonce(&self) -> Result<String, String>;
     fn open_editor(&self, path: &Path) -> io::Result<std::fs::File>;
     fn revision(&self, bytes: &[u8], metadata: &std::fs::Metadata, path: &Path) -> String;
