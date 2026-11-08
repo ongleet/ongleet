@@ -2,7 +2,7 @@ import { Button, Disclosure, DisclosureTrigger, Input, TabPanel } from '../../co
 import { SelectionSend } from '../../components/SelectionSend';
 import { captureDiffSelection } from './selection';
 import { CommentStore, commentTargets, deliverComment, type Location } from './comments';
-import { Composer, Discussion } from './Comments';
+import { Composer, Discussion } from './Discussions';
 import { ReviewStore } from './review-state';
 import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { parseDiff, Hunk, Decoration, getChangeKey } from 'react-diff-view';
