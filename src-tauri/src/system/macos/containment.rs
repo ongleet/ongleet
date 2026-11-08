@@ -179,6 +179,11 @@ fn watchdog(executable: PathBuf) -> Result<&'static Watchdog, String> {
                 }
             }
         };
+        // Darwin accepts inherit O_NONBLOCK from the listening socket. The
+        // lifetime monitor must block until watchdog EOF, not report WouldBlock.
+        connection
+            .set_nonblocking(false)
+            .map_err(|e| e.to_string())?;
         drop(listener);
         let _ = std::fs::remove_file(&path);
         connection
@@ -432,6 +437,7 @@ impl Handshake {
         loop {
             match self.listener.accept() {
                 Ok((mut s, _)) => {
+                    s.set_nonblocking(false).map_err(|e| e.to_string())?;
                     s.set_read_timeout(Some(Duration::from_secs(1)))
                         .map_err(|e| e.to_string())?;
                     if peer_pid(&s)? != pid as i32 {

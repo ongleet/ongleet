@@ -42,9 +42,10 @@ struct Listener {
 }
 impl ControlListener for Listener {
     fn accept(&self) -> io::Result<Box<dyn ControlConnection>> {
-        self.listener
-            .accept()
-            .map(|(stream, _)| Box::new(stream) as Box<dyn ControlConnection>)
+        self.listener.accept().and_then(|(stream, _)| {
+            stream.set_nonblocking(false)?;
+            Ok(Box::new(stream) as Box<dyn ControlConnection>)
+        })
     }
 }
 impl Drop for Listener {

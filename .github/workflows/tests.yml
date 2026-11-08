@@ -44,7 +44,12 @@ jobs:
           test "$(stat -c %u "$group")" = "$uid"
           test -w "$group"
       - name: Run Rust integration tests
-        run: mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
+        run: |
+          # Moving between cgroups requires write access at the common ancestor.
+          # GitHub's runner service starts outside the delegated user subtree.
+          group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
+          mise exec -- cargo test --locked --manifest-path src-tauri/Cargo.toml --all-targets
       - name: Build bundled native executables
         run: mise exec -- cargo build --locked --manifest-path src-tauri/Cargo.toml --bins --features tauri/custom-protocol
       - name: Check Python syntax
@@ -53,11 +58,19 @@ jobs:
         run: python3 scripts/check-codex-wrapper.py src-tauri/target/debug/ong-codex
       - name: Run Python native service tests / Wayland
         run: |
+          # Moving between cgroups requires write access at the common ancestor.
+          # GitHub's runner service starts outside the delegated user subtree.
+          group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
           dbus-run-session -- python3 scripts/check-system-native.py --backend wayland \
             --application "$PWD/src-tauri/target/debug/ongleet-gui" \
             --cli "$PWD/src-tauri/target/debug/ongleet"
       - name: Run Python native service tests / XWayland
         run: |
+          # Moving between cgroups requires write access at the common ancestor.
+          # GitHub's runner service starts outside the delegated user subtree.
+          group="/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service"
+          sudo sh -c 'echo "$1" > "$2/cgroup.procs"' sh "$$" "$group"
           dbus-run-session -- python3 scripts/check-system-native.py --backend xwayland \
             --application "$PWD/src-tauri/target/debug/ongleet-gui" \
             --cli "$PWD/src-tauri/target/debug/ongleet"

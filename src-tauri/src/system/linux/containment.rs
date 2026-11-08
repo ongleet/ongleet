@@ -249,7 +249,8 @@ fn helper(args: &[std::ffi::OsString]) -> Result<(), String> {
         }
         // Join only after the app's shared watchdog owns the stable pidfd and
         // cgroup kill handle. The bootstrap becomes the user process via exec.
-        fs::write(directory.join("cgroup.procs"), b"0").map_err(|e| e.to_string())?;
+        fs::write(directory.join("cgroup.procs"), b"0")
+            .map_err(|e| format!("Cannot join terminal cgroup: {e}"))?;
         stream.write_all(b"READY\n").map_err(|e| e.to_string())?;
         // UnixStream is CLOEXEC: EOF proves successful exec, or an explicit
         // error below proves failure. The parent never reports a fake success.

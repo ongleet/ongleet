@@ -67,11 +67,16 @@ fn private_transport_checks_real_peer_and_rejects_unexpected_paths() {
     let listener = native.listen(&endpoint).unwrap();
     let mut client = native.connect(&endpoint).unwrap();
     client.verify_owner().unwrap();
-    client.write_all(b"ping").unwrap();
     let mut peer = listener.accept().unwrap();
     peer.verify_owner().unwrap();
+    peer.read_timeout(Duration::from_secs(2)).unwrap();
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        client.write_all(b"ping").unwrap();
+    });
     let mut bytes = [0; 4];
     peer.read_exact(&mut bytes).unwrap();
+    writer.join().unwrap();
     assert_eq!(&bytes, b"ping");
     drop(listener);
     std::fs::write(&path, b"keep").unwrap();
