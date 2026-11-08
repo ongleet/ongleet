@@ -25,6 +25,13 @@ use std::sync::{
 use tauri::{Emitter, Manager, State};
 use terminal_session::Status;
 
+#[tauri::command]
+fn platform_capabilities(
+    services: State<'_, system::SystemServices>,
+) -> system::PlatformCapabilities {
+    services.desktop.capabilities()
+}
+
 struct AppRegistry(Arc<Mutex<SessionRegistry>>);
 
 struct Lifecycle {
@@ -730,13 +737,16 @@ fn run(services: system::SystemServices) -> Result<(), String> {
     // GTK's fallback Wayland app ID must match the installed desktop filename.
     // Keep the GTK application non-unique so isolated XDG instances still work.
     services.desktop.initialize();
-    tauri::Builder::default()
+    services
+        .desktop
+        .configure_builder(tauri::Builder::default())
         .manage(services.clone())
         .manage(AppRegistry(Arc::new(Mutex::new(registry))))
         .manage(Lifecycle::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            services.desktop.install_menu(app)?;
             window_state::WindowState::install(app, directory.clone())?;
             diagnostics::install(app)?;
             input_diagnostics::install(app)?;
@@ -756,6 +766,10 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             Ok(())
         })
         .on_page_load(|webview, payload| {
+            webview
+                .state::<system::SystemServices>()
+                .desktop
+                .page_load(format!("{:?}", payload.event()));
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
                 if let Some(state) = webview.try_state::<AppRegistry>() {
                     if let Ok(mut registry) = state.0.lock() {
@@ -773,6 +787,7 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            platform_capabilities,
             archives,
             archive_tab,
             restore_archive,
@@ -828,6 +843,15 @@ fn run(services: system::SystemServices) -> Result<(), String> {
         .build(context)
         .map_err(|e| e.to_string())?
         .run(|app, event| {
+            if app
+                .state::<system::SystemServices>()
+                .desktop
+                .reopen_requested(&event)
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window_state::activate(&window);
+                }
+            }
             if !matches!(event, tauri::RunEvent::MainEventsCleared) {
                 diagnostics::record(format_args!("application event={event:?}"));
             }

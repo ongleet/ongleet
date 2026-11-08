@@ -318,6 +318,11 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       cancel: () => request<void>('cancel'),
     },
     desktop: {
+      platform: () =>
+        native<{ commandShortcuts: boolean; primarySelection: 'system' | 'internal' }>(
+          'platform_capabilities',
+          {},
+        ),
       readText: () => desktop(readText),
       writeText: (text: string, selection: 'clipboard' | 'primary' = 'clipboard') =>
         selection === 'primary'

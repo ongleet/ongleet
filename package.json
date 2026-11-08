@@ -27,7 +27,8 @@
     "check:diff": "node scripts/check-diff.mjs && node scripts/check-diff-syntax.mjs && node scripts/check-diff-comments.mjs",
     "check:appearance": "node scripts/check-appearance.mjs && node scripts/check-theme-engine.mjs",
     "check:selection-send": "node scripts/check-selection-send.mjs",
-    "check:system-boundaries": "node scripts/check-system-boundaries.mjs"
+    "check:system-boundaries": "node scripts/check-system-boundaries.mjs",
+    "package:macos": "cargo build --manifest-path src-tauri/Cargo.toml --release --bins --target aarch64-apple-darwin && tauri build --target aarch64-apple-darwin --bundles app,dmg"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

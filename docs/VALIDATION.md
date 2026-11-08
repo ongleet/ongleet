@@ -230,3 +230,30 @@ its environment. GTK key/focus traces go to stderr and may reveal typed input.
 Retain surrounding trace lines when reproducing warnings. `send_event` alone does
 not identify physical input. See [crash investigation](USAGE.md#investigating-native-crashes)
 for bounded log files and crash evidence.
+
+## macOS port preparation (2026-11-07)
+
+Linux frontend production build, system-boundary tests and 165 active Rust tests
+passed (two Linux credential tests remain ignored by default). The Debian package
+was rebuilt; its metadata and bundled executables were inspected, and its
+extracted CLI/GUI help commands passed. These results
+protect the common/Linux adaptations, not macOS desktop behavior.
+
+A complete `cargo check --target aarch64-apple-darwin` was attempted on this Linux
+host and stopped in `objc2-exception-helper`: the Apple compiler/SDK is missing.
+An isolated ARM64 metadata-only harness at `/tmp/ongleet-darwin-typecheck` checked
+the production Darwin paths, files, process, transport, kqueue, containment, PTY,
+Security.framework, clipboard and input-monitor modules plus their native tests.
+Its Tauri contract types/runtime signatures are placeholders and its URL type is
+re-exported from `url`; it excludes `desktop.rs`, the actual application composition
+and the common worker tests. It is not a complete application compilation, link,
+execution or desktop validation.
+
+All macOS execution, isolated keychain tests, Finder/Terminal acceptance,
+WKWebView/Ghostty checks, full ARM64 build, signing verification and DMG production
+are **not executed**. Follow [the macOS guide](MACOS.md) before qualification.
+
+Rust formatting and formatting checks on changed frontend/documentation files
+passed. The repository-wide Prettier check still reports four untouched files:
+`.playwright-mcp/page-2026-10-27T20-35-19-474Z.yml`, `docs/PLUGINS.md`,
+`src-tauri/linux/Ongleet.desktop.hbs` and `src/native-validation.ts`.

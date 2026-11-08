@@ -129,10 +129,13 @@ async fn execute(
     .await
 }
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 use secret_service::{EncryptionType, SecretService};
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 mod tests {
     use super::*;
     #[test]
@@ -193,6 +196,7 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "linux")]
 mod migration_tests {
     use super::*;
     #[test]

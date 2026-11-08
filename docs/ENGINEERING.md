@@ -22,8 +22,9 @@ cgroups, pidfds, watchdog registration, Unix sockets and peer credentials,
 private permissions, inotify, Secret Service and GTK/WebKit integration. Native
 resources remain lazy: composing services starts neither a watchdog nor a
 credential connection. Linux dependencies are target-conditional; other targets
-still fail compilation explicitly. There is no alternate backend or confinement
-fallback.
+fail compilation explicitly unless they are macOS Apple Silicon. The private
+`system/macos/` backend supplies Darwin mechanisms; see [macOS preparation](MACOS.md).
+Linux retains its required confinement, with no fallback.
 
 Features retain launch decisions, process deadlines/output bounds, Codex arguments
 and restart policy, secret identities/migration policy, editor conflict checks,
@@ -31,11 +32,13 @@ window persistence, confirmations, delayed closure and diagnostic formatting.
 Native diagnostics cross the boundary as typed events and counters. Terminal workers retain
 bounded queues, ACK/replay/history and separate paste/Enter delivery. The backend
 returns independent reader/writer cancellations, shared resize/stop control and
-a consumed wait handle. Natural exit drains final output; explicit closure wakes
+a consumed wait handle. The terminal service advertises strict or best-effort cleanup. Best-effort
+post-exit drainage has an additional two-second cancellation deadline and reports
+truncation; Linux keeps its existing drainage. Natural exit drains final output; explicit closure wakes
 both I/O workers and waits for cleanup.
 
 `npm run check:system-boundaries` rejects native APIs and Linux system paths in
-production code outside `system/linux/`, backend selection outside `system/mod.rs`
+production code outside the two private backends, backend selection outside `system/mod.rs`
 and feature calls to the factory. The frontend build runs this check. Test-only
 Rust items and fixture modules are excluded; native integration tests keep real
 PTYs, sockets, files and cgroups.

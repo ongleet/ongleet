@@ -30,7 +30,7 @@ fn record(event: crate::system::NativeInputDiagnostic) {
                 key,
             } = event;
             if let Some(key) = key {
-                eprintln!("[native-input] elapsed_ms={elapsed_ms} window={label:?} event={event} active={active} focused={focused} visible={visible} gdk_time={} hardware_code={} keyval={} group={} modifiers={} send_event={send_event}", key.time, key.hardware_code, key.keyval, key.group, key.modifiers);
+                eprintln!("[native-input] elapsed_ms={elapsed_ms} window={label:?} event={event} active={active} focused={focused} visible={visible} native_time={} hardware_code={} keyval={} group={} modifiers={} send_event={send_event}", key.time, key.hardware_code, key.keyval, key.group, key.modifiers);
             } else {
                 eprintln!("[native-input] elapsed_ms={elapsed_ms} window={label:?} event=focus active={active} focused={focused} visible={visible} send_event={send_event}");
             }

@@ -114,7 +114,8 @@ Read the [architecture guide](docs/STACK.md) and
 Ongleet is a **Linux preview**, validated on the Ubuntu host documented
 in the [native validation guide](docs/VALIDATION.md). It requires a graphical
 desktop, systemd cgroup v2 delegation, `cgroup.kill` and pidfds. Other Linux setups
-are not all validated; macOS is unsupported.
+are not all validated. A [macOS 14+ Apple Silicon port](docs/MACOS.md) is
+prepared for review; the complete Mac build and native acceptance are unverified.
 
 Install the Ubuntu build prerequisites:
 

@@ -60,3 +60,7 @@ Names: `ongleet-gui`, `ongleet`, `ong-codex`; desktop ID `io.local.ongleet`; sha
 See [engineering contracts](ENGINEERING.md), [validation](VALIDATION.md) and [full stack reference](reference/STACK.md) for API lists, adapters, migration details and design references. The reference records historical implementation states; current behavior is described here and in README.
 
 Bundled frontend plugins call the scoped SDK in `src/sdk/`; native implementations live under `src-tauri/src/core/`. Shared manifests drive Vite/Rust registration and configuration discovery. The Rust PR parser remains only for CLI compatibility. See [plugin development](PLUGINS.md).
+
+The [macOS Apple Silicon backend](MACOS.md) is prepared but unvalidated. It uses
+WKWebView/AppKit, kqueue, Security.framework and best-effort session cleanup;
+Linux retains its strict cgroup requirements. Native acceptance requires a Mac.

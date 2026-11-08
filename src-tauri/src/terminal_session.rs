@@ -170,6 +170,8 @@ impl TerminalSession {
         if executable.is_empty() {
             return Err("Executable cannot be empty".into());
         }
+        let bounded_drain =
+            service.cleanup_guarantee() == crate::system::CleanupGuarantee::BestEffort;
         let cols = launch.cols;
         let rows = launch.rows;
         let crate::system::TerminalIo {
@@ -227,6 +229,8 @@ impl TerminalSession {
                 let _ = request.done.send(result);
             }
         });
+        let drain_done = Arc::new((Mutex::new(false), Condvar::new()));
+        let reader_done = drain_done.clone();
         let reader_flow = flow.clone();
         let reader_thread = std::thread::spawn(move || {
             let mut drained = 0usize;
@@ -302,6 +306,8 @@ impl TerminalSession {
                     }
                 }
             }
+            *reader_done.0.lock().unwrap() = true;
+            reader_done.1.notify_all();
         });
         let resources = Arc::new((
             Mutex::new(Resources {
@@ -321,6 +327,27 @@ impl TerminalSession {
             // The dedicated reaper waits for process exit. Stopping the terminal
             // wakes it without periodic status checks.
             let exit = wait.wait();
+            // Darwin descendants may escape the terminal session while retaining
+            // a PTY slave. Bound drainage independently of process cleanup.
+            let drain_timer = bounded_drain.then(|| {
+                let done = drain_done.clone();
+                let cancel = reaper_read_cancel.clone();
+                let flow = reaper_flow.clone();
+                std::thread::spawn(move || {
+                    let (finished, _) = done.1.wait_timeout_while(done.0.lock().unwrap(), std::time::Duration::from_secs(2), |done| !*done).unwrap();
+                    if !*finished {
+                        let mut state = flow.0.lock().unwrap();
+                        if let Some(output) = &state.output {
+                            let _ = output.send(Output::Error { message: "Post-exit output exceeded the two-second drain deadline; remaining output was discarded".into() });
+                        }
+                        state.ended = true;
+                        if let Some(output) = &state.output { let _ = output.send(Output::Eof); }
+                        state.closed = true;
+                        cancel.cancel();
+                        flow.1.notify_all();
+                    }
+                })
+            });
             let cleanup = reaper_control.stop();
             reaper_cancel.cancel();
             let code = exit.as_ref().copied().unwrap_or(1);
@@ -352,6 +379,11 @@ impl TerminalSession {
             }
             let _ = writer_thread.join();
             let _ = reader_thread.join();
+            *drain_done.0.lock().unwrap() = true;
+            drain_done.1.notify_all();
+            if let Some(timer) = drain_timer {
+                let _ = timer.join();
+            }
             let mut resources = reaper_resources.0.lock().unwrap();
             resources.cleanup_error = cleanup.err().or_else(|| exit.err());
             resources.completed = true;
@@ -502,3 +534,6 @@ impl Drop for TerminalSession {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod portable_tests;

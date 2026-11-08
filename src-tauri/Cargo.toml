@@ -26,11 +26,19 @@ diesel = { version = "2.3", features = ["sqlite"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 tokio = { version = "1", features = ["time", "macros"] }
 
+portable-pty = "0.9"
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSEvent", "block2"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSURL", "NSEnumerator"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 webkit2gtk = "2.0.2"
-portable-pty = "0.9"
-libc = "0.2"
 secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
 
 [dev-dependencies]

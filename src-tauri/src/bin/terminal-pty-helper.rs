@@ -8,7 +8,12 @@ mod system;
 #[allow(dead_code)]
 #[path = "../control/mod.rs"]
 mod control;
+#[path = "../../tests/fixtures/probe.rs"]
+mod probe;
 fn main() {
+    if probe::run() {
+        return;
+    }
     let services = system::services();
     if codex::run_if_requested(&services) {
         return;

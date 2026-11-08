@@ -246,8 +246,22 @@ export class TerminalFrontend {
         }
       }),
     );
+    const platform = await this.sdk.desktop.platform();
+    if (this.disposed || this.term !== term) return;
     // ghostty-web's custom handler returns true when it handled the event.
     term.attachCustomKeyEventHandler((event) => {
+      if (platform.commandShortcuts && event.metaKey && !event.ctrlKey && !event.altKey) {
+        const key = event.key.toUpperCase();
+        if (key === 'A') {
+          term.selectAll();
+          return true;
+        }
+        if (key === 'C' || key === 'V') {
+          if (key === 'C') void this.copy().catch(this.error);
+          else void this.paste().catch(this.error);
+          return true;
+        }
+      }
       // Codex reads image data from the native clipboard on Ctrl+V. Upstream
       // otherwise lets WebKit swallow this key as a text-only browser paste.
       if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toUpperCase() === 'V') {

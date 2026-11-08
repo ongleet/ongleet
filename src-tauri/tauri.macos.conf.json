@@ -1,0 +1,29 @@
+{
+  "mainBinaryName": "ongleet-gui",
+  "app": {
+    "windows": [
+      {
+        "title": "Ongleet — macOS preview",
+        "decorations": false,
+        "transparent": false,
+        "visible": false,
+        "width": 1100,
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 400
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": false,
+      "files": {
+        "MacOS/ongleet": "target/aarch64-apple-darwin/release/ongleet",
+        "MacOS/ong-codex": "target/aarch64-apple-darwin/release/ong-codex"
+      }
+    }
+  }
+}

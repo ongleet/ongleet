@@ -5,10 +5,14 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[cfg(not(target_os = "linux"))]
-compile_error!("Ongleet currently supports Linux only");
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+compile_error!("Ongleet supports Linux and macOS only");
+#[cfg(all(target_os = "macos", not(target_arch = "aarch64")))]
+compile_error!("The macOS preview requires Apple Silicon");
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,8 +69,17 @@ pub struct TerminalIo {
     pub wait: Box<dyn TerminalWait>,
 }
 pub trait TerminalService: Send + Sync {
+    fn cleanup_guarantee(&self) -> CleanupGuarantee {
+        CleanupGuarantee::Strict
+    }
     fn spawn(&self, launch: Launch) -> Result<TerminalIo, String>;
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CleanupGuarantee {
+    Strict,
+    BestEffort,
+}
+
 #[derive(Clone)]
 pub struct SystemServices {
     pub processes: Arc<dyn ProcessService>,
@@ -79,7 +92,10 @@ pub struct SystemServices {
 }
 /// Called once by each process entry point. Expensive resources stay lazy.
 pub fn services() -> SystemServices {
+    #[cfg(target_os = "linux")]
     let native = Arc::new(linux::Linux);
+    #[cfg(target_os = "macos")]
+    let native = Arc::new(macos::Macos::new());
     SystemServices {
         desktop: native.clone(),
         secrets: native.clone(),
@@ -91,9 +107,16 @@ pub fn services() -> SystemServices {
     }
 }
 pub fn run_helper_if_requested() -> bool {
-    linux::containment::run_helper_if_requested()
+    #[cfg(target_os = "linux")]
+    {
+        linux::containment::run_helper_if_requested()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        macos::containment::run_helper_if_requested()
+    }
 }
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[allow(unused_imports)]
 pub(crate) use linux::containment::watchdog_pid;
 
@@ -233,7 +256,29 @@ pub enum ClipboardContent {
     Image,
     Files(Vec<PathBuf>),
 }
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlatformCapabilities {
+    pub command_shortcuts: bool,
+    pub primary_selection: &'static str,
+}
 pub trait DesktopService: Send + Sync {
+    fn configure_builder(&self, builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+        builder
+    }
+    fn reopen_requested(&self, _event: &tauri::RunEvent) -> bool {
+        false
+    }
+    fn capabilities(&self) -> PlatformCapabilities {
+        PlatformCapabilities {
+            command_shortcuts: false,
+            primary_selection: "system",
+        }
+    }
+    fn install_menu(&self, _app: &tauri::App) -> Result<(), String> {
+        Ok(())
+    }
+    fn page_load(&self, _event: String) {}
     fn initialize(&self);
     fn show(&self, window: &tauri::WebviewWindow) -> Result<(), String>;
     fn hide(&self, window: &tauri::WebviewWindow) -> Result<(), String>;

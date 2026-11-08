@@ -544,16 +544,20 @@ function App() {
   }
 
   const requestQuit = useEffectEvent(() => void quit(true));
+  const requestImmediateQuit = useEffectEvent(() => void quit());
 
   useEffect(() => {
     if (!isTauri()) return;
+    const immediate = listen('application-quit-requested', () => requestImmediateQuit());
     const unlisten = listen('application-close-requested', () => requestQuit());
     const unlistenError = listen<string>('application-close-error', (event) =>
       report(event.payload),
     );
+    void immediate.catch(report);
     void unlisten.catch(report);
     void unlistenError.catch(report);
     return () => {
+      void immediate.then((off) => off()).catch(report);
       void unlisten.then((off) => off()).catch(report);
       void unlistenError.then((off) => off()).catch(report);
     };

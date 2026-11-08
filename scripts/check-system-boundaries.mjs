@@ -106,8 +106,10 @@ export function violations(source, file) {
     .join(' ');
   const errors = [];
   if (
-    /\b(?:libc|gtk|gdk|gio|webkit2gtk|portable_pty|secret_service)\b/.test(code) ||
-    /\b(?:gtk_window|with_webview|as_raw_fd|from_raw_fd|custom_flags|pre_exec|process_group)\b/.test(
+    /\b(?:libc|gtk|gdk|gio|webkit2gtk|portable_pty|secret_service|objc2|objc2_app_kit|objc2_foundation|security_framework|core_foundation|objc|cocoa|objc2_web_kit|core_graphics|darwin_libproc|AppKit|Foundation|Security|WebKit|Darwin)\b/.test(
+      code,
+    ) ||
+    /\b(?:gtk_window|ns_window|with_webview|as_raw_fd|from_raw_fd|custom_flags|pre_exec|process_group)\b/.test(
       code,
     ) ||
     /\bos\s*:\s*:\s*(?:\{[^}]*\b(?:unix|linux|fd|windows)\b|(?:unix|linux|fd|windows)\b)/.test(
@@ -117,7 +119,7 @@ export function violations(source, file) {
       code,
     )
   ) {
-    errors.push('native imports or calls belong in system/linux');
+    errors.push('native imports or calls belong in system backends');
   }
   if (
     live.some(
@@ -126,9 +128,9 @@ export function violations(source, file) {
         /^(?:b|c|(?:br|r)#*)?"\/(?:proc|sys|run|dev|bin|usr\/bin)(?:\/|"|$)/.test(t.value),
     )
   ) {
-    errors.push('Linux system paths belong in system/linux');
+    errors.push('Linux system paths belong in system backends');
   }
-  if (file !== 'src-tauri/src/system/mod.rs' && /\btarget_os\b/.test(code)) {
+  if (file !== 'src-tauri/src/system/mod.rs' && /\b(?:target_os|target_arch)\b/.test(code)) {
     errors.push('backend selection belongs in system/mod.rs');
   }
   const entry = file === 'src-tauri/src/main.rs' || file.startsWith('src-tauri/src/bin/');
@@ -154,7 +156,7 @@ async function files(directory) {
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   const failures = [];
   for (const file of await files('src-tauri/src')) {
-    if (!file.endsWith('.rs') || file.startsWith('src-tauri/src/system/linux/')) continue;
+    if (!file.endsWith('.rs') || /^src-tauri\/src\/system\/(linux|macos)\//.test(file)) continue;
     // These modules are only reached through cfg(test) declarations.
     if (file.endsWith('/tests.rs') || file.endsWith('_tests.rs') || file.includes('/tests/'))
       continue;
