@@ -58,7 +58,10 @@ print('CONTEXT:' + os.environ['ONGLEET_SESSION_ID'] + ':' + os.environ['ONGLEET_
         executable: Some("ong-codex".into()),
         args: vec!["--no-restart".into()],
         env: BTreeMap::from([
-            ("PATH".into(), format!("{}:/usr/bin:/bin", directory.path())),
+            (
+                "PATH".into(),
+                format!("{}:{}", directory.path(), std::env::var("PATH").unwrap()),
+            ),
             ("ONGLEET_TAB_ID".into(), "999".into()),
         ]),
         ..Default::default()
