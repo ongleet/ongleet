@@ -181,7 +181,7 @@ function Content({ tab, session, visible }: PluginContentProps) {
           </div>
           {!!note.notes.length && (
             <NoteName
-              key={note.selectedNoteId}
+              key={`name-${note.selectedNoteId}`}
               name={note.getNote().name}
               disabled={note.loading}
               rename={(name) => update(() => note.rename(name))}
@@ -189,7 +189,7 @@ function Content({ tab, session, visible }: PluginContentProps) {
           )}
           <MarkdownEditor
             ref={editor}
-            key={note.selectedNoteId}
+            key={`editor-${note.selectedNoteId}`}
             text={note.text}
             disabled={note.loading || !note.notes.length}
             visible={visible}
