@@ -212,6 +212,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       reply={(text) => {
         changeComments(() => comments.reply(thread.id, text, 'User'));
       }}
+      edit={(commentId, text) => {
+        changeComments(() => comments.edit(thread.id, commentId, text));
+      }}
       remove={() => {
         try {
           changeComments(() => comments.delete(thread.id));

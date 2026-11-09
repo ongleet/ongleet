@@ -156,6 +156,26 @@ export class CommentStore {
     );
     return { threadId: id, commentId: comment.id };
   }
+  edit(threadId: string, commentId: string, text: string) {
+    const thread = this.get(threadId);
+    if (!thread.comments.some((comment) => comment.id === commentId))
+      throw new SdkError('invalid_arguments', 'Unknown comment ID');
+    if (!text.trim() || bytes(text) > 4096)
+      throw new SdkError('invalid_arguments', 'Comment must contain text and fit in 4 KiB');
+    this.commit(
+      this.threads.map((item) =>
+        item === thread
+          ? {
+              ...item,
+              comments: item.comments.map((comment) =>
+                comment.id === commentId ? { ...comment, text } : comment,
+              ),
+            }
+          : item,
+      ),
+    );
+    return { threadId, commentId };
+  }
   delete(id: string) {
     this.get(id);
     this.commit(this.threads.filter((t) => t.id !== id));

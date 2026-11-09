@@ -6,12 +6,16 @@ export function Composer({
   submit,
   label = 'Comment',
   autoFocus = false,
+  initialText = '',
+  cancel,
 }: {
   submit: (text: string) => void;
   label?: string;
   autoFocus?: boolean;
+  initialText?: string;
+  cancel?: () => void;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   return (
     <form
       className="diff-comment-composer"
@@ -34,7 +38,12 @@ export function Composer({
         required
       />
       <div className="diff-composer-actions">
-        <Button type="submit">{label === 'Comment' ? t('Add comment') : t('Reply')}</Button>
+        <Button type="submit">{label === 'Comment' ? t('Add comment') : t(label)}</Button>
+        {cancel && (
+          <Button type="button" onClick={cancel}>
+            {t('Cancel')}
+          </Button>
+        )}
       </div>
     </form>
   );
@@ -42,18 +51,21 @@ export function Composer({
 export function Discussion({
   thread,
   reply,
+  edit,
   remove,
   targets,
   send,
 }: {
   thread: Thread;
   reply: (text: string) => void;
+  edit: (commentId: string, text: string) => void;
   remove: () => void;
   targets: () => Promise<{ id: number; name: string }[]>;
   send: (commentId: string, target: number) => Promise<unknown>;
 }) {
   const [recipients, setRecipients] = useState<{ id: number; name: string }[]>([]);
   const [status, setStatus] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
   const location: Location = thread.orphan ? thread.original : thread.location;
   return (
     <section className="diff-discussion" aria-label={t('Thread {value0}', { value0: thread.id })}>
@@ -88,7 +100,26 @@ export function Discussion({
               </span>
               <time dateTime={comment.at}>{new Date(comment.at).toLocaleString(getLocale())}</time>
             </div>
-            <p className="diff-comment-text">{comment.text}</p>
+            {editing === comment.id ? (
+              <Composer
+                key={comment.id}
+                label="Save comment"
+                initialText={comment.text}
+                autoFocus
+                cancel={() => setEditing(null)}
+                submit={(text) => {
+                  edit(comment.id, text);
+                  setEditing(null);
+                }}
+              />
+            ) : (
+              <>
+                <p className="diff-comment-text">{comment.text}</p>
+                <Button type="button" onClick={() => setEditing(comment.id)}>
+                  {t('Edit comment')}
+                </Button>
+              </>
+            )}
             <Disclosure
               className="diff-message-send"
               onToggle={(e) => {

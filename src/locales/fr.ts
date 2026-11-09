@@ -240,6 +240,8 @@ export const fr: Record<string, string> = {
     'Échec de l’actualisation · Comparaison précédente affichée',
   'Write a reply…': 'Écrire une réponse…',
   'Write a comment or question…': 'Écrire un commentaire ou une question…',
+  'Edit comment': 'Modifier le commentaire',
+  'Save comment': 'Enregistrer le commentaire',
   'Add comment': 'Ajouter un commentaire',
   Reply: 'Répondre',
   'File discussion': 'Discussion du fichier',
