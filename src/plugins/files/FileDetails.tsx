@@ -1,6 +1,6 @@
 import { t } from '../../i18n';
-import { Button } from '../../components/Controls';
-import { useState } from 'react';
+import { Button, Dialog } from '../../components/Controls';
+import { useEffect, useRef, useState } from 'react';
 import { ImageViewer, imageType } from './ImageViewer';
 import { useSdk } from '../../sdk';
 
@@ -18,11 +18,31 @@ export function editorLimitation(error: unknown): string | undefined {
 export function FileDetails({
   file,
   close,
+  deleted,
 }: {
   file: UnsupportedFile;
   close: () => Promise<void>;
+  deleted: () => Promise<void>;
 }) {
   const sdk = useSdk();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (confirmDelete) dialog.current?.showModal();
+  }, [confirmDelete]);
+  async function deleteFile() {
+    setConfirmDelete(false);
+    setBusy(true);
+    setError('');
+    try {
+      await sdk.fs.deleteFile(file.path);
+      await deleted();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const name = file.path.split('/').at(-1) ?? file.path;
@@ -69,7 +89,27 @@ export function FileDetails({
         >
           {t('Close file')}
         </Button>
+        <Button disabled={busy} onClick={() => setConfirmDelete(true)}>
+          {t('Delete file')}
+        </Button>
       </div>
+      {confirmDelete && (
+        <Dialog ref={dialog} aria-label={t('Delete file')} onCancel={() => setConfirmDelete(false)}>
+          <h2>{t('Delete file')}</h2>
+          <p>
+            {t(
+              'Permanently delete {path}? Unsaved changes will be discarded. This cannot be undone.',
+              { path: file.path },
+            )}
+          </p>
+          <div className="dialog-actions">
+            <Button autoFocus onClick={() => setConfirmDelete(false)}>
+              {t('Cancel')}
+            </Button>
+            <Button onClick={() => void deleteFile()}>{t('Delete file')}</Button>
+          </div>
+        </Dialog>
+      )}
     </section>
   );
 }

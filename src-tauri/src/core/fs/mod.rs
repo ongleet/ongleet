@@ -368,3 +368,47 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+/// Remove the named file or symbolic link, never a directory or symlink target.
+pub fn delete_file(path: &str) -> Result<(), String> {
+    if path.len() > 8192 || path.contains('\0') || !Path::new(path).is_absolute() {
+        return Err("Expected an absolute file path (up to 8192 bytes)".into());
+    }
+    std::fs::remove_file(path).map_err(|e| format!("Cannot delete {path}: {e}"))
+}
+
+#[cfg(test)]
+mod deletion_tests {
+    use super::delete_file;
+
+    #[test]
+    fn deletion_rejects_directories_and_relative_paths() {
+        let root = std::env::temp_dir().join(format!("ongleet-delete-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("file.txt");
+        std::fs::write(&file, "contents").unwrap();
+        assert!(delete_file("file.txt").is_err());
+        assert!(delete_file(root.to_str().unwrap()).is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "contents");
+        delete_file(file.to_str().unwrap()).unwrap();
+        assert!(!file.exists());
+        assert!(delete_file(file.to_str().unwrap()).is_err());
+        std::fs::remove_dir(&root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn deletion_unlinks_symlink_without_deleting_target() {
+        let root = std::env::temp_dir().join(format!("ongleet-delete-link-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("target.txt");
+        let link = root.join("link.txt");
+        std::fs::write(&target, "keep").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        delete_file(link.to_str().unwrap()).unwrap();
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        std::fs::remove_file(target).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+}

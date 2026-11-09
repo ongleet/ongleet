@@ -1,5 +1,8 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Delete file': 'Supprimer le fichier',
+  'Permanently delete {path}? Unsaved changes will be discarded. This cannot be undone.':
+    'Supprimer définitivement {path} ? Les modifications non enregistrées seront perdues. Cette action est irréversible.',
   'Image preview': 'Aperçu de l’image',
   'Fit image': 'Ajuster l’image',
   'Actual size': 'Taille réelle',

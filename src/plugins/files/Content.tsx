@@ -171,6 +171,10 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
     };
     // Restore once per opening; metadata refreshes must not replace a live editor.
   }, [tab.id]);
+  async function fileDeleted() {
+    await leaveEditor();
+    await browse(listing?.folder);
+  }
   async function leaveEditor() {
     await sdk.storage.configure({ editorFile: null });
     setRestoreError('');
@@ -463,9 +467,15 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
               document={editing}
               visible={visible}
               back={leaveEditor}
+              deleted={fileDeleted}
             />
           ) : details ? (
-            <FileDetails key={details.path} file={details} close={leaveEditor} />
+            <FileDetails
+              key={details.path}
+              file={details}
+              close={leaveEditor}
+              deleted={fileDeleted}
+            />
           ) : (
             <p className="muted files-editor-empty">
               {t('Select a file from the explorer to open it.')}

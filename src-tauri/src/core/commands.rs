@@ -85,6 +85,9 @@ pub enum Request {
     ReadText {
         path: String,
     },
+    DeleteFile {
+        path: String,
+    },
     SaveText {
         path: String,
         text: String,
@@ -188,6 +191,7 @@ pub async fn sdk_request(
         Request::ReadImage { .. } => "readImage",
         Request::ReadText { .. } => "readText",
         Request::SaveText { .. } => "saveText",
+        Request::DeleteFile { .. } => "deleteFile",
         Request::AddSessionTag { .. } => "addSessionTag",
         Request::RemoveSessionTag { .. } => "removeSessionTag",
         Request::SessionTags => "sessionTags",
@@ -218,6 +222,7 @@ pub async fn sdk_request(
             | Request::SearchFiles { .. }
             | Request::ReadImage { .. }
             | Request::ReadText { .. }
+            | Request::DeleteFile { .. }
             | Request::SaveText { .. }
             | Request::WatchText { .. }
             | Request::UnwatchText { .. } => "fs",
@@ -453,6 +458,10 @@ pub async fn sdk_request(
                         system.files.as_ref(),
                         &path,
                     )?)
+                }
+                Request::DeleteFile { path } => {
+                    super::fs::delete_file(&path)?;
+                    Ok(serde_json::Value::Null)
                 }
                 Request::SaveText {
                     path,

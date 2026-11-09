@@ -38,6 +38,8 @@ Terminal reads standard OSC 0/2 shell titles from the bounded byte stream, inclu
 
 `fs.searchFiles({folder, query, showHidden})` recursively matches case-insensitive literal substrings anywhere in relative file paths. It requires `fs`, skips symlinks, and returns `{matches: [{path, relativePath}], truncated, skipped}`. Searches cap at 500 results, 128 KiB of result paths, 100,000 scanned entries, depth 64 and two seconds between filesystem calls. Hidden entries follow `showHidden`; file contents are never read. Searches run outside the registry lock and participate in attachment job cancellation. Inaccessible entries are counted in `skipped`; limits set `truncated`.
 
+`fs.deleteFile(path)` permanently removes an absolute file path (or the named symbolic link), rejects directories, and requires the `fs` capability. The Files UI confirms deletion, discards the current draft, closes the file and refreshes the explorer.
+
 `fs.readImage(path)` returns regular-file bytes with an 8 MiB limit for image previews.
 
 `fs.list`, `fs.readText`, `fs.saveText`, `fs.watchText`: bounded scans/text and revision-checked atomic saves. Unsupported text returns `null`, allowing a plugin to choose an external opener. Plugin configuration updates are explicit. `watchText(path, changed)` returns an unsubscribe function and watches the parent directory with Linux inotify, filtering the basename so atomic replacements remain observable.

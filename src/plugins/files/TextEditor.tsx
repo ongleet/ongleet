@@ -33,12 +33,14 @@ export function TextEditor({
   document,
   visible,
   back,
+  deleted,
 }: {
   id: number;
   sessionId: number;
   document: TextDocument;
   visible: boolean;
   back: () => Promise<void>;
+  deleted: () => Promise<void>;
 }) {
   const sdk = useSdk();
   const { readText, writeText } = sdk.desktop;
@@ -58,7 +60,7 @@ export function TextEditor({
   const menu = useRef<HTMLDivElement>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const menuId = `editor-actions-${id}`;
-  const [confirmation, setConfirmation] = useState<'back' | 'reload' | 'overwrite'>();
+  const [confirmation, setConfirmation] = useState<'back' | 'reload' | 'overwrite' | 'delete'>();
   const overwriteRevision = useRef<string>(undefined);
   const mergeJob = useRef<ReturnType<typeof startMerge>>(undefined);
   const confirmationRef = useRef(confirmation);
@@ -466,6 +468,22 @@ export function TextEditor({
         publish(editor.state.doc.toString() !== baseline.current.text, false);
     }
   }
+  async function deleteFile() {
+    if (saving.current) return;
+    saving.current = true;
+    publish(dirty, true);
+    try {
+      await sdk.fs.deleteFile(document.path);
+      persistDraft.current = false;
+      removeDraft(id, document.path);
+      await deleted();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      saving.current = false;
+      publish(dirty, false);
+    }
+  }
   async function leave() {
     if (saving.current) return;
     saving.current = true;
@@ -585,6 +603,16 @@ export function TextEditor({
           >
             {t('Reload')}
           </Button>
+          <Button
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              menu.current?.hidePopover();
+              setConfirmation('delete');
+            }}
+          >
+            {t('Delete file')}
+          </Button>
           <div role="separator" />
           <Button
             role="menuitem"
@@ -668,18 +696,33 @@ export function TextEditor({
         <Dialog
           ref={dialog}
           aria-label={
-            confirmation === 'overwrite' ? t('File changed on disk') : t('Unsaved changes')
+            confirmation === 'delete'
+              ? t('Delete file')
+              : confirmation === 'overwrite'
+                ? t('File changed on disk')
+                : t('Unsaved changes')
           }
           onCancel={() => setConfirmation(undefined)}
         >
-          <h2>{confirmation === 'overwrite' ? t('File changed on disk') : t('Unsaved changes')}</h2>
+          <h2>
+            {confirmation === 'delete'
+              ? t('Delete file')
+              : confirmation === 'overwrite'
+                ? t('File changed on disk')
+                : t('Unsaved changes')}
+          </h2>
           <p>
-            {confirmation === 'overwrite'
+            {confirmation === 'delete'
               ? t(
-                  '{value0} changed on disk. Cancel to manage the changes yourself, force save to replace the disk version, or merge your edits into the latest disk version for review. Merging does not save the file.',
-                  { value0: document.path },
+                  'Permanently delete {path}? Unsaved changes will be discarded. This cannot be undone.',
+                  { path: document.path },
                 )
-              : t('Discard your changes to {value0}?', { value0: document.path })}
+              : confirmation === 'overwrite'
+                ? t(
+                    '{value0} changed on disk. Cancel to manage the changes yourself, force save to replace the disk version, or merge your edits into the latest disk version for review. Merging does not save the file.',
+                    { value0: document.path },
+                  )
+                : t('Discard your changes to {value0}?', { value0: document.path })}
           </p>
           <div className="dialog-actions">
             <Button autoFocus onClick={() => setConfirmation(undefined)}>
@@ -700,14 +743,19 @@ export function TextEditor({
               onClick={() => {
                 const action = confirmation;
                 setConfirmation(undefined);
-                if (action === 'back') void leave();
+                if (action === 'delete') void deleteFile();
+                else if (action === 'back') void leave();
                 else if (action === 'overwrite') {
                   confirmationRef.current = undefined;
                   void save(overwriteRevision.current);
                 } else void reload();
               }}
             >
-              {confirmation === 'overwrite' ? t('Force save') : t('Discard changes')}
+              {confirmation === 'delete'
+                ? t('Delete file')
+                : confirmation === 'overwrite'
+                  ? t('Force save')
+                  : t('Discard changes')}
             </Button>
           </div>
         </Dialog>
