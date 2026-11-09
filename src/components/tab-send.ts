@@ -33,17 +33,31 @@ export async function sendToTab(
   };
   if (result.acknowledged !== true) throw new SdkError('unavailable', 'Write not acknowledged');
 }
-export type SelectedCode = {
-  source: 'Files' | 'Diff';
+export type SelectedNote = {
+  source: 'Note';
   tabId: number;
+  noteId: string;
   path: string;
   location: string;
   text: string;
-  context: string;
+  fullText: string;
   revision: string;
   unsaved?: boolean;
 };
+export type SelectedCode =
+  | SelectedNote
+  | {
+      source: 'Files' | 'Diff';
+      tabId: number;
+      path: string;
+      location: string;
+      text: string;
+      context: string;
+      revision: string;
+      unsaved?: boolean;
+    };
 export function selectionMessage(selection: SelectedCode, question: string) {
+  if (selection.source === 'Note') return noteMessage(selection, question);
   if (!selection.text.trim()) throw new SdkError('invalid_arguments', 'Select some code first.');
   const header = `${selection.source} tab ${selection.tabId}\nFile: ${selection.path}\nLocation: ${selection.location}\nRevision: ${selection.revision}${selection.unsaved ? ' (unsaved editor buffer)' : ''}\n`;
   const content = `${header}\nSelected text:\n${selection.text}\n${question.trim() ? `\nComment / question:\n${question}\n` : ''}`;
@@ -66,4 +80,27 @@ export function selectionMessage(selection: SelectedCode, question: string) {
     length += size;
   }
   return content + label + excerpt;
+}
+
+function noteMessage(note: SelectedNote, question: string) {
+  const args = JSON.stringify({ noteId: note.noteId });
+  const header = `Note tab ${note.tabId}\nNote ID: ${note.noteId}\nName: ${note.path}\nLocation: ${note.location}\nNotebook revision at capture: ${note.revision}\n\nRead the current note with: ongleet tab state ${note.tabId} --args '${args}' --json\nTo modify it, use ongleet tab invoke ${note.tabId} set-text --args with JSON containing noteId, the latest notebook revision from state, and text (the full replacement Markdown). Wait until state is not stale; reread before editing and preserve changes outside the requested passage. The excerpt below is context, not the authoritative current state.\n${question.trim() ? `\nComment / question:\n${question}\n` : ''}\nNote text / selected passage:\n`;
+  const suffix = '\n[Excerpt truncated; read the note using its ID for the full content.]';
+  const encoder = new TextEncoder();
+  const budget = 8191 - encoder.encode(header).length;
+  if (budget < encoder.encode(suffix).length)
+    throw new SdkError(
+      'invalid_arguments',
+      'Note context and question must fit within 8 KiB. Shorten the question.',
+    );
+  if (encoder.encode(note.text).length <= budget) return header + note.text;
+  let excerpt = '';
+  let length = 0;
+  for (const character of note.text) {
+    const size = encoder.encode(character).length;
+    if (length + size > budget - encoder.encode(suffix).length) break;
+    excerpt += character;
+    length += size;
+  }
+  return header + excerpt + suffix;
 }

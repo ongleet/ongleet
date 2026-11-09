@@ -1,5 +1,5 @@
 import { t, subscribeLocale } from '../../i18n';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { Annotation, Compartment, EditorState, Transaction } from '@codemirror/state';
 import { EditorView, drawSelection, keymap, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -8,16 +8,20 @@ import { editorAppearance, fileLanguage } from '../files/editor-syntax';
 
 const externalChange = Annotation.define<boolean>();
 
+export type NoteEditorHandle = { capture: () => { text: string; location: string } };
+
 export function MarkdownEditor({
   text,
   disabled,
   visible,
   onChange,
+  ref,
 }: {
   text: string;
   disabled: boolean;
   visible: boolean;
   onChange: (text: string) => void;
+  ref?: Ref<NoteEditorHandle>;
 }) {
   const sdk = useSdk();
   const host = useRef<HTMLDivElement>(null);
@@ -26,6 +30,21 @@ export function MarkdownEditor({
   props.current = { text, onChange };
   const editable = useRef(new Compartment());
   const [, render] = useState(0);
+  useImperativeHandle(
+    ref,
+    () => ({
+      capture: () => {
+        const editor = view.current;
+        if (!editor) throw new Error(t('Note is not ready.'));
+        const { from, to, empty } = editor.state.selection.main;
+        return {
+          text: empty ? editor.state.doc.toString() : editor.state.sliceDoc(from, to),
+          location: empty ? 'Entire note' : `characters ${from + 1}–${to + 1} (end exclusive)`,
+        };
+      },
+    }),
+    [],
+  );
 
   useEffect(() => {
     if (!host.current) return;

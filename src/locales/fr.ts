@@ -259,6 +259,11 @@ export const fr: Record<string, string> = {
   'Editor actions': 'Actions de l’éditeur',
   'Save ': 'Enregistrer ',
   Reload: 'Recharger',
+  'Send to an agent…': 'Envoyer à un agent…',
+  'Send note or selection': 'Envoyer la note ou la sélection',
+  'Note is not ready.': 'La note n’est pas prête.',
+  'The note changed. Close this dialog and capture it again.':
+    'La note a changé. Fermez cette fenêtre et recommencez.',
   'Undo ': 'Annuler ',
   'Redo ': 'Rétablir ',
   'Find / replace ': 'Rechercher / remplacer ',

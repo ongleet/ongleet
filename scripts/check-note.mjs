@@ -167,6 +167,29 @@ try {
 } finally {
   mock.timers.reset();
 }
+// Sharing flushes a pending debounce, carries the committed revision, and rejects
+// content changed while a dialog or disk write was pending.
+migrated.edit('Share this draft');
+migrated.scheduleSave();
+const shareRevision = await migrated.prepareSend(migratedId, 'Share this draft');
+assert.equal(shareRevision, record.revision);
+assert.equal(record.value.notes[0].text, 'Share this draft');
+assert.equal(migrated.dirty, false);
+await assert.rejects(migrated.prepareSend(migratedId, 'Old dialog text'), /note changed/);
+migrated.edit('Disk failure');
+fail = true;
+await assert.rejects(migrated.prepareSend(migratedId, 'Disk failure'), /disk full/);
+fail = false;
+release = true;
+const sharing = migrated.prepareSend(migratedId, 'Disk failure');
+await Promise.resolve();
+migrated.edit('Typed during save');
+migrated.scheduleSave();
+const finishSharing = release;
+release = null;
+finishSharing();
+await assert.rejects(sharing, /note changed/);
+await migrated.save();
 console.log(
   'Notebook migration, multiple notes, queued autosave, recovery and revision checks passed.',
 );

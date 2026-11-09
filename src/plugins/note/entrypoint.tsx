@@ -1,18 +1,20 @@
 import { t } from '../../i18n';
 import { Button, Input, TabPanel } from '../../components/Controls';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { SelectionSend } from '../../components/SelectionSend';
 import { useSdk, useTabInteractions } from '../../sdk';
 import type { PluginContentProps } from '../types';
 import { NoteModel } from './model';
-import { MarkdownEditor } from './MarkdownEditor';
+import { MarkdownEditor, type NoteEditorHandle } from './MarkdownEditor';
 import './note.css';
 
 const models = new Set<NoteModel>();
 
-function Content({ tab, visible }: PluginContentProps) {
+function Content({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
   const [, render] = useState(0);
   const [inputError, setInputError] = useState('');
+  const editor = useRef<NoteEditorHandle>(null);
   const [note] = useState(
     () =>
       new NoteModel(
@@ -119,11 +121,62 @@ function Content({ tab, visible }: PluginContentProps) {
         <div className="note-editor">
           <div className="note-toolbar">
             <span>{t('Markdown · saved automatically')}</span>
+            <SelectionSend
+              sessionId={session.id}
+              tabId={tab.id}
+              visible={visible}
+              label={t('Send to an agent…')}
+              dialogTitle={t('Send note or selection')}
+              capture={() => {
+                if (note.loading || !editor.current) throw new Error(t('Note is not ready.'));
+                const current = note.getNote();
+                return {
+                  source: 'Note',
+                  tabId: tab.id,
+                  noteId: current.id,
+                  path: current.name,
+                  ...editor.current.capture(),
+                  fullText: current.text,
+                  revision: String(note.revision),
+                };
+              }}
+              beforeSend={async (snapshot) => {
+                if (snapshot.source !== 'Note')
+                  throw new Error(t('The note changed. Close this dialog and capture it again.'));
+                try {
+                  const revision = await note.prepareSend(snapshot.noteId, snapshot.fullText);
+                  return { ...snapshot, revision: String(revision) };
+                } catch (error) {
+                  if (error instanceof Error) throw new Error(t(error.message));
+                  throw error;
+                }
+              }}
+            />
             <Button
-              disabled={note.loading || note.saving}
-              onClick={() => void note.load(true).catch(() => {})}
+              type="button"
+              className="note-reload"
+              title={note.dirty ? t('Discard edits and reload') : t('Reload')}
+              aria-label={note.dirty ? t('Discard edits and reload') : t('Reload')}
+              disabled={note.loading}
+              aria-disabled={note.saving || undefined}
+              onClick={() => {
+                if (!note.saving) void note.load(true).catch(() => {});
+              }}
             >
-              {note.dirty ? t('Discard edits and reload') : t('Reload')}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M20 7v5h-5M4 17v-5h5" />
+                <path d="M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1" />
+              </svg>
             </Button>
           </div>
           {!!note.notes.length && (
@@ -135,6 +188,7 @@ function Content({ tab, visible }: PluginContentProps) {
             />
           )}
           <MarkdownEditor
+            ref={editor}
             key={note.selectedNoteId}
             text={note.text}
             disabled={note.loading || !note.notes.length}
@@ -145,14 +199,6 @@ function Content({ tab, visible }: PluginContentProps) {
       </div>
       {(note.error || inputError) && <p role="alert">{inputError || note.error}</p>}
       <div className="plugin-statusbar" role="status">
-        {note.loading
-          ? t('Loading…')
-          : note.saving
-            ? t('Saving…')
-            : note.dirty
-              ? t('Unsaved changes')
-              : t('Saved locally')}
-        {' · '}
         {new TextEncoder().encode(note.text).length}
         {t(' / 24576 bytes')}
       </div>

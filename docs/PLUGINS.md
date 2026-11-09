@@ -125,6 +125,13 @@ They reject stale revisions and pending UI edits. Hidden open tabs remain
 callable; closed or archived tabs must be reopened first. Actions follow the
 standard cancellation and ambiguous-timeout contract; never retry automatically. Run `mise exec -- npm run check:note` for autosave and concurrency checks.
 
+The Note toolbar can send the current selection, or the entire note when no text
+is selected, to a receiving tab in the same session. The dialog accepts a comment
+or question. Sending first saves the notebook and rejects changed note content
+since capture. Messages include stable tab/note IDs and instructions to read the
+current state and use revision-checked `set-text`. Large excerpts are truncated
+within the terminal input limit; the agent can read the complete note by ID.
+
 ## Diff
 
 The bundled **Diff** tab requires `git` on the app's PATH. Add it through

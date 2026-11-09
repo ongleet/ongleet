@@ -33,6 +33,34 @@ assert.throws(() => selectionMessage(selection, 'x'.repeat(8192)), /8 KiB/);
 const bounded = selectionMessage({ ...selection, context: '日🙂'.repeat(4000) }, 'A question');
 assert(Buffer.byteLength(bounded) + 1 <= 8192);
 assert(bounded.includes('hello') && bounded.includes('A question') && !bounded.includes('\uFFFD'));
+const note = {
+  source: 'Note',
+  tabId: 42,
+  noteId: 'stable-note-id',
+  path: 'Plan',
+  location: 'Entire note',
+  text: '日🙂'.repeat(6000),
+  fullText: '日🙂'.repeat(6000),
+  revision: '8',
+};
+const notePayload = selectionMessage(note, 'Summarize this note.');
+assert(Buffer.byteLength(notePayload) <= 8191);
+assert(!notePayload.includes('\uFFFD'));
+assert(notePayload.includes('Note ID: stable-note-id'));
+assert(notePayload.includes('ongleet tab state 42 --args \'{"noteId":"stable-note-id"}\' --json'));
+assert(notePayload.includes('ongleet tab invoke 42 set-text'));
+assert(notePayload.includes('latest notebook revision'));
+assert(notePayload.includes('Summarize this note.') && notePayload.includes('Excerpt truncated'));
+const passage = selectionMessage(
+  { ...note, text: 'Selected passage', location: 'characters 3–19' },
+  'Rephrase',
+);
+assert(passage.includes('characters 3–19') && passage.includes('Selected passage'));
+assert(!passage.includes('Excerpt truncated'));
+assert(
+  selectionMessage({ ...note, text: '', fullText: '' }, 'Write a plan').includes('Write a plan'),
+);
+assert.throws(() => selectionMessage(note, 'x'.repeat(8192)), /8 KiB/);
 let available = true,
   failure = false,
   calls = [];

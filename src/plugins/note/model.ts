@@ -186,6 +186,22 @@ export class NoteModel {
     return work;
   }
 
+  async prepareSend(noteId: string, capturedText: string): Promise<number> {
+    const check = () => {
+      if (this.loading || this.getNote(noteId).text !== capturedText)
+        throw new SdkError(
+          'revision_conflict',
+          'The note changed. Close this dialog and capture it again.',
+        );
+    };
+    check();
+    await this.save();
+    check();
+    if (this.dirty)
+      throw new SdkError('busy', 'The note changed. Close this dialog and capture it again.');
+    return this.revision;
+  }
+
   async act(revision: number, signal: AbortSignal, update: () => string) {
     signal.throwIfAborted();
     if (this.loading || this.pending || this.dirty || this.error)

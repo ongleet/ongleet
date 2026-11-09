@@ -15,6 +15,15 @@
 .note-toolbar span {
   margin-right: auto;
 }
+.note-reload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  flex-shrink: 0;
+}
 .note-markdown-editor {
   overflow: hidden;
   flex: 1;

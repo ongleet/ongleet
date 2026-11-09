@@ -5,7 +5,7 @@
   "sdkVersion": 1,
   "entrypoint": "entrypoint.tsx",
   "description": "Local Markdown notes for session TODOs and agent memory. Autosaved with this tab; retained in session archives.",
-  "capabilities": ["storage"],
+  "capabilities": ["storage", "tabs"],
   "defaults": {},
   "configSchema": {
     "type": "object",

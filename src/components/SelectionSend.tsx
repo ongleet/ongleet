@@ -10,11 +10,17 @@ export function SelectionSend({
   tabId,
   capture,
   visible,
+  label,
+  dialogTitle,
+  beforeSend,
 }: {
   sessionId: number;
   tabId: number;
   capture: () => SelectedCode;
   visible: boolean;
+  label?: string;
+  dialogTitle?: string;
+  beforeSend?: (selection: SelectedCode) => Promise<SelectedCode>;
 }) {
   const sdk = useSdk();
   const [selection, setSelection] = useState<SelectedCode>();
@@ -76,8 +82,13 @@ export function SelectionSend({
     setBusy(true);
     setError('');
     setStatus('');
+    let sending = false;
     try {
-      await sendToTab(sdk.tabs, sessionId, tabId, target, selectionMessage(selection, question));
+      const prepared = beforeSend ? await beforeSend(selection) : selection;
+      if (!mounted.current) return;
+      const message = selectionMessage(prepared, question);
+      sending = true;
+      await sendToTab(sdk.tabs, sessionId, tabId, target, message);
       if (mounted.current) {
         setStatus('Write acknowledged; agent processing is unknown.');
         setSelection(undefined);
@@ -85,9 +96,11 @@ export function SelectionSend({
     } catch (error) {
       if (mounted.current)
         setError(
-          t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
-            value0: String(error),
-          }),
+          sending
+            ? t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
+                value0: String(error),
+              })
+            : String(error),
         );
     } finally {
       writing.current = false;
@@ -102,7 +115,7 @@ export function SelectionSend({
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => void open()}
       >
-        {t('Send selection…')}
+        {label ?? t('Send selection…')}
       </Button>
       {status && <span role="status">{status}</span>}
       {error && !selection && <span role="alert">{error}</span>}
@@ -110,7 +123,7 @@ export function SelectionSend({
         createPortal(
           <Dialog
             ref={dialog}
-            aria-label={t('Send selected code')}
+            aria-label={dialogTitle ?? t('Send selected code')}
             onCancel={(event) => {
               if (busy) event.preventDefault();
               else {
@@ -126,7 +139,7 @@ export function SelectionSend({
                 void send();
               }}
             >
-              <h2>{t('Send selected code')}</h2>
+              <h2>{dialogTitle ?? t('Send selected code')}</h2>
               <p>
                 {selection.path} · {selection.location}
                 {selection.unsaved ? t(' · Unsaved buffer') : ''}
