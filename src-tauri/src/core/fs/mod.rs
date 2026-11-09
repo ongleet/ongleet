@@ -1,5 +1,6 @@
 //! Filesystem browsing and bounded text editing; no PTY or terminal-engine dependency.
 pub mod editor;
+pub mod image;
 pub mod search;
 pub mod watch;
 use serde::{Deserialize, Serialize};

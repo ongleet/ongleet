@@ -79,6 +79,9 @@ pub enum Request {
     UnwatchText {
         token: String,
     },
+    ReadImage {
+        path: String,
+    },
     ReadText {
         path: String,
     },
@@ -182,6 +185,7 @@ pub async fn sdk_request(
         Request::OpenFile { .. } => "openFile",
         Request::WatchText { .. } => "watchText",
         Request::UnwatchText { .. } => "unwatchText",
+        Request::ReadImage { .. } => "readImage",
         Request::ReadText { .. } => "readText",
         Request::SaveText { .. } => "saveText",
         Request::AddSessionTag { .. } => "addSessionTag",
@@ -212,6 +216,7 @@ pub async fn sdk_request(
         let capability = match &request {
             Request::List { .. }
             | Request::SearchFiles { .. }
+            | Request::ReadImage { .. }
             | Request::ReadText { .. }
             | Request::SaveText { .. }
             | Request::WatchText { .. }
@@ -436,6 +441,9 @@ pub async fn sdk_request(
                         guard.file_watches.remove(&id);
                     }
                     Ok(serde_json::Value::Null)
+                }
+                Request::ReadImage { path } => {
+                    serde_json::to_value(super::fs::image::load_with(system.files.as_ref(), &path)?)
                 }
                 Request::ReadText { path } => {
                     if let Some(watch) = guard.file_watches.get(&id).filter(|w| w.path == path) {

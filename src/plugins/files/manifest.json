@@ -1,6 +1,6 @@
 {
   "configVersion": 1,
-  "description": "File browser with a plain-text editor.",
+  "description": "File browser with image previews and a plain-text editor.",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -13,7 +13,7 @@
       },
       "editorFile": {
         "type": ["string", "null"],
-        "description": "Absolute selected file path to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores local drafts when available, otherwise saved file contents or unsupported-file details.",
+        "description": "Absolute selected file path to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores local drafts when available, otherwise saved file contents, image previews or unsupported-file details.",
         "absolutePath": true,
         "maxBytes": 8192
       },
@@ -136,7 +136,7 @@
     },
     "actions": {
       "open-path": {
-        "description": "Open an existing absolute file path in this tab without selecting the tab or changing the explorer folder. Reuses UI draft-preserving file switching; busy editors or unpreserved edits reject the action. Unsupported text shows file details without launching an external application. Does not create files.",
+        "description": "Open an existing absolute file path in this tab without selecting the tab or changing the explorer folder. Reuses UI draft-preserving file switching; busy editors or unpreserved edits reject the action. Supported image extensions show an image preview; other unsupported text shows file details without launching an external application. Does not create files.",
         "readOnly": false,
         "inputSchema": {
           "type": "object",

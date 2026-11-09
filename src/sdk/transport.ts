@@ -245,6 +245,7 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
           throw sdkError(error);
         }
       },
+      readImage: (path: string) => request<number[]>('readImage', { path }),
       readText: (path: string) => request<TextDocument | null>('readText', { path }),
       saveText: (options: { path: string; text: string; revision: string }) =>
         request<TextDocument>('saveText', options),

@@ -1,6 +1,7 @@
 import { t } from '../../i18n';
 import { Button } from '../../components/Controls';
 import { useState } from 'react';
+import { ImageViewer, imageType } from './ImageViewer';
 import { useSdk } from '../../sdk';
 
 export type UnsupportedFile = { path: string; reason: string };
@@ -40,7 +41,11 @@ export function FileDetails({
   return (
     <section className="file-details" aria-label={t('File details')}>
       <h2>{name}</h2>
-      <p className="muted">{file.reason}</p>
+      {imageType(file.path) ? (
+        <ImageViewer path={file.path} />
+      ) : (
+        <p className="muted">{file.reason}</p>
+      )}
       <dl>
         <dt>{t('Name')}</dt>
         <dd>{name}</dd>

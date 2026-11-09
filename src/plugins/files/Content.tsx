@@ -17,6 +17,7 @@ import '../../components/file-tree.css';
 import { FileBranch } from './FileBranch';
 import { FileSearch } from './FileSearch';
 import { FileDetails, editorLimitation, type UnsupportedFile } from './FileDetails';
+import { imageType } from './ImageViewer';
 import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
 export function FilesContent({ tab, session, visible }: PluginContentProps) {
@@ -138,8 +139,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
     if (!file) return;
     let cancelled = false;
     setRestoringEditor(true);
-    void sdk.fs
-      .readText(file)
+    void (imageType(file) ? Promise.resolve(null) : sdk.fs.readText(file))
       .then((document) => {
         if (cancelled) return;
         if (document) setEditing(document);
@@ -249,7 +249,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
       let document: TextDocument | null = null;
       let reason = 'This file is not supported UTF-8 text.';
       try {
-        document = await sdk.fs.readText(path);
+        document = imageType(path) ? null : await sdk.fs.readText(path);
       } catch (error) {
         const limitation = editorLimitation(error);
         if (!limitation) throw error;

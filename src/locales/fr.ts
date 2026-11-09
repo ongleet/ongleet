@@ -1,5 +1,14 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Image preview': 'Aperçu de l’image',
+  'Fit image': 'Ajuster l’image',
+  'Actual size': 'Taille réelle',
+  'Zoom out': 'Zoom arrière',
+  'Zoom in': 'Zoom avant',
+  'Reload image': 'Recharger l’image',
+  'Loading image…': 'Chargement de l’image…',
+  'This image could not be decoded.': 'Cette image n’a pas pu être décodée.',
+
   'Use a different pull request for this tab': 'Utiliser une autre pull request pour cet onglet',
   'Use the session association or override it for this tab. Status refreshes every ':
     'Utilisez l’association de la session ou remplacez-la pour cet onglet. Actualisation toutes les ',

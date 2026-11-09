@@ -38,6 +38,8 @@ Terminal reads standard OSC 0/2 shell titles from the bounded byte stream, inclu
 
 `fs.searchFiles({folder, query, showHidden})` recursively matches case-insensitive literal substrings anywhere in relative file paths. It requires `fs`, skips symlinks, and returns `{matches: [{path, relativePath}], truncated, skipped}`. Searches cap at 500 results, 128 KiB of result paths, 100,000 scanned entries, depth 64 and two seconds between filesystem calls. Hidden entries follow `showHidden`; file contents are never read. Searches run outside the registry lock and participate in attachment job cancellation. Inaccessible entries are counted in `skipped`; limits set `truncated`.
 
+`fs.readImage(path)` returns regular-file bytes with an 8 MiB limit for image previews.
+
 `fs.list`, `fs.readText`, `fs.saveText`, `fs.watchText`: bounded scans/text and revision-checked atomic saves. Unsupported text returns `null`, allowing a plugin to choose an external opener. Plugin configuration updates are explicit. `watchText(path, changed)` returns an unsubscribe function and watches the parent directory with Linux inotify, filtering the basename so atomic replacements remain observable.
 
 One watch per attachment/tab, 128 globally; events coalesce until `readText` acknowledges before reading. Queue overflow requests a fresh read. Detach, close, session removal and Quit stop and join watchers; subscribers may stop sooner. Network filesystem remote writes and mmap writes are outside inotify coverage; moving/deleting the parent directory invalidates the watch and requires reopening the editor.
