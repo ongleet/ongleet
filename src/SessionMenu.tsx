@@ -21,8 +21,12 @@ export function SessionMenu({
   archives,
   activeTabName,
   configureTab,
+  sharedSettings,
+  configureShared,
   archiveTab,
 }: {
+  sharedSettings: { id: number; label: string }[];
+  configureShared: (tabId: number) => void;
   activeTabName?: string;
   configureTab?: () => void;
   archiveTab?: () => void;
@@ -153,6 +157,23 @@ export function SessionMenu({
               )}
             </div>
           ))}
+          {sharedSettings.length > 0 && (
+            <div>
+              <p className="muted">{t('Shared session settings')}</p>
+              {sharedSettings.map((plugin) => (
+                <Button
+                  key={plugin.id}
+                  disabled={disabled}
+                  onClick={() => {
+                    menu.current!.open = false;
+                    configureShared(plugin.id);
+                  }}
+                >
+                  {t(plugin.label)}
+                </Button>
+              ))}
+            </div>
+          )}
           {activeTabName !== undefined && (
             <div>
               <p className="muted">{t('Tab')}</p>

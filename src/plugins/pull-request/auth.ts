@@ -11,7 +11,10 @@ export type AuthState = {
   error: string;
   retryAt: number;
 };
-export function createAuthController() {
+export function createAuthController(
+  options: { credentialKey?: string; environment?: boolean } = {},
+) {
+  const credentialKey = options.credentialKey ?? 'github-account';
   let credential: Credential | undefined;
   let state: AuthState = {
     version: 0,
@@ -49,7 +52,9 @@ export function createAuthController() {
     requests.set(controller, sdk);
     publish({ loading: true, error: '' });
     try {
-      for (const name of ['GH_TOKEN', 'GITHUB_TOKEN'] as const) {
+      for (const name of (options.environment === false ? [] : ['GH_TOKEN', 'GITHUB_TOKEN']) as (
+        'GH_TOKEN' | 'GITHUB_TOKEN'
+      )[]) {
         const token = (await sdk.env.get(name))?.trim();
         if (current !== lifetime || controller.signal.aborted) return;
         if (!token) continue;
@@ -60,7 +65,7 @@ export function createAuthController() {
         return;
       }
       publish({ environment: undefined });
-      const raw = await sdk.credentials.get('github-account');
+      const raw = await sdk.credentials.get(credentialKey);
       if (current !== lifetime || controller.signal.aborted) return;
       let saved: Credential | undefined;
       if (raw) {
@@ -98,12 +103,15 @@ export function createAuthController() {
       return () => {
         listeners.delete(listener);
         if (![...listeners.values()].includes(sdk)) {
+          const reload = state.loading && [...requests.values()].includes(sdk);
           for (const [request, owner] of requests) {
             if (owner === sdk) {
               request.abort();
               requests.delete(request);
             }
           }
+          const next = listeners.values().next().value;
+          if (reload && next) void load(next);
         }
         if (!listeners.size) {
           ++lifetime;
@@ -132,7 +140,7 @@ export function createAuthController() {
         const login = await fetchViewer(sdk, token, controller.signal);
         if (current !== lifetime || controller.signal.aborted) return;
         const next = { token, login };
-        await sdk.credentials.set('github-account', JSON.stringify(next));
+        await sdk.credentials.set(credentialKey, JSON.stringify(next));
         if (current === lifetime) changed(next);
       } catch (error) {
         if (current === lifetime) publish({ error: String(error) });
@@ -147,7 +155,7 @@ export function createAuthController() {
       publish({ busy: true, error: '' });
       abort();
       try {
-        if (!state.environment) await sdk.credentials.delete('github-account');
+        if (!state.environment) await sdk.credentials.delete(credentialKey);
         if (current === lifetime) changed();
       } catch (error) {
         if (current === lifetime) publish({ error: String(error) });
@@ -219,3 +227,27 @@ export function createAuthController() {
   };
 }
 export const githubAuth = createAuthController();
+
+export type AuthController = ReturnType<typeof createAuthController>;
+const sessionAccounts = new Map<number, AuthController>();
+export function sessionAuth(sessionId: number) {
+  let auth = sessionAccounts.get(sessionId);
+  if (!auth) {
+    auth = createAuthController({
+      credentialKey: `github-session-${sessionId}`,
+      environment: false,
+    });
+    sessionAccounts.set(sessionId, auth);
+  }
+  return auth;
+}
+
+const tabAccounts = new Map<number, AuthController>();
+export function tabAuth(tabId: number) {
+  let auth = tabAccounts.get(tabId);
+  if (!auth) {
+    auth = createAuthController({ credentialKey: `github-tab-${tabId}`, environment: false });
+    tabAccounts.set(tabId, auth);
+  }
+  return auth;
+}

@@ -238,6 +238,7 @@ function SessionPane({
   closeTab: (tab: PluginTab) => void;
   markRestoring: (delta: number) => void;
 }) {
+  const [sharedSettingsTab, setSharedSettingsTab] = useState<number | null>(null);
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
   const active = openTabs.find((tab) => tab.id === session.selectedTabId);
   const [tabTitles, setTabTitles] = useState<Record<number, string>>({});
@@ -371,6 +372,17 @@ function SessionPane({
           disabled={disabled}
           mutate={mutate}
           configure={configureSession}
+          sharedSettings={openTabs
+            .filter(
+              (tab, index) =>
+                plugins.find((plugin) => plugin.id === tab.kind)?.SessionConfiguration &&
+                openTabs.findIndex((other) => other.kind === tab.kind) === index,
+            )
+            .map((tab) => ({
+              id: tab.id,
+              label: plugins.find((plugin) => plugin.id === tab.kind)!.label,
+            }))}
+          configureShared={setSharedSettingsTab}
           archives={archives}
           activeTabName={active?.name}
           configureTab={() => {
@@ -388,6 +400,10 @@ function SessionPane({
       )}
       {openTabs.map((tab) => (
         <TabHost
+          openConfiguration={() => configureTab(tab)}
+          sessionConfigurationOpen={visible && sharedSettingsTab === tab.id}
+          openSessionConfiguration={() => setSharedSettingsTab(tab.id)}
+          dismissSessionConfiguration={() => setSharedSettingsTab(null)}
           configurationOpen={configurationTab?.id === tab.id}
           dismissConfiguration={dismissConfiguration}
           reportTitle={reportTitle}

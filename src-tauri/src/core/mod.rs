@@ -9,3 +9,5 @@ pub mod pty;
 pub mod pull_request_compat;
 
 pub mod interactions;
+
+pub mod settings;

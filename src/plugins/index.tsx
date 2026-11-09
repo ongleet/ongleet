@@ -1,5 +1,5 @@
 import { t } from '../i18n';
-import { TabPanel } from '../components/Controls';
+import { Button, Dialog, Select, TabPanel } from '../components/Controls';
 import { useEffect, useState, type ComponentType } from 'react';
 import { createSdk } from '../sdk/transport';
 import { SdkContext, type PluginSdk } from '../sdk';
@@ -21,6 +21,7 @@ export type TabPlugin = {
   toDraft: (config: unknown) => string;
   fromDraft: (draft: string) => unknown;
   contentConfiguration?: boolean;
+  SessionConfiguration?: ComponentType<{ sessionId: number; scope: 'settings' | 'globalSettings' }>;
   beforeQuit?: () => Promise<void>;
 };
 const manifests = import.meta.glob<{
@@ -56,7 +57,13 @@ export function TabHost(props: HostProps) {
       hidden={!props.visible}
       className="plugin-panel"
     >
-      <p>{t("Plugin unavailable: ")}{props.tab.kind}{t(" (configuration version ")}{props.tab.configVersion}{t("). Its saved configuration has been retained.")}</p>
+      <p>
+        {t('Plugin unavailable: ')}
+        {props.tab.kind}
+        {t(' (configuration version ')}
+        {props.tab.configVersion}
+        {t('). Its saved configuration has been retained.')}
+      </p>
     </TabPanel>
   );
 }
@@ -72,6 +79,7 @@ export function actionEditor(kind: string) {
 }
 
 function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps }) {
+  const [settingsScope, setSettingsScope] = useState<'settings' | 'globalSettings'>('settings');
   const [sdk, setSdk] = useState<PluginSdk>();
   const [error, setError] = useState('');
   useEffect(() => {
@@ -101,6 +109,48 @@ function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps
   return (
     <SdkContext.Provider value={sdk}>
       <plugin.Content {...props} />
+      {props.sessionConfigurationOpen && plugin.SessionConfiguration && (
+        <Dialog
+          className="plugin-settings-dialog"
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          aria-label={t('Shared session settings')}
+          onCancel={(event) => {
+            event.preventDefault();
+            props.dismissSessionConfiguration?.();
+          }}
+        >
+          <h2>
+            {t('Shared session settings')} · {t(plugin.label)}
+          </h2>
+          <p className="muted">
+            {t(
+              'Choose defaults for all projects or this session. Local tab overrides take priority.',
+            )}
+          </p>
+          <label>
+            {t('Settings scope')}
+            <Select
+              value={settingsScope}
+              onChange={(event) => setSettingsScope(event.target.value as typeof settingsScope)}
+            >
+              <option value="globalSettings">{t('All projects')}</option>
+              <option value="settings">{t('This session')}</option>
+            </Select>
+          </label>
+          <plugin.SessionConfiguration
+            key={settingsScope}
+            sessionId={props.session.id}
+            scope={settingsScope}
+          />
+          <div className="dialog-actions">
+            <Button type="button" onClick={props.dismissSessionConfiguration}>
+              {t('Close')}
+            </Button>
+          </div>
+        </Dialog>
+      )}
     </SdkContext.Provider>
   );
 }

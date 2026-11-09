@@ -16,6 +16,29 @@
         "description": "Absolute selected file path to reopen, at most 8192 bytes, no NUL. Opening/returning from the editor updates this field. Restores local drafts when available, otherwise saved file contents or unsupported-file details.",
         "absolutePath": true,
         "maxBytes": 8192
+      },
+      "browserPreferences": {
+        "type": ["object", "null"],
+        "description": "Optional local browser preferences, overriding application and session defaults. Null or omitted inherits shared settings.",
+        "additionalProperties": false,
+        "properties": {
+          "showHidden": {
+            "type": "boolean",
+            "description": "Display hidden files."
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "nameAscending",
+              "nameDescending",
+              "dateAscending",
+              "dateDescending",
+              "sizeAscending",
+              "sizeDescending"
+            ],
+            "description": "Sort order, folders first."
+          }
+        }
       }
     }
   },

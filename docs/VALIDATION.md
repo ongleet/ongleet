@@ -299,3 +299,34 @@ The workflow additionally requires a bundled release build, staged executable
 smoke checks and ZIP upload; inspect the completed [Tests workflow](https://github.com/ongleet/ongleet/actions/workflows/tests.yml)
 for the result at the deployed commit. Windows 11 physical desktop behavior is
 untested; see [the acceptance checklist](WINDOWS.md).
+
+## Inherited plugin settings (2026-11-09)
+
+The production frontend/backend builds, 178 active Rust tests (two native
+credential tests ignored), 22 PR behavior tests, plugin boundaries and i18n
+checks passed. New Rust checks cover real-file global settings persistence,
+sibling retention, stale/oversized-write rejection, corrupt-file preservation,
+and nullable local configuration reset. The full Rust suite needed execution
+outside the sandbox because its Unix socket peer-identity fixture is restricted
+inside it.
+
+Private Weston Wayland/WebKitGTK acceptance passed in
+`/tmp/ongleet-settings-native-nnslsn3o/report.json`, using two projects, multiple
+Files/PR tabs, fixture GitHub HTTP and a real temporary Secret Service on a
+private D-Bus session. It verified global/session/tab inheritance, sorting,
+hidden files, stale revisions, reset to inheritance, scoped account isolation,
+local account selection, return from a local PR without altering the session
+association, and Quit/restart persistence. The final run had no cleanup survivors.
+Screenshots confirm shared settings and local PR controls, including 16-pixel
+checkboxes. Production frontend assets and the bundled debug GUI were restored.
+
+Reproduce after building native-validation assets and copying the GUI/CLI as
+above:
+
+```bash
+dbus-run-session -- python3 scripts/check-plugin-settings-native.py \
+  --application /path/to/copied/ongleet-gui
+```
+
+This does not validate live GitHub permissions/rate limits, physical keyboard
+focus, XWayland, macOS or Windows behavior for these new settings.

@@ -35,3 +35,5 @@ export function useTabInteractions(handlers: import('./types').InteractionHandle
     [sdk],
   );
 }
+
+export { useSessionSettings } from './session-settings';

@@ -10,8 +10,9 @@ import {
 
 test('existing configurations default to two minutes and unsafe timer values are rejected', () => {
   assert.equal(refreshSeconds({}), 120);
+  assert.equal(refreshSeconds({ refreshIntervalSeconds: null }), 120);
   assert.equal(refreshSeconds({ refreshIntervalSeconds: 300 }), 300);
-  for (const seconds of [0, -1, 29, 86401, 30.5, '120', null])
+  for (const seconds of [0, -1, 29, 86401, 30.5, '120'])
     assert.throws(() => refreshSeconds({ refreshIntervalSeconds: seconds }), /Refresh interval/);
 });
 
@@ -128,6 +129,44 @@ function authFixture(saved = null) {
   return { sdk, store };
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+test('session and local accounts ignore environment tokens and retain independent saved credentials', async () => {
+  const { sdk } = authFixture();
+  const saved = new Map([['github-account', JSON.stringify({ token: 'global', login: 'global' })]]);
+  sdk.env.get = async () => 'environment-token';
+  sdk.credentials = {
+    get: async (key) => saved.get(key) ?? null,
+    set: async (key, value) => {
+      saved.set(key, value);
+    },
+    delete: async (key) => {
+      saved.delete(key);
+    },
+  };
+  const session = createAuthController({ credentialKey: 'github-session-42', environment: false });
+  const local = createAuthController({ credentialKey: 'github-tab-7', environment: false });
+  const stopSession = session.subscribe(sdk, () => {});
+  const stopLocal = local.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(session.snapshot().login, undefined);
+  await session.connect(sdk, 'session-user');
+  await local.connect(sdk, 'local-user');
+  assert.equal(await session.run(sdk, async (_, login) => login), 'session-user');
+  assert.equal(await local.run(sdk, async (_, login) => login), 'local-user');
+  await local.disconnect(sdk);
+  assert.equal(session.snapshot().login, 'session-user');
+  assert.equal(JSON.parse(saved.get('github-account')).login, 'global');
+  assert.equal(saved.has('github-tab-7'), false);
+  stopSession();
+  stopLocal();
+  const restarted = createAuthController({
+    credentialKey: 'github-session-42',
+    environment: false,
+  });
+  const stop = restarted.subscribe(sdk, () => {});
+  await tick();
+  assert.equal(restarted.snapshot().login, 'session-user');
+  stop();
+});
 test('one account across attachments; replacement failure, restart and final release', async () => {
   const auth = createAuthController();
   const { sdk, store } = authFixture();
@@ -155,6 +194,25 @@ test('one account across attachments; replacement failure, restart and final rel
   await restarted.disconnect(sdk);
   assert.equal(store.value, null);
   stop();
+});
+test('closing the attachment loading the account transfers initialization to a surviving tab', async () => {
+  const auth = createAuthController();
+  const first = authFixture().sdk;
+  const second = authFixture(JSON.stringify({ token: 'alice', login: 'alice' })).sdk;
+  let release;
+  first.env.get = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  const stopFirst = auth.subscribe(first, () => {});
+  const stopSecond = auth.subscribe(second, () => {});
+  stopFirst();
+  await tick();
+  assert.equal(auth.snapshot().login, 'alice');
+  release('stale-environment');
+  await tick();
+  assert.equal(await auth.run(second, async (_, login) => login), 'alice');
+  stopSecond();
 });
 test('disconnect and replacement abort work and reject late responses from old account', async () => {
   for (const action of ['disconnect', 'replace']) {

@@ -63,7 +63,7 @@ pub fn validate_schema(
     if !valid {
         return Err("Invalid configuration value type".into());
     }
-    if let Some(required) = schema["required"].as_array() {
+    if let Some(required) = schema["required"].as_array().filter(|_| value.is_object()) {
         for key in required {
             if value
                 .get(key.as_str().ok_or("Invalid required field")?)
@@ -143,4 +143,34 @@ pub fn initialize(
 pub struct Job {
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub finished: std::sync::atomic::AtomicBool,
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn local_pr_reset_inherits_without_allowing_incomplete_associations() {
+        validate(
+            "pull-request",
+            1,
+            &json!({"pullRequest": null, "refreshIntervalSeconds": null}),
+        )
+        .unwrap();
+        validate("pull-request", 1, &json!({"pullRequest": {"repository": "example/repo", "number": 42}, "connection": "tab"})).unwrap();
+        assert!(validate(
+            "pull-request",
+            1,
+            &json!({"pullRequest": {"repository": "example/repo"}})
+        )
+        .is_err());
+        assert!(validate(
+            "pull-request",
+            1,
+            &json!({"pullRequest": {"repository": "example/repo", "number": 0}})
+        )
+        .is_err());
+        validate("files", 1, &json!({"browserPreferences": null})).unwrap();
+    }
 }

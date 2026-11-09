@@ -1,5 +1,32 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Use a different pull request for this tab': 'Utiliser une autre pull request pour cet onglet',
+  'Use the session association or override it for this tab. Status refreshes every ':
+    'Utilisez l’association de la session ou remplacez-la pour cet onglet. Actualisation toutes les ',
+  'Reset defaults': 'Rétablir les valeurs par défaut',
+  'Use global defaults': 'Utiliser les valeurs globales',
+  'Override refresh interval for this tab':
+    'Remplacer l’intervalle de rafraîchissement pour cet onglet',
+  'Override browser preferences for this tab':
+    'Remplacer les préférences de navigation pour cet onglet',
+  'Show hidden files': 'Afficher les fichiers cachés',
+  'Open shared session settings to connect your GitHub account.':
+    'Ouvrir les réglages partagés pour connecter votre compte GitHub.',
+  'This account is shared only by GitHub PR tabs in this session. It ignores launch environment tokens.':
+    'Ce compte est partagé uniquement entre les onglets GitHub PR de cette session. Les tokens de l’environnement de lancement sont ignorés.',
+  'Changing this account affects every session using the global default.':
+    'Changer ce compte affecte toutes les sessions utilisant le compte global par défaut.',
+  'Use session settings': 'Utiliser les réglages de la session',
+  'Account for this tab': 'Compte pour cet onglet',
+  'Account for this session': 'Compte pour cette session',
+  'Global default account': 'Compte global par défaut',
+  'GitHub account': 'Compte GitHub',
+  'This session': 'Cette session',
+  'All projects': 'Tous les projets',
+  'Settings scope': 'Portée des réglages',
+  'Choose defaults for all projects or this session. Local tab overrides take priority.':
+    'Choisissez des valeurs pour tous les projets ou pour cette session. Les réglages locaux des onglets restent prioritaires.',
+  'Shared session settings': 'Réglages partagés',
   Appearance: 'Apparence',
   'Changes apply immediately and save automatically.':
     'Les modifications sont appliquées et enregistrées immédiatement.',

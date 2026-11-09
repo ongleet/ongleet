@@ -1,7 +1,15 @@
 import { t } from '../../i18n';
 import { Button, Input, Select, TabPanel } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
-import { useSdk, useTabInteractions, SdkError, type Listing, type SortOrder } from '../../sdk';
+import {
+  useSdk,
+  useSessionSettings,
+  useTabInteractions,
+  SdkError,
+  type Listing,
+  type SortOrder,
+} from '../../sdk';
+import { browserDefaults, type BrowserPreferences } from './session-settings';
 import { TextEditor, type TextDocument } from './TextEditor';
 import { readDraft } from './editor-drafts';
 import { FileSidebar } from '../../components/FileSidebar';
@@ -13,7 +21,20 @@ import { fileEditors } from './editor-guards';
 import type { PluginContentProps } from '../types';
 export function FilesContent({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
-  const config = tab.config as { folder?: string; editorFile?: string | null } | null;
+  const config = tab.config as {
+    folder?: string;
+    editorFile?: string | null;
+    browserPreferences?: BrowserPreferences | null;
+  } | null;
+  const shared = useSessionSettings(sdk, browserDefaults);
+  const preferences = { ...shared.value, ...config?.browserPreferences };
+  const { showHidden, order } = preferences;
+  function updatePreferences(patch: Partial<BrowserPreferences>) {
+    const saving = config?.browserPreferences
+      ? sdk.storage.configure({ browserPreferences: { ...preferences, ...patch } })
+      : shared.patch(patch);
+    void saving.catch((error) => setError(String(error)));
+  }
   const configuredFolder = config?.folder;
   const [restoringEditor, setRestoringEditor] = useState(!!config?.editorFile);
   const [restoreError, setRestoreError] = useState('');
@@ -49,10 +70,8 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
       'open-path': (args, { signal }) => openFile(args.path as string, signal),
     },
   });
-  const [showHidden, setShowHidden] = useState(false);
   const [search, setSearch] = useState('');
   const [searchBusy, setSearchBusy] = useState(false);
-  const [order, setOrder] = useState<SortOrder>('nameAscending');
   const generation = useRef(0);
   const pending = useRef(false);
   const content = useRef<HTMLDivElement>(null);
@@ -104,6 +123,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
     }
   }
   useEffect(() => {
+    if (shared.loading) return;
     ++generation.current;
     pending.current = true;
     setBusy(true);
@@ -112,7 +132,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
       window.clearTimeout(timer);
       ++generation.current;
     };
-  }, [tab.id, configuredFolder]);
+  }, [tab.id, configuredFolder, shared.loading, showHidden, order]);
   useEffect(() => {
     const file = config?.editorFile;
     if (!file) return;
@@ -169,13 +189,23 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
       ) {
         event.preventDefault();
         if (event.repeat) return;
-        setShowHidden(!showHidden);
-        void browse(listing?.folder, 0, order, !showHidden);
+        updatePreferences({ showHidden: !showHidden });
       }
     };
     window.addEventListener('keydown', toggleHidden);
     return () => window.removeEventListener('keydown', toggleHidden);
-  }, [visible, showHidden, listing?.folder, order, tab.id, search, editing, restoringEditor]);
+  }, [
+    visible,
+    showHidden,
+    listing?.folder,
+    order,
+    tab.id,
+    search,
+    editing,
+    restoringEditor,
+    config?.browserPreferences,
+    shared.patch,
+  ]);
   useEffect(() => {
     if (
       !visible ||
@@ -252,6 +282,11 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
           className="files-sidebar"
         >
           <div className="files-browser">
+            {shared.error && (
+              <p className="error" role="alert">
+                {shared.error}
+              </p>
+            )}
             {restoringEditor && <p role="status">{t('Reopening text file…')}</p>}
             {restoreError && (
               <div className="error" role="alert">
@@ -336,8 +371,7 @@ export function FilesContent({ tab, session, visible }: PluginContentProps) {
                 value={order}
                 disabled={busy || restoringEditor}
                 onChange={(event) => {
-                  setOrder(event.target.value as SortOrder);
-                  void browse(listing?.folder, 0, event.target.value as SortOrder);
+                  updatePreferences({ order: event.target.value as SortOrder });
                 }}
               >
                 <option value="nameAscending">{t('Name A–Z')}</option>

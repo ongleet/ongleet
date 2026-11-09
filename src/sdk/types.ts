@@ -29,7 +29,7 @@ export type ProcessRequest = {
   outputLimit?: number;
 };
 export type ProcessResult = { stdout: string; stderr: string; code: number };
-export type Scope = 'session' | 'tab';
+export type Scope = 'session' | 'tab' | 'settings' | 'globalSettings';
 export type Namespace<T = unknown> = { version: number; revision: number; value: T };
 export class SdkError extends Error {
   constructor(

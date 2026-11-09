@@ -438,6 +438,25 @@ dialog h2 {
 dialog p {
   margin: 0;
 }
+.plugin-settings-dialog[open] {
+  display: grid;
+  gap: 20px;
+  height: fit-content;
+  max-height: calc(100dvh - 48px);
+  align-content: start;
+  overflow: auto;
+}
+.plugin-settings-dialog section,
+.plugin-settings-dialog fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .dialog-actions {
   display: flex;
   justify-content: end;
@@ -1120,7 +1139,7 @@ dialog.project-editor > [role='status'] {
 .pr-configuration-fields input {
   min-width: 0;
 }
-.pr-configuration-fields input {
+.pr-configuration-fields input:not([type='checkbox']) {
   width: 100%;
 }
 @media (max-width: 480px) {

@@ -134,6 +134,8 @@ pub enum Request {
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Scope {
+    GlobalSettings,
+    Settings,
     Session,
     Tab,
 }
@@ -489,6 +491,17 @@ pub async fn sdk_request(
                     guard.patch_plugin_config(id, patch)?;
                     Ok(serde_json::Value::Null)
                 }
+                Request::ReadData {
+                    scope: Scope::GlobalSettings,
+                } => serde_json::to_value(super::settings::read(&system, &plugin)?),
+                Request::ReplaceData {
+                    scope: Scope::GlobalSettings,
+                    revision,
+                    version,
+                    value,
+                } => serde_json::to_value(super::settings::replace(
+                    &system, &plugin, revision, version, value,
+                )?),
                 Request::ReadData { scope } => {
                     let snapshot = guard.snapshot();
                     let session = snapshot
@@ -497,7 +510,8 @@ pub async fn sdk_request(
                         .find(|s| s.id == session_id)
                         .ok_or("Session unavailable")?;
                     let data = match scope {
-                        Scope::Session => &session.plugin_data,
+                        Scope::Session | Scope::Settings => &session.plugin_data,
+                        Scope::GlobalSettings => unreachable!(),
                         Scope::Tab => {
                             &session
                                 .tabs
@@ -507,7 +521,12 @@ pub async fn sdk_request(
                                 .plugin_data
                         }
                     };
-                    serde_json::to_value(data.get(&plugin))
+                    let namespace = if matches!(scope, Scope::Settings) {
+                        format!("{plugin}.settings")
+                    } else {
+                        plugin.clone()
+                    };
+                    serde_json::to_value(data.get(&namespace))
                 }
                 Request::ReplaceData {
                     scope,
@@ -572,7 +591,11 @@ pub async fn sdk_request(
                         } else {
                             None
                         },
-                        &plugin,
+                        &if matches!(scope, Scope::Settings) {
+                            format!("{plugin}.settings")
+                        } else {
+                            plugin.clone()
+                        },
                         revision,
                         version,
                         value,

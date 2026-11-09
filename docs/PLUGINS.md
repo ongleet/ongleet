@@ -375,3 +375,42 @@ closure/archive clears records, including CLI changes; startup removes stale
 session records. Storage failures appear in the UI. A changed comparison retains
 original anchors and code context; only unambiguous context matches reattach line
 threads. Unmatched discussions appear under **Orphan comments**.
+
+## Inherited plugin settings
+
+`storage.read/replace('globalSettings', ...)` stores application defaults for the
+calling plugin in `$XDG_CONFIG_HOME/ongleet/plugin-settings.yaml`.
+`storage.read/replace('settings', ...)` stores overrides for the same plugin type
+and calling session in its `<plugin>.settings` namespace. Both retain namespace
+versions, optimistic revisions and a 64 KiB owner bound. Global writes use an
+exclusive file lock and flushed atomic replacement. Session overrides survive
+archival/restoration with the session. Existing `'session'` and `'tab'` data
+remain independent, including the PR association namespace.
+
+`useSessionSettings(sdk, defaults)` subscribes to metadata changes and resolves
+built-in defaults → global overrides → session overrides. Its `patch` method
+stores explicit fields; `patch({}, scope, true)` removes the overrides at that
+scope. Plugins apply optional local tab configuration last. Entrypoints may
+export `SessionConfiguration({ sessionId, scope })`; the host renders this editor
+under **⋮ → Shared session settings**, with **All projects** and **This session**
+scopes. Local replacements remain in **Tab → Configure…**.
+
+Current settings audit:
+
+| Plugin       | Shared settings                                                                                                             | Local tab state/configuration                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Pull request | Global account, optional session account, inherited refresh interval; explicit session PR association                       | Optional account and PR association overrides, optional refresh interval                                       |
+| Files        | Hidden-file visibility and sorting                                                                                          | Optional browser preference override; current folder, selected file and drafts remain independent              |
+| Diff         | Uses the session directory as the initial folder; no additional shared comparison settings                                  | Repository, comparison refs/mode, viewed state and discussions remain independent                              |
+| Terminal     | Existing global/project actions provide command/environment templates; session directory supplies default working directory | Executable, arguments, environment and directory overrides remain independent; running processes are unchanged |
+| Note         | No common configurable field in the current plugin                                                                          | Notebooks, selection and content belong to each tab                                                            |
+| SDK example  | No user preference to share                                                                                                 | Example counter belongs to each tab                                                                            |
+
+GitHub credentials never enter settings or terminal environment overrides. The
+existing global `github-account` credential remains compatible. Session and local
+accounts use `github-session-<sessionId>` and `github-tab-<tabId>` in the plugin's
+native credential store; their scope/selection is the only saved configuration.
+Session/local credentials ignore `GH_TOKEN` and `GITHUB_TOKEN`. Resetting settings
+restores inheritance without deleting a separately saved token; Disconnect deletes
+the selected saved credential. Environment authentication retains its existing
+priority for the global default account.

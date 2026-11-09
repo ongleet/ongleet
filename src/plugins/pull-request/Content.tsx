@@ -5,18 +5,22 @@ import {
   Disclosure,
   DisclosureTrigger,
   Input,
+  Select,
   TabPanel,
 } from '../../components/Controls';
 import { useEffect, useRef, useState } from 'react';
-import { useSdk, useTabInteractions } from '../../sdk';
+import { useSdk, useTabInteractions, useSessionSettings } from '../../sdk';
 import { parseAssociation, fetchPullRequest, type PullRequest } from './github';
-import { githubAuth } from './auth';
+import { githubAuth, sessionAuth, tabAuth } from './auth';
+import { GitHubConnection } from './Connection';
+import { prSessionDefaults } from './SessionConfiguration';
 import {
   pullRequestStatus,
   updatePullRequestTag,
   pipelineStatus,
   updatePipelineTag,
 } from './status-tag';
+import { Checkbox } from '../../components/Checkbox';
 import { refreshSeconds, DEFAULT_REFRESH_SECONDS } from './settings';
 import {
   otherReviews,
@@ -28,7 +32,7 @@ import {
 import type { PluginContentProps } from '../types';
 import type { ConfigurationEditorProps } from '..';
 export function PullRequestConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
-  let config: { refreshIntervalSeconds?: number } = {};
+  let config: { refreshIntervalSeconds?: number | null; connection?: string } = {};
   try {
     config = JSON.parse(value);
   } catch {
@@ -41,9 +45,24 @@ export function PullRequestConfigurationEditor({ value, onChange }: Configuratio
           'The GitHub PR association is shared by the session. Set its repository and PR number or URL inside the tab.',
         )}
       </p>
+      <label className="checkbox-field">
+        <Checkbox
+          checked={config.refreshIntervalSeconds != null}
+          onChange={(event) =>
+            onChange(
+              JSON.stringify({
+                ...config,
+                refreshIntervalSeconds: event.target.checked ? DEFAULT_REFRESH_SECONDS : null,
+              }),
+            )
+          }
+        />
+        {t('Override refresh interval for this tab')}
+      </label>
       <label>
         {t('Refresh interval (seconds)')}
         <Input
+          disabled={config.refreshIntervalSeconds == null}
           type="number"
           min="30"
           max="86400"
@@ -65,14 +84,27 @@ export function PullRequestContent({
   visible,
   configurationOpen = false,
   dismissConfiguration,
+  openSessionConfiguration,
+  openConfiguration,
 }: PluginContentProps) {
   const sdk = useSdk();
-  const [auth, setAuth] = useState(githubAuth.snapshot);
-  const [token, setToken] = useState('');
-  const [replacing, setReplacing] = useState(false);
-  const associationKey = JSON.stringify(session.pullRequest);
-  const [target, setTarget] = useState(session.pullRequest?.repository ?? '');
-  const [number, setNumber] = useState(String(session.pullRequest?.number ?? ''));
+  const shared = useSessionSettings(sdk, prSessionDefaults);
+  const localConnection = (tab.config as { connection?: string } | null)?.connection === 'tab';
+  const controller = localConnection
+    ? tabAuth(tab.id)
+    : shared.value.connection === 'session'
+      ? sessionAuth(session.id)
+      : githubAuth;
+  const [auth, setAuth] = useState(controller.snapshot);
+  const localAssociation = (
+    tab.config as { pullRequest?: { repository: string; number: number } | null } | null
+  )?.pullRequest;
+  const association = localAssociation ?? session.pullRequest;
+  const [associationLocalDraft, setAssociationLocalDraft] = useState(!!localAssociation);
+  useEffect(() => setAssociationLocalDraft(!!localAssociation), [!!localAssociation]);
+  const associationKey = JSON.stringify(association);
+  const [target, setTarget] = useState(association?.repository ?? '');
+  const [number, setNumber] = useState(String(association?.number ?? ''));
   const [data, setData] = useState<PullRequest>();
   const [lastRefresh, setLastRefresh] = useState<string>();
   const [error, setError] = useState('');
@@ -114,12 +146,24 @@ export function PullRequestContent({
   let interval = DEFAULT_REFRESH_SECONDS;
   let configurationError = '';
   try {
-    interval = refreshSeconds(tab.config);
+    interval = refreshSeconds(
+      (tab.config as { refreshIntervalSeconds?: number | null } | null)?.refreshIntervalSeconds ==
+        null
+        ? shared.value
+        : tab.config,
+    );
   } catch (error) {
     configurationError = String(error);
   }
-  const [intervalDraft, setIntervalDraft] = useState(String(interval));
-  useEffect(() => setIntervalDraft(String(interval)), [interval]);
+  const localInterval = (tab.config as { refreshIntervalSeconds?: number | null } | null)
+    ?.refreshIntervalSeconds;
+  const [intervalDraft, setIntervalDraft] = useState(
+    localInterval == null ? '' : String(localInterval),
+  );
+  useEffect(
+    () => setIntervalDraft(localInterval == null ? '' : String(localInterval)),
+    [localInterval],
+  );
   const pending = useRef(false);
   const generation = useRef(0);
   const refreshRef = useRef<() => void>(() => {});
@@ -167,10 +211,12 @@ export function PullRequestContent({
     }
   }
   async function refresh() {
-    const account = githubAuth.snapshot();
+    const account = controller.snapshot();
     if (
+      (!localConnection && shared.loading) ||
+      (!localConnection && !!shared.error) ||
       pending.current ||
-      !session.pullRequest ||
+      !association ||
       !account.login ||
       account.paused ||
       account.loading ||
@@ -182,10 +228,10 @@ export function PullRequestContent({
     setBusy(true);
     setError('');
     try {
-      const { result, viewer } = await githubAuth.run(
+      const { result, viewer } = await controller.run(
         sdk,
         async (token, viewer, signal, transport) => ({
-          result: await fetchPullRequest(transport, session.pullRequest!, token, signal),
+          result: await fetchPullRequest(transport, association!, token, signal),
           viewer,
         }),
       );
@@ -229,8 +275,8 @@ export function PullRequestContent({
   };
   useEffect(() => {
     let version = -1;
-    return githubAuth.subscribe(sdk, () => {
-      const next = githubAuth.snapshot();
+    return controller.subscribe(sdk, () => {
+      const next = controller.snapshot();
       setAuth(next);
       if (version !== next.version) {
         version = next.version;
@@ -242,16 +288,17 @@ export function PullRequestContent({
         setUnread([]);
         reviewSnapshot.current = undefined;
         setError('');
-        setToken('');
-        setReplacing(false);
         void sdk.session.removeTag('PR: New review').catch((error) => setError(String(error)));
       }
       if (!next.loading && !next.busy && next.login && !next.paused) refreshRef.current();
     });
-  }, [sdk]);
+  }, [sdk, controller]);
   useEffect(() => {
-    setTarget(session.pullRequest?.repository ?? '');
-    setNumber(String(session.pullRequest?.number ?? ''));
+    if (!shared.loading && !shared.error) refreshRef.current();
+  }, [shared.loading, shared.error]);
+  useEffect(() => {
+    setTarget(association?.repository ?? '');
+    setNumber(String(association?.number ?? ''));
     setData(undefined);
     setUnread([]);
     reviewSnapshot.current = undefined;
@@ -261,7 +308,7 @@ export function PullRequestContent({
     setBusy(false);
     ++generation.current;
     const current = generation.current;
-    if (session.pullRequest) refreshRef.current();
+    if (association) refreshRef.current();
     else
       void updatePullRequestTag(sdk.session, null, () => current === generation.current)
         .then(() => updatePipelineTag(sdk.session, false, () => current === generation.current))
@@ -285,10 +332,17 @@ export function PullRequestContent({
     setError('');
     try {
       const association = parseAssociation(target, number ? Number(number) : undefined);
-      const seconds = refreshSeconds({ refreshIntervalSeconds: Number(intervalDraft) });
+      const seconds =
+        intervalDraft === ''
+          ? null
+          : refreshSeconds({ refreshIntervalSeconds: Number(intervalDraft) });
       const current = await sdk.storage.read('session');
-      await sdk.storage.configure({ refreshIntervalSeconds: seconds });
-      await sdk.storage.replace('session', current?.revision ?? 0, 1, association);
+      await sdk.storage.configure({
+        refreshIntervalSeconds: seconds,
+        pullRequest: associationLocalDraft ? association : null,
+      });
+      if (!configurationOpen && !associationLocalDraft)
+        await sdk.storage.replace('session', current?.revision ?? 0, 1, association);
       dismissConfiguration?.();
     } catch (error) {
       setError(String(error));
@@ -304,10 +358,24 @@ export function PullRequestContent({
       }}
       className="pr-configuration-fields"
     >
+      <label className="checkbox-field">
+        <Checkbox
+          checked={associationLocalDraft}
+          onChange={(event) => {
+            setAssociationLocalDraft(event.target.checked);
+            if (!event.target.checked) {
+              setTarget(session.pullRequest?.repository ?? '');
+              setNumber(String(session.pullRequest?.number ?? ''));
+            }
+          }}
+        />
+        {t('Use a different pull request for this tab')}
+      </label>
       <div className="pr-association-fields">
         <label>
           {t('Repository or PR URL')}
           <Input
+            disabled={configurationOpen && !associationLocalDraft}
             placeholder={t('owner/repository or GitHub PR URL')}
             value={target}
             onChange={(event) => setTarget(event.target.value)}
@@ -318,6 +386,7 @@ export function PullRequestContent({
           <Input
             type="number"
             min="1"
+            disabled={configurationOpen && !associationLocalDraft}
             placeholder={t('PR number')}
             value={number}
             onChange={(event) => setNumber(event.target.value)}
@@ -325,20 +394,26 @@ export function PullRequestContent({
         </label>
       </div>
       <p className="muted">
-        {t(
-          'This association belongs to the session. Clear the repository to remove it. Status and session tags refresh every ',
-        )}
+        {t('Use the session association or override it for this tab. Status refreshes every ')}
         {interval}
         {t(' seconds while this tab is open, including when hidden.')}
       </p>
+      <label className="checkbox-field">
+        <Checkbox
+          checked={intervalDraft !== ''}
+          onChange={(event) => setIntervalDraft(event.target.checked ? String(interval) : '')}
+        />
+        {t('Override refresh interval for this tab')}
+      </label>
       <label>
         {t('Refresh interval (seconds)')}
         <Input
+          disabled={intervalDraft === ''}
           type="number"
           min="30"
           max="86400"
           step="1"
-          value={intervalDraft}
+          value={intervalDraft === '' ? interval : intervalDraft}
           onChange={(event) => setIntervalDraft(event.target.value)}
         />
       </label>
@@ -352,91 +427,7 @@ export function PullRequestContent({
       </div>
     </form>
   );
-  const connection = (
-    <section aria-label={t('GitHub connection')}>
-      <h3>{t('GitHub connection')}</h3>
-      {!auth.loading && !auth.environment && (
-        <p className="muted">
-          {t('Neither GH_TOKEN nor GITHUB_TOKEN is set in Ongleet’s launch environment.')}
-        </p>
-      )}
-      {auth.login && (
-        <p>
-          {t('Connected as ')}
-          {auth.login}
-        </p>
-      )}
-      {auth.environment ? (
-        <>
-          <p className="muted">
-            {t('Using ')}
-            {auth.environment}
-            {t(
-              ' from Ongleet’s launch environment. Update it and restart Ongleet to change the token.',
-            )}
-          </p>
-          {(!auth.login || auth.paused) && (
-            <Button
-              disabled={auth.busy || auth.loading}
-              onClick={() => void githubAuth.reconnect(sdk)}
-            >
-              {t('Reconnect')}
-            </Button>
-          )}
-        </>
-      ) : auth.login && !replacing && !auth.paused ? (
-        <Button onClick={() => setReplacing(true)} disabled={auth.busy}>
-          {t('Replace token')}
-        </Button>
-      ) : (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = token;
-            setToken('');
-            void githubAuth.connect(sdk, value).catch((error) => setError(String(error)));
-          }}
-        >
-          <label>
-            {t('GitHub personal access token')}
-            <Input
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              disabled={auth.busy || auth.loading}
-            />
-          </label>
-          <Button disabled={auth.busy || auth.loading || !token.trim()}>
-            {auth.login ? t('Replace token') : t('Connect')}
-          </Button>
-        </form>
-      )}
-      {auth.login && (
-        <Button
-          disabled={auth.busy || auth.loading}
-          onClick={() => void githubAuth.disconnect(sdk)}
-        >
-          {t('Disconnect')}
-        </Button>
-      )}
-      <Button
-        onClick={() =>
-          void sdk.desktop
-            .openUrl('https://github.com/settings/tokens')
-            .catch((error) => setError(String(error)))
-        }
-      >
-        {t('GitHub token settings')}
-      </Button>
-      {auth.loading && <p>{t('Loading GitHub connection…')}</p>}
-      {auth.error && (
-        <p role="alert" className="error">
-          {auth.error}
-        </p>
-      )}
-    </section>
-  );
+
   return (
     <TabPanel
       id={`tab-panel-${tab.id}`}
@@ -445,10 +436,22 @@ export function PullRequestContent({
       className="plugin-panel pr-panel"
     >
       <div className="pr-content">
-        {!auth.loading && (!auth.login || auth.paused) && (
-          <p className="muted">{t('Configure this tab to connect your GitHub account.')}</p>
+        {shared.error && (
+          <p className="error" role="alert">
+            {shared.error}
+          </p>
         )}
-        {!session.pullRequest && !configurationOpen && configuration}
+        {!auth.loading && (!auth.login || auth.paused) && (
+          <Button
+            type="button"
+            onClick={localConnection ? openConfiguration : openSessionConfiguration}
+          >
+            {localConnection
+              ? t('Configure this tab to connect your GitHub account.')
+              : t('Open shared session settings to connect your GitHub account.')}
+          </Button>
+        )}
+        {!association && !configurationOpen && configuration}
         <Dialog
           ref={configurationDialog}
           aria-label={t('Pull request configuration')}
@@ -463,7 +466,34 @@ export function PullRequestContent({
                 {t('Configure ')}
                 {tab.name}
               </h2>
-              {connection}
+              <label>
+                {t('GitHub account')}
+                <Select
+                  value={localConnection ? 'tab' : 'inherit'}
+                  onChange={(event) => {
+                    void sdk.storage
+                      .configure({ connection: event.target.value })
+                      .catch((error) => setError(String(error)));
+                  }}
+                >
+                  <option value="inherit">{t('Use session settings')}</option>
+                  <option value="tab">{t('Account for this tab')}</option>
+                </Select>
+              </label>
+              {localConnection ? (
+                <GitHubConnection controller={controller} />
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    dismissConfiguration?.();
+                    openSessionConfiguration?.();
+                  }}
+                >
+                  {t('Shared session settings')}
+                </Button>
+              )}
+
               {configuration}
               {error && (
                 <p role="alert" className="error">
@@ -473,12 +503,12 @@ export function PullRequestContent({
             </div>
           )}
         </Dialog>
-        {session.pullRequest && (
+        {association && (
           <header className="pr-heading">
             <h2>
               {data
                 ? `#${data.number} ${data.title}`
-                : `${session.pullRequest.repository} #${session.pullRequest.number}`}{' '}
+                : `${association.repository} #${association.number}`}{' '}
               <Button
                 type="button"
                 className="pr-refresh"
@@ -614,7 +644,7 @@ export function PullRequestContent({
           </>
         )}
       </div>
-      {session.pullRequest && (
+      {association && (
         <footer className="plugin-statusbar" aria-label={t('Pull request status')}>
           <span>
             {busy

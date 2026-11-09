@@ -107,21 +107,27 @@ def after_quit(directory, pending_pid, pid_alive, mark):
 
 
 def open_pr_configuration(client, tab):
-    selector = f"#tab-panel-{tab} dialog[open]"
+    selector = 'dialog[open][aria-label="Shared session settings"]'
     if client.js('return !!document.querySelector(arguments[0])', selector): return
     client.js("document.querySelector('dialog[open] .dialog-actions button[type=button]')?.click()")
     client.click(f'#tab-{tab}')
     client.click('[aria-label="Session and tab menu"]')
-    client.click("//details[@open]//button[normalize-space()='Configure…']", 'xpath')
+    client.click("//details[@open]//button[normalize-space()='Pull request' and not(@title)]", 'xpath')
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if client.js("const el=document.querySelector('dialog[open] [aria-label=\"GitHub connection\"]'); return !!el && !el.textContent.includes('Loading GitHub connection…')"):
+            return
+        time.sleep(0.05)
+    raise AssertionError('GitHub connection settings did not finish loading')
 
 
 def close_pr_configuration(client):
-    client.click("//dialog[@open]//button[normalize-space()='Cancel']", 'xpath')
+    client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
 
 
 def pr_connection_text(client, tab):
     open_pr_configuration(client, tab)
-    value = client.js('return document.querySelector(arguments[0])?.textContent', f'#tab-panel-{tab}') or ''
+    value = client.js('return (document.querySelector(arguments[0])?.textContent || "") + (document.querySelector("dialog[open]")?.textContent || "")', f'#tab-panel-{tab}') or ''
     close_pr_configuration(client)
     return value
 
@@ -142,8 +148,8 @@ def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
     def button(tab, label): pr_connection_button(client, tab, label)
     def connect(tab, token):
         open_pr_configuration(client, tab)
-        wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', f'#tab-panel-{tab} input[type=password]:not(:disabled)'), 'token field ready')
-        client.fill(f'#tab-panel-{tab} input[type=password]', token)
+        wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', 'dialog[open] input[type=password]:not(:disabled)'), 'token field ready')
+        client.fill('dialog[open] input[type=password]', token)
         client.click("//dialog[@open]//form//button[normalize-space()='Replace token' or normalize-space()='Connect']", 'xpath')
         wait_for(lambda: not client.js("return !!document.querySelector('dialog[open] input[type=password]:disabled')"), 'token request completed')
         close_pr_configuration(client)
@@ -187,7 +193,7 @@ def pr_auth_checks(client, session_id, pr, terminal, wait_for, mark):
     client.request('POST','/refresh',{})
     wait_for(lambda: client.js('return !!window.__prFixture'), 'fixture bridge after reload')
     open_pr_configuration(client, pr)
-    wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', f'#tab-panel-{pr} input[type=password]:not(:disabled)'), 'reconnect field')
+    wait_for(lambda: client.js('return !!document.querySelector(arguments[0])', 'dialog[open] input[type=password]:not(:disabled)'), 'reconnect field')
     close_pr_configuration(client)
     client.js("window.__prFixture.mode('ok')")
     connect(pr, 'first-fixture')
