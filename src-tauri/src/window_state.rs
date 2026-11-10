@@ -59,7 +59,6 @@ pub fn activate(window: &tauri::WebviewWindow) -> tauri::Result<()> {
         .show(window)
         .map_err(std::io::Error::other)?;
     let lifecycle = window.state::<crate::Lifecycle>();
-    lifecycle.cancel_close();
     lifecycle
         .visible
         .store(true, std::sync::atomic::Ordering::Release);

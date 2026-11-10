@@ -168,7 +168,6 @@ export const fr: Record<string, string> = {
   'Maximize window': 'Agrandir la fenêtre',
   Maximize: 'Agrandir',
   'Close window': 'Fermer la fenêtre',
-  'Close — keep sessions running': 'Fermer — garder les sessions actives',
   'Send selection…': 'Envoyer la sélection…',
   'Send selected code': 'Envoyer le code sélectionné',
   ' · Unsaved buffer': ' · Contenu non enregistré',
@@ -446,8 +445,6 @@ export const fr: Record<string, string> = {
   '{value0} — {value1} · Drag to reorder · Alt+← / Alt+→':
     '{value0} — {value1} · Glisser pour réorganiser · Alt+← / Alt+→',
   'Close {value0}': 'Fermer {value0}',
-  'Close the window and force-stop {value0} running terminal session(s) and their child processes in two minutes? Reopening the window cancels shutdown.':
-    'Fermer la fenêtre et arrêter de force {value0} session(s) de terminal et leurs processus enfants dans deux minutes ? Rouvrir la fenêtre annule l’arrêt.',
   'Quit and force-stop {value0} running terminal session(s) and their child processes?':
     'Quitter et arrêter de force {value0} session(s) de terminal et leurs processus enfants ?',
   'Archive “{value0}” for 30 days and terminate its session and jobs?':

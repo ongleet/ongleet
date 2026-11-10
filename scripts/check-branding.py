@@ -111,10 +111,9 @@ def run(args):
             mark('Actual Files editor restores unsaved draft and wrapping without changing disk contents')
             snapshot = client.invoke('sessions')
             assert snapshot['sessions'][0]['id'] == session and snapshot['sessions'][0]['selectedTabId'] == tab
-            client.invoke('close_after_delay', {'confirmed':True})
             result = subprocess.run([str(Path(args.application).resolve()), '--show'], env=env, capture_output=True, text=True, timeout=10)
             assert result.returncode == 0, result.stderr
-            mark('Hide/reopen through new executable preserves session and selected tab')
+            mark('Activation through new executable preserves session and selected tab')
             # Read the actual editor consumer, which initializes its preference at import time.
             assert client.js("return document.title.includes('Ongleet')")
             mark('New application identity renders in native WebKitGTK')

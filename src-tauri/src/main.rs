@@ -18,7 +18,7 @@ mod terminal_session;
 mod window_state;
 use session::{SessionRegistry, Snapshot, TabConfig};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
 use tauri::{Emitter, Manager, State};
@@ -36,24 +36,12 @@ struct AppRegistry(Arc<Mutex<SessionRegistry>>);
 struct Lifecycle {
     quitting: AtomicBool,
     visible: AtomicBool,
-    close_generation: AtomicU64,
-    close_timer: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
-}
-impl Lifecycle {
-    fn cancel_close(&self) {
-        self.close_generation.fetch_add(1, Ordering::AcqRel);
-        if let Some(timer) = self.close_timer.lock().unwrap().take() {
-            timer.abort();
-        }
-    }
 }
 impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             quitting: AtomicBool::new(false),
             visible: AtomicBool::new(true),
-            close_generation: AtomicU64::new(0),
-            close_timer: Mutex::new(None),
         }
     }
 }
@@ -545,78 +533,8 @@ async fn finish_quit(
     .await
     .map_err(|e| e.to_string())??;
     let lifecycle = app.state::<Lifecycle>();
-    lifecycle.cancel_close();
     lifecycle.quitting.store(true, Ordering::Release);
     app.exit(0);
-    Ok(())
-}
-
-#[tauri::command]
-fn close_after_delay(
-    app: tauri::AppHandle,
-    state: State<AppRegistry>,
-    lifecycle: State<Lifecycle>,
-    confirmed: bool,
-) -> Result<(), String> {
-    if !confirmed {
-        for terminal in state
-            .0
-            .lock()
-            .map_err(|e| e.to_string())?
-            .terminals
-            .values_mut()
-        {
-            if matches!(terminal.status()?, Status::Running) {
-                return Err(
-                    "Explicit confirmation is required to terminate session processes".into(),
-                );
-            }
-        }
-    }
-    let window = app
-        .get_webview_window("main")
-        .ok_or("Main window unavailable")?;
-    window.state::<window_state::WindowState>().save();
-    window
-        .state::<system::SystemServices>()
-        .desktop
-        .hide(&window)?;
-    lifecycle.visible.store(false, Ordering::Release);
-    lifecycle.cancel_close();
-    let generation = lifecycle.close_generation.load(Ordering::Acquire);
-    let timer_app = app.clone();
-    let timer = tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(120)).await;
-        let handle = timer_app.clone();
-        let _ = timer_app.run_on_main_thread(move || {
-            let lifecycle = handle.state::<Lifecycle>();
-            if lifecycle.close_generation.load(Ordering::Acquire) != generation
-                || lifecycle.visible.load(Ordering::Acquire)
-                || lifecycle.quitting.swap(true, Ordering::AcqRel)
-            {
-                return;
-            }
-            // The confirmed deadline has elapsed. Block further CLI mutations
-            // while the registry persists its restart set and kills its PTYs.
-            let registry = handle.state::<AppRegistry>().0.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = finish_quit(handle.clone(), registry, true).await {
-                    handle
-                        .state::<Lifecycle>()
-                        .quitting
-                        .store(false, Ordering::Release);
-                    let _ = handle.emit("application-close-error", error);
-                    let app = handle.clone();
-                    let _ = handle.run_on_main_thread(move || {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window_state::activate(&window);
-                        }
-                    });
-                }
-            });
-        });
-    });
-    *lifecycle.close_timer.lock().unwrap() = Some(timer);
     Ok(())
 }
 
@@ -802,7 +720,6 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             format_actions,
             save_project_actions,
             application_status,
-            close_after_delay,
             quit,
             defaults,
             sessions,

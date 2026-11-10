@@ -16,9 +16,6 @@ impl DesktopService for super::Linux {
     fn show(&self, window: &tauri::WebviewWindow) -> Result<(), String> {
         window.show().map_err(|e| e.to_string())
     }
-    fn hide(&self, window: &tauri::WebviewWindow) -> Result<(), String> {
-        window.hide().map_err(|e| e.to_string())
-    }
     fn activate(&self, window: &tauri::WebviewWindow) -> Result<(), String> {
         activate(window).map_err(|e| e.to_string())
     }

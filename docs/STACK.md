@@ -36,9 +36,8 @@ schema unchanged. `rusqlite` is used only by tests as an independent SQLite read
 
 SQLite stores stable IDs, definitions, openings, selections, order, explicit
 launch overrides and restart eligibility. Only previously running commands
-restart, as new processes. Window close confirms and hides for two minutes;
-reopening cancels shutdown. Explicit Quit confirms and terminates contained
-processes immediately.
+restart, as new processes. Window close and Quit share confirmation, plugin
+flush and immediate cleanup of contained processes before application exit.
 
 Built-in terminal, Files and PR plugins own versioned configuration. Unknown plugins remain opaque/unavailable. Schema 4 wraps plugin payloads; schema 5 repairs either schema-4 PR-column variant; schema 6 adds archives; schema 7 adds bounded versioned plugin namespaces and migrates PR associations. Schema 8 migrates branding namespaces and saved executables, including archives. Archive version 2 preserves namespaces and reads version-1 payloads. Archives retain metadata for 30 days, restore stable IDs and use retryable two-phase artifact purge. They retain neither live processes nor unsaved edits.
 

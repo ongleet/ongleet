@@ -403,22 +403,12 @@ def run(args):
             assert pid_alive(stream_pid) and client.invoke("application_status")["runningTerminals"] == 1
             mark("Cancelling the Quit confirmation keeps the live session intact")
             close_window(pid)
-            wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "delayed close warning")
-            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Confirm']", "xpath")
-            wait_for(lambda: not client.invoke("application_status")["visible"], "window hidden")
-            time.sleep(2)
-            if args.cli:
-                assert cli('app','status')['visible'] is False
-                cli('session','rename',session['id'],'--name','Hidden CLI session')
-                wait_for(lambda: client.js("return document.querySelector('.sidebar').innerText.includes('Hidden CLI session')"), 'hidden frontend consumes CLI changes')
-                assert cli('app','status')['runningTerminals'] == 1
-                cli('app','show')
-            assert pid_alive(stream_pid)
+            wait_for(lambda: client.js("return !!document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "native close Quit warning")
+            client.click("//dialog[@aria-label='Confirm action']//button[normalize-space()='Cancel']", "xpath")
+            wait_for(lambda: client.js("return !document.querySelector('dialog[aria-label=\"Confirm action\"][open]')"), "native close cancellation")
+            assert pid_alive(stream_pid) and client.invoke("application_status")["visible"]
             subprocess.run([args.application, "--show"], env=env, check=True, timeout=5)
-            wait_for(lambda: client.invoke("application_status")["visible"], "window reopened")
-            assert client.screen(tab) != before and f"PID={stream_pid}" in client.screen(tab)
-            assert client.invoke("application_status")["runningTerminals"] == 1
-            mark("Confirmed window close hides it; --show cancels delayed Quit and retains the same PTY")
+            mark("Native close uses Quit confirmation; cancellation preserves the same window and PTY")
             subprocess.run([args.application], env=env, check=True, timeout=5)
             assert client.invoke("application_status")["runningTerminals"] == 1
             mark("Second launch activates the existing instance without duplicate processes")

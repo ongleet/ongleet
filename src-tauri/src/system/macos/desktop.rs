@@ -32,9 +32,6 @@ impl DesktopService for super::Macos {
     fn show(&self, w: &tauri::WebviewWindow) -> Result<(), String> {
         w.show().map_err(|e| e.to_string())
     }
-    fn hide(&self, w: &tauri::WebviewWindow) -> Result<(), String> {
-        w.hide().map_err(|e| e.to_string())
-    }
     fn activate(&self, w: &tauri::WebviewWindow) -> Result<(), String> {
         w.show()
             .and_then(|_| w.unminimize())

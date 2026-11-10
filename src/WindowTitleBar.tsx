@@ -133,9 +133,9 @@ export function WindowTitleBar({
         <Button
           className="window-close"
           aria-label={t('Close window')}
-          title={t('Close — keep sessions running')}
-          disabled={!isTauri()}
-          onClick={() => void getCurrentWindow().close().catch(report)}
+          title={t('Quit')}
+          disabled={!isTauri() || quitDisabled}
+          onClick={quit}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="m4 4 8 8m0-8-8 8" />

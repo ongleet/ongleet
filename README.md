@@ -107,8 +107,8 @@ with no Node or Vite runtime requirement.
 
 Restart can relaunch eligible commands as **new processes**. Archives keep session
 and tab definitions for 30 days, without live processes or terminal checkpoints.
-Window close hides the app for two minutes, then shuts down; reopening cancels
-shutdown. **Application → Quit** exits immediately after confirmation. Session
+The window close button and **Application → Quit** both save state and exit
+immediately after confirmation, terminating managed terminal processes. Session
 metadata operations never create, move or delete working directories.
 
 Read the [architecture guide](docs/STACK.md) and

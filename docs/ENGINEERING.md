@@ -111,7 +111,7 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 - Merge inherited environment, project root `env`, then action overrides. Existing processes/configurations stay independent. Action definitions use the `actions` YAML schema; inherited plugin defaults use `plugin-settings.yaml`. Configuration lives outside project roots.
 - External commands launch explicitly, independently of tabs/PTYs. Reap bounded children, discard output and report failures. Preserve literal placeholders; shell context uses quoted reserved environment variables.
 - Files folder updates preserve `editorFile`; Back clears only that field. Restore disk contents without silently discarding live edits. Drafts persist in WebView localStorage with their original revision, scoped by tab/path; missing files recover drafts without recreation. Explicit discard clears drafts; close/Quit retain them. Conflicting saves offer cancel, revision-checked force save, or a bounded worker-based three-way merge into the editor, rebasing onto current disk contents without writing.
-- Window close confirms, flushes plugins and hides for two minutes before cleanup/exit; reopening cancels the deadline. Explicit Quit confirms and exits immediately; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart the last recorded running set and eligible failed launches/nonzero `ong-codex` exits. Explicitly stopped/closed tabs and other exited commands never auto-start.
+- Window close and Quit share confirmation, plugin flush and immediate cleanup/exit; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart the last recorded running set and eligible failed launches/nonzero `ong-codex` exits. Explicitly stopped/closed tabs and other exited commands never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
 ## UI localization
@@ -206,8 +206,7 @@ mise exec -- npm run package:deb:profile
 sudo apt install --reinstall ./src-tauri/target/release/bundle/deb/Ongleet_0.1.0_amd64.deb
 ```
 
-Quit the previous instance using Application > Quit (closing the window only hides
-it temporarily). Then launch the installed binary from a separate desktop terminal:
+Quit the previous instance using Application > Quit or the window close button. Then launch the installed binary from a separate desktop terminal:
 
 ```bash
 ONGLEET_DEBUG=1 /usr/bin/ongleet-gui --foreground

@@ -26,9 +26,8 @@ keeps metadata for 30 days. It leaves the directory untouched.
 The stack is Tauri 2, React + TypeScript, Rust, portable-pty, and pinned `ghostty-web` 0.4.0. There is no Electron, xterm.js runtime, tmux, Git worktree management, automatic Git discovery, or agent orchestration. Explicit session-linked GitHub PR status is supported.
 
 Drag the themed title bar to move the window; double-click to maximize or
-restore. It also has minimize, maximize/restore and close controls. Close hides
-the window for two minutes before shutdown; reopening cancels shutdown.
-Use **Application → Quit** to exit.
+restore. It also has minimize, maximize/restore and close controls. Close and **Application → Quit** both confirm, save state, terminate managed
+terminal processes and exit immediately.
 
 Window size and maximized state save on close/Quit and restore at startup.
 Position restores where supported; Wayland controls placement. Minimized windows
@@ -345,11 +344,11 @@ The short commands are `ongleet` for session/application control and `ong-codex`
 
 Database failures are reported rather than resetting data. An exclusive owner-only lock prevents a second app from overwriting metadata or relaunching commands twice; a second launch focuses the first window through a private activation socket. Metadata is saved as changes occur, so this version does not require a manual Save action for session/tab operations. Earlier in-memory versions did not write a database; they have no saved data to migrate automatically.
 
-Bundled `ongleet-gui` launches from a terminal detach once startup succeeds, returning the shell prompt while the GUI runs. Reopening the hidden application cancels its two-minute shutdown deadline. Use `ongleet-gui --foreground` to keep the process and native logs attached for diagnostics; redirected output is preserved when detaching. Development-server launches stay attached.
+Bundled `ongleet-gui` launches from a terminal detach once startup succeeds, returning the shell prompt while the GUI runs. Launching it again activates the existing window. Use `ongleet-gui --foreground` to keep the process and native logs attached for diagnostics; redirected output is preserved when detaching. Development-server launches stay attached.
 
-Ordinary React renders do not recreate the terminal. Closing the window hides it after confirmation when terminals are running, then quits after two minutes unless reopened. Managed processes continue during that delay and are terminated at the deadline. Launch the same binary again to reopen it, or use `src-tauri/target/debug/ongleet-gui --show`. `--show` fails if the app is unavailable and never starts it. The Application menu **Quit** action confirms and cleans up immediately; restarting after Quit launches eligible commands as fresh processes under the restart policy above.
+Ordinary React renders do not recreate the terminal. The window close button, native window-manager close and Application menu **Quit** share the same confirmation, plugin save and immediate shutdown path. Cancelling keeps the window and terminals running. Confirming terminates managed processes and exits; restarting launches eligible commands as fresh processes under the restart policy above. Launching the same binary again or using `src-tauri/target/debug/ongleet-gui --show` activates an existing instance. `--show` fails if the app is unavailable and never starts it.
 
-Each terminal joins a private cgroup before the requested executable runs. Confirmed tab/session closure and explicit Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. Window closure starts the same cleanup after its two-minute delay. Once cleanup starts, there is no graceful shutdown interval: save application work before confirming.
+Each terminal joins a private cgroup before the requested executable runs. Confirmed tab/session closure and explicit Quit use immediate SIGKILL for the whole cgroup, including ordinary detached/setsid descendants, and wait for cleanup. Window closure uses the same immediate cleanup. Once cleanup starts, there is no graceful shutdown interval: save application work before confirming.
 
 One shared watchdog per Ongleet instance cleans up each terminal's cgroup after command-leader exit, or all terminal groups after application death. It starts with the first terminal and ends with the application; there is no persistent daemon. If the watchdog dies unexpectedly, Ongleet stops its terminal groups and requires an application restart before launching more terminals. This is lifecycle containment, not a security sandbox against same-user programs deliberately moving into another cgroup or delegating work to external services.
 

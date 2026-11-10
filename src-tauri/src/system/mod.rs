@@ -320,7 +320,6 @@ pub trait DesktopService: Send + Sync {
     fn page_load(&self, _event: String) {}
     fn initialize(&self);
     fn show(&self, window: &tauri::WebviewWindow) -> Result<(), String>;
-    fn hide(&self, window: &tauri::WebviewWindow) -> Result<(), String>;
     fn activate(&self, window: &tauri::WebviewWindow) -> Result<(), String>;
     fn install_geometry(
         &self,

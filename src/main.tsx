@@ -557,7 +557,7 @@ function App() {
     };
   }, [refresh]);
 
-  async function quit(delayed = false) {
+  async function quit() {
     if (busyRef.current || restoringRef.current > 0) {
       report('Please wait for the current operation to finish before quitting.');
       return;
@@ -571,20 +571,14 @@ function App() {
       if (
         confirmed &&
         !(await confirm(
-          delayed
-            ? t(
-                'Close the window and force-stop {value0} running terminal session(s) and their child processes in two minutes? Reopening the window cancels shutdown.',
-                { value0: status.runningTerminals },
-              )
-            : t(
-                'Quit and force-stop {value0} running terminal session(s) and their child processes?',
-                { value0: status.runningTerminals },
-              ),
+          t('Quit and force-stop {value0} running terminal session(s) and their child processes?', {
+            value0: status.runningTerminals,
+          }),
         ))
       )
         return;
       await flushPlugins();
-      await invoke(delayed ? 'close_after_delay' : 'quit', { confirmed });
+      await invoke('quit', { confirmed });
     } catch (error) {
       report(error);
     } finally {
@@ -592,23 +586,17 @@ function App() {
     }
   }
 
-  const requestQuit = useEffectEvent(() => void quit(true));
-  const requestImmediateQuit = useEffectEvent(() => void quit());
+  const requestQuit = useEffectEvent(() => void quit());
 
   useEffect(() => {
     if (!isTauri()) return;
-    const immediate = listen('application-quit-requested', () => requestImmediateQuit());
+    const immediate = listen('application-quit-requested', () => requestQuit());
     const unlisten = listen('application-close-requested', () => requestQuit());
-    const unlistenError = listen<string>('application-close-error', (event) =>
-      report(event.payload),
-    );
     void immediate.catch(report);
     void unlisten.catch(report);
-    void unlistenError.catch(report);
     return () => {
       void immediate.then((off) => off()).catch(report);
       void unlisten.then((off) => off()).catch(report);
-      void unlistenError.then((off) => off()).catch(report);
     };
   }, []);
 
