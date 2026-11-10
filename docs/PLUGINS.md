@@ -178,7 +178,8 @@ The filename filter runs locally on a collapsible folder tree. Clicking a file
 jumps to its patch in a continuous page. File headers stay visible while their
 patches scroll, and the tree highlights and reveals the current file, opening
 collapsed folders when needed. The diff panels follow the tree's folder-first
-order.
+order. Each file has paint containment so the browser can skip offscreen file
+contents during editing without replacing their measured layout with placeholders.
 
 The bottom status bar shows comparison refs, refresh time and file counts. Drag the divider beside the file tree
 to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Tracked patches load in serial batches of at most 32 files; oversized or failed

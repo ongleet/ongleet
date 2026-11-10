@@ -112,6 +112,8 @@
   min-width: 0;
 }
 .diff-file {
+  /* Bound paint invalidation without changing measured heights or sticky offsets. */
+  contain: paint;
   border: 1px solid var(--border);
   border-radius: 6px;
   margin-bottom: 16px;
