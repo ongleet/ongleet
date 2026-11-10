@@ -233,9 +233,7 @@ ONGLEET_DEBUG=1 mise exec -- npm run tauri -- dev
 ```
 
 Enable diagnostics before launching; reopening an existing instance cannot change
-its environment. GTK key/focus traces go to stderr and may reveal typed input.
-Retain surrounding trace lines when reproducing warnings. `send_event` alone does
-not identify physical input. See [crash investigation](USAGE.md#investigating-native-crashes)
+its environment. See [crash investigation](USAGE.md#investigating-native-crashes)
 for bounded log files and crash evidence.
 
 ## macOS port preparation (2026-11-07)

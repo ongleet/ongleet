@@ -170,7 +170,6 @@ time.sleep(120)
             if env.get('ONGLEET_DEBUG') == '1':
                 diagnostic = root / 'data/ongleet/debug.log'
                 assert 'native diagnostics installed' in diagnostic.read_text()
-                assert '[native-input] enabled' in (root / 'native.log').read_text()
                 mark('Native diagnostic events retain common formatting under ONGLEET_DEBUG')
             mark('Restart restores only eligible terminals as fresh processes')
             app.kill()

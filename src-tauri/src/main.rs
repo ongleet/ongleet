@@ -10,7 +10,6 @@ mod core;
 mod diagnostics;
 mod system;
 use crate::core::desktop as desktop_input;
-mod input_diagnostics;
 mod instance;
 mod plugins;
 mod session;
@@ -747,7 +746,6 @@ fn run(services: system::SystemServices) -> Result<(), String> {
                     window.open_devtools();
                 }
             }
-            input_diagnostics::install(app)?;
             app.state::<AppRegistry>()
                 .0
                 .lock()

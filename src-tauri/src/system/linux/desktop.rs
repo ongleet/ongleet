@@ -1,10 +1,10 @@
+use super::super::NativeDiagnostic;
 use super::super::{ClipboardContent, DesktopService, Geometry, SystemFuture};
-use super::super::{NativeDiagnostic, NativeInputDiagnostic, NativeInputEvent, NativeKey};
-use gtk::{gdk, gio, glib, prelude::*};
+use gtk::{gdk, gio, prelude::*};
 use std::{
     path::{Path, PathBuf},
     sync::{mpsc, Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tauri::Manager;
 use webkit2gtk::WebViewExt;
@@ -138,13 +138,6 @@ impl DesktopService for super::Linux {
     ) -> Result<(), String> {
         diagnostics(app, record).map_err(|e| e.to_string())
     }
-    fn install_input_diagnostics(
-        &self,
-        app: &tauri::App,
-        record: Arc<dyn Fn(NativeInputDiagnostic) + Send + Sync>,
-    ) -> Result<(), String> {
-        input_diagnostics(app, record).map_err(|e| e.to_string())
-    }
 }
 fn geometry(window: &tauri::WebviewWindow, saved: Arc<Mutex<Geometry>>) -> tauri::Result<()> {
     let mut geometry = saved.lock().unwrap().clone();
@@ -275,48 +268,5 @@ fn diagnostics(
         gtk::glib::ControlFlow::Continue
     });
     record(NativeDiagnostic::Installed);
-    Ok(())
-}
-
-fn input_diagnostics(
-    app: &tauri::App,
-    record: Arc<dyn Fn(NativeInputDiagnostic) + Send + Sync>,
-) -> tauri::Result<()> {
-    let started = Instant::now();
-    for (label, window) in app.webview_windows() {
-        let native = window.gtk_window()?;
-        record(NativeInputDiagnostic::Enabled {
-            label: label.clone(),
-            active: native.is_active(),
-            visible: native.is_visible(),
-        });
-        let record = record.clone();
-        native.connect_event(move |window, event| {
-            let key = event.downcast_ref::<gdk::EventKey>().map(|key| NativeKey {
-                time: key.time(),
-                hardware_code: key.hardware_keycode(),
-                keyval: format!("{:?}", key.keyval()),
-                group: key.group(),
-                modifiers: format!("{:?}", key.state()),
-            });
-            if key.is_some() || matches!(event.event_type(), gdk::EventType::FocusChange) {
-                record(NativeInputDiagnostic::Event(NativeInputEvent {
-                    elapsed_ms: started.elapsed().as_millis(),
-                    label: label.clone(),
-                    event: if key.is_some() {
-                        format!("{:?}", event.event_type())
-                    } else {
-                        "focus".into()
-                    },
-                    active: window.is_active(),
-                    focused: window.has_toplevel_focus(),
-                    visible: window.is_visible(),
-                    send_event: event.is_send_event(),
-                    key,
-                }));
-            }
-            glib::Propagation::Proceed
-        });
-    }
     Ok(())
 }

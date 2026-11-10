@@ -1,6 +1,6 @@
 use super::super::{
-    ClipboardContent, DesktopService, Geometry, NativeDiagnostic, NativeInputDiagnostic,
-    PlatformCapabilities, SystemFuture,
+    ClipboardContent, DesktopService, Geometry, NativeDiagnostic, PlatformCapabilities,
+    SystemFuture,
 };
 use std::{
     path::{Path, PathBuf},
@@ -205,47 +205,6 @@ impl DesktopService for super::Macos {
     ) -> Result<(), String> {
         record(NativeDiagnostic::Installed);
         *self.diagnostics.lock().unwrap() = Some(record);
-        Ok(())
-    }
-    fn install_input_diagnostics(
-        &self,
-        app: &tauri::App,
-        record: Arc<dyn Fn(NativeInputDiagnostic) + Send + Sync>,
-    ) -> Result<(), String> {
-        use super::super::NativeInputEvent;
-        let window = app
-            .get_webview_window("main")
-            .ok_or("Main window unavailable")?;
-        let label = window.label().to_string();
-        let start = std::time::Instant::now();
-        record(NativeInputDiagnostic::Enabled {
-            label: label.clone(),
-            active: window.is_focused().unwrap_or(false),
-            visible: window.is_visible().unwrap_or(false),
-        });
-        let focus_record = record.clone();
-        let focus_window = window.clone();
-        let focus_label = label.clone();
-        window.on_window_event(move |event| {
-            if let tauri::WindowEvent::Focused(focused) = event {
-                focus_record(NativeInputDiagnostic::Event(NativeInputEvent {
-                    elapsed_ms: start.elapsed().as_millis(),
-                    label: focus_label.clone(),
-                    event: "focus".into(),
-                    active: *focused,
-                    focused: *focused,
-                    visible: focus_window.is_visible().unwrap_or(false),
-                    send_event: false,
-                    key: None,
-                }));
-            }
-        });
-        super::input::install(label, record, move || {
-            (
-                window.is_focused().unwrap_or(false),
-                window.is_visible().unwrap_or(false),
-            )
-        })?;
         Ok(())
     }
 }

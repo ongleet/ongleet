@@ -32,4 +32,3 @@ mod events;
 mod tests;
 
 mod clipboard;
-mod input;

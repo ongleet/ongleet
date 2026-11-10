@@ -338,11 +338,6 @@ pub trait DesktopService: Send + Sync {
         app: &tauri::App,
         record: Arc<dyn Fn(NativeDiagnostic) + Send + Sync>,
     ) -> Result<(), String>;
-    fn install_input_diagnostics(
-        &self,
-        app: &tauri::App,
-        record: Arc<dyn Fn(NativeInputDiagnostic) + Send + Sync>,
-    ) -> Result<(), String>;
 }
 
 /// Native facts only; common diagnostics own their format and destination.
@@ -354,32 +349,6 @@ pub enum NativeDiagnostic {
     Heartbeat { tick: u64, counter: String },
     Installed,
 }
-pub enum NativeInputDiagnostic {
-    Enabled {
-        label: String,
-        active: bool,
-        visible: bool,
-    },
-    Event(NativeInputEvent),
-}
-pub struct NativeInputEvent {
-    pub elapsed_ms: u128,
-    pub label: String,
-    pub event: String,
-    pub active: bool,
-    pub focused: bool,
-    pub visible: bool,
-    pub send_event: bool,
-    pub key: Option<NativeKey>,
-}
-pub struct NativeKey {
-    pub time: u32,
-    pub hardware_code: u16,
-    pub keyval: String,
-    pub group: u8,
-    pub modifiers: String,
-}
-
 #[cfg(test)]
 mod contract_tests {
     use super::*;
