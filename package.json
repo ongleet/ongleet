@@ -29,7 +29,8 @@
     "check:selection-send": "node scripts/check-selection-send.mjs",
     "check:system-boundaries": "node scripts/check-system-boundaries.mjs",
     "package:macos": "cargo build --manifest-path src-tauri/Cargo.toml --release --bins --target aarch64-apple-darwin && tauri build --target aarch64-apple-darwin --bundles app,dmg",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "package:deb:profile": "tauri build --bundles deb --features profiling --config src-tauri/tauri.profile.conf.json"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

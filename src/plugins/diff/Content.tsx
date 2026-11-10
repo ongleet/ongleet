@@ -4,8 +4,19 @@ import { SelectionSend } from '../../components/SelectionSend';
 import { captureDiffSelection } from './selection';
 import { CommentStore, commentTargets, deliverComment, type Location } from './comments';
 import { Composer, Discussion } from './Discussions';
+import { DiffSelection } from './selection-state';
 import { ReviewStore } from './review-state';
-import { memo, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
 import { parseDiff, Hunk, Decoration, getChangeKey } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
 import './diff.css';
@@ -248,7 +259,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   useEffect(() => {
     sdk.tab.setTitle(comparison ? `${tab.name} (${comparison.files.length})` : null);
   }, [sdk, tab.name, comparison?.files.length]);
-  const [selected, setSelected] = useState('');
+  const selection = useMemo(() => new DiffSelection(), []);
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
   const reviews = useRef(new ReviewStore());
   const [, renderReviews] = useState(0);
@@ -291,7 +302,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
         const element = fileElements.current.get(file.key);
         return element && element.getBoundingClientRect().bottom > top;
       });
-      if (current) setSelected(current.key);
+      if (current) selection.set(current.key);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);
@@ -408,26 +419,6 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   });
   const [filter, setFilter] = useState('');
   const tree = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const container = tree.current;
-    if (!visible || !container) return;
-    const row = container.querySelector<HTMLElement>('button[aria-current="true"]');
-    if (!row) return;
-    // Reveal collapsed ancestors, then scroll only the tree, preserving viewer position.
-    for (
-      let parent = row.parentElement;
-      parent && parent !== container;
-      parent = parent.parentElement
-    ) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    }
-    const bounds = container.getBoundingClientRect();
-    const item = row.getBoundingClientRect();
-    const top = bounds.top + container.clientTop;
-    const bottom = top + container.clientHeight;
-    if (item.top < top) container.scrollTop += item.top - top;
-    else if (item.bottom > bottom) container.scrollTop += item.bottom - bottom;
-  }, [selected, filter, visible, comparison]);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     const next = settings(tab.config);
@@ -559,8 +550,10 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           }
           setComparison(next);
           setPatches(nextPatches);
-          setSelected((previous) =>
-            next.files.some((file) => file.key === previous) ? previous : '',
+          selection.set(
+            next.files.some((file) => file.key === selection.getSnapshot())
+              ? selection.getSnapshot()
+              : '',
           );
         } catch (e) {
           if (current()) setError(String(e));
@@ -594,7 +587,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     };
   }, [visible, lane]);
   function select(file: FileChange) {
-    setSelected(file.key);
+    selection.set(file.key);
     fileElements.current.get(file.key)?.scrollIntoView({ block: 'start' });
   }
   const composer = compose && (
@@ -708,7 +701,9 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                 files={comparison.files.filter((f) =>
                   `${f.oldPath}\n${f.path}`.toLowerCase().includes(filter.toLowerCase()),
                 )}
-                selected={selected}
+                selection={selection}
+                tree={tree}
+                visible={visible}
                 onSelect={select}
                 labels={labels}
               />
@@ -867,16 +862,41 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
 
 function FileTree({
   files,
-  selected,
+  selection,
+  tree,
+  visible,
   onSelect,
   labels,
 }: {
   files: FileChange[];
-  selected: string;
+  selection: DiffSelection;
+  tree: RefObject<HTMLElement | null>;
+  visible: boolean;
   onSelect: (file: FileChange) => void;
   labels: Record<string, string>;
 }) {
-  const root = buildFileTree(files);
+  const selected = useSyncExternalStore(selection.subscribe, selection.getSnapshot);
+  useEffect(() => {
+    const container = tree.current;
+    if (!visible || !container) return;
+    const row = container.querySelector<HTMLElement>('button[aria-current="true"]');
+    if (!row) return;
+    // Reveal collapsed ancestors, then scroll only the tree, preserving viewer position.
+    for (
+      let parent = row.parentElement;
+      parent && parent !== container;
+      parent = parent.parentElement
+    ) {
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    }
+    const bounds = container.getBoundingClientRect();
+    const item = row.getBoundingClientRect();
+    const top = bounds.top + container.clientTop;
+    const bottom = top + container.clientHeight;
+    if (item.top < top) container.scrollTop += item.top - top;
+    else if (item.bottom > bottom) container.scrollTop += item.bottom - bottom;
+  }, [selected, files, visible, tree]);
+  const root = useMemo(() => buildFileTree(files), [files]);
   const render = (node: FileTreeNode) => (
     <ul>
       {[...node.directories]

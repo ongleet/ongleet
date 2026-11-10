@@ -165,3 +165,46 @@ mise exec -- cargo test --manifest-path src-tauri/Cargo.toml --offline
 ```
 
 Offline Cargo needs a populated cache. Launch development with `mise exec -- npm run tauri -- dev`. Native evidence, not build success, establishes WebKitGTK behavior.
+
+## Linux CPU sampling
+
+Find the GUI PID with `pgrep -a ongleet-gui`, then run:
+
+```bash
+python3 scripts/profile-cpu.py <PID> --duration 30
+```
+
+The tool samples `/proc` without privileges or dependencies and prints the busiest
+20 threads each interval, followed by accumulated CPU seconds. One full core is
+100%. The explicit process tree includes WebKit and terminal children while they
+remain descendants. Command arguments and terminal contents are never collected.
+Sampling is read-only and stops if the root exits or its PID is reused.
+Short-lived threads between samples, CPU before a thread's first observation,
+and reparented processes are not measured. This identifies busy threads, not
+function call stacks; it does not establish the cause of a WebKit busy loop.
+
+## Profiling the installed Linux package
+
+Build an optimized diagnostic Debian package with WebKit Inspector and JavaScript
+source maps:
+
+```bash
+mise exec -- npm run package:deb:profile
+sudo apt install --reinstall ./src-tauri/target/release/bundle/deb/Ongleet_0.1.0_amd64.deb
+```
+
+Quit the previous instance using Application > Quit (closing the window only hides
+it temporarily). Then launch the installed binary from a separate desktop terminal:
+
+```bash
+ONGLEET_DEBUG=1 /usr/bin/ongleet-gui --foreground
+```
+
+The profiling feature opens WebKit Inspector when debug diagnostics are enabled.
+In Inspector, select Timelines, enable JavaScript & Events recording, start a
+recording, reproduce the slow Diff/comment interaction, and stop recording.
+Inspect the JavaScript call tree and layout/rendering records. Export the timeline
+recording using Inspector's export control for analysis. Available labels depend
+on the installed WebKit version. Source maps accompany the optimized assets.
+This profiles the installed WebView; the proc sampler above only measures thread
+CPU. The normal `package:deb` build does not enable the profiling feature.

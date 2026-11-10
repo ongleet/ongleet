@@ -741,6 +741,12 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             services.desktop.install_menu(app)?;
             window_state::WindowState::install(app, directory.clone())?;
             diagnostics::install(app)?;
+            #[cfg(feature = "profiling")]
+            if diagnostics::enabled() {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
+            }
             input_diagnostics::install(app)?;
             app.state::<AppRegistry>()
                 .0
