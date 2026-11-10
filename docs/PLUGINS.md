@@ -177,7 +177,9 @@ never stored on disk.
 The filename filter runs locally on a collapsible folder tree. Clicking a file
 jumps to its patch in a continuous page. File headers stay visible while their
 patches scroll, and the tree highlights and reveals the current file, opening
-collapsed folders when needed. The diff panels follow the tree's folder-first
+collapsed folders when needed. Highlighting follows the current file immediately;
+automatic sidebar scrolling waits until diff scrolling has been idle for 180 ms.
+Sidebar paint containment isolates that scroll from the diff page. The diff panels follow the tree's folder-first
 order. Each file has paint containment so the browser can skip offscreen file
 contents during editing without replacing their measured layout with placeholders.
 

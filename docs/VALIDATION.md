@@ -328,3 +328,15 @@ dbus-run-session -- python3 scripts/check-plugin-settings-native.py \
 
 This does not validate live GitHub permissions/rate limits, physical keyboard
 focus, XWayland, macOS or Windows behavior for these new settings.
+
+## Diff sidebar reveal (2026-11-10)
+
+A private Xvfb/WebKitGTK run of `check-diff-native.py` passed sidebar row reveal
+in both directions, collapsed-ancestor expansion, unchanged viewer scroll,
+sticky headers, tab/session navigation and refresh anchoring. The long-line
+fixture now explicitly selects `hello.txt` rather than the first folder-sorted
+file. The run later timed out waiting for the invalid-reference alert; the
+complete native suite did not pass. Production build and Diff engine checks
+passed. The 180 ms sidebar auto-scroll debounce and paint containment still need
+a desktop scrolling/profile comparison; navigation checks do not establish
+performance improvement.

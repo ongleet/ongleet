@@ -69,6 +69,8 @@
   min-width: 0;
 }
 .diff-layout nav {
+  /* Sidebar reveals must not invalidate painting across the diff page. */
+  contain: paint;
   display: flex;
   flex-direction: column;
   gap: 4px;

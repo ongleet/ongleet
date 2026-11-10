@@ -787,6 +787,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
                 )}
                 selection={selection}
                 tree={tree}
+                viewer={viewer}
                 visible={visible}
                 onSelect={select}
                 labels={labels}
@@ -961,6 +962,7 @@ function FileTree({
   files,
   selection,
   tree,
+  viewer,
   visible,
   onSelect,
   labels,
@@ -968,6 +970,7 @@ function FileTree({
   files: FileChange[];
   selection: DiffSelection;
   tree: RefObject<HTMLElement | null>;
+  viewer: RefObject<HTMLDivElement | null>;
   visible: boolean;
   onSelect: (file: FileChange) => void;
   labels: Record<string, string>;
@@ -977,23 +980,54 @@ function FileTree({
   useEffect(() => {
     const container = tree.current;
     if (!visible || !container) return;
-    const row = container.querySelector<HTMLElement>('button[aria-current="true"]');
-    if (!row) return;
-    // Reveal collapsed ancestors, then scroll only the tree, preserving viewer position.
-    for (
-      let parent = row.parentElement;
-      parent && parent !== container;
-      parent = parent.parentElement
-    ) {
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    }
-    const bounds = container.getBoundingClientRect();
-    const item = row.getBoundingClientRect();
-    const top = bounds.top + container.clientTop;
-    const bottom = top + container.clientHeight;
-    if (item.top < top) container.scrollTop += item.top - top;
-    else if (item.bottom > bottom) container.scrollTop += item.bottom - bottom;
-  }, [selected, files, visible, tree]);
+    const source = viewer.current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame = 0;
+    const reveal = () => {
+      const row = container.querySelector<HTMLElement>('button[aria-current="true"]');
+      if (!row) return;
+      for (
+        let parent = row.parentElement;
+        parent && parent !== container;
+        parent = parent.parentElement
+      ) {
+        if (parent instanceof HTMLDetailsElement && !parent.open) parent.open = true;
+      }
+      // Read geometry before the single write. Fractional pixels must not cause
+      // repeated reveals when a row is already within the viewport.
+      const bounds = container.getBoundingClientRect();
+      const item = row.getBoundingClientRect();
+      const top = bounds.top + container.clientTop;
+      const bottom = top + container.clientHeight;
+      const offset = container.scrollTop;
+      const delta =
+        item.top < top - 1 ? item.top - top : item.bottom > bottom + 1 ? item.bottom - bottom : 0;
+      if (!delta) return;
+      const next = Math.max(
+        0,
+        Math.min(container.scrollHeight - container.clientHeight, offset + delta),
+      );
+      if (Math.abs(next - offset) > 1) container.scrollTo({ top: next, behavior: 'instant' });
+    };
+    const settled = () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(reveal);
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      timer = setTimeout(settled, 180);
+    };
+    // Highlight immediately, but postpone tree scrolling until the viewer settles.
+    source?.addEventListener('scroll', schedule, { passive: true });
+    schedule();
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      source?.removeEventListener('scroll', schedule);
+    };
+  }, [selected, files, visible, tree, viewer]);
   const root = useMemo(() => buildFileTree(files), [files]);
   const render = (node: FileTreeNode) => (
     <ul>

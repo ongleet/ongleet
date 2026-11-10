@@ -219,13 +219,13 @@ def run(args):
 
             native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'patches loaded')
             assert client.js("""
-                const node=document.querySelector('.diff-code-insert');
+                const node=document.querySelector('.diff-file[data-diff-path=\"hello.txt\"] .diff-code-insert');
                 const range=document.createRange();
                 range.selectNodeContents(node);
                 return range.getBoundingClientRect().height > parseFloat(getComputedStyle(node).lineHeight)*2 &&
                     Array.from(document.querySelectorAll('.diff-file-content')).every(v=>v.scrollWidth<=v.clientWidth);
             """)
-            assert client.js("const node=document.querySelector('.diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
+            assert client.js("const node=document.querySelector('.diff-file[data-diff-path=\"hello.txt\"] .diff-code-insert'); const range=document.createRange(); range.selectNodeContents(node); const s=getSelection();s.removeAllRanges();s.addRange(range);return s.toString().includes('changed')")
             assert client.js("const file=document.querySelector('.diff-file');const viewer=document.querySelector('.diff-viewer');const r=file.getBoundingClientRect();const v=viewer.getBoundingClientRect();return r.right < v.right && viewer.scrollWidth===viewer.clientWidth")
             mark('Long lines and unbroken words wrap with DOM text selection; right card border stays inside viewer')
             assert client.js("""
