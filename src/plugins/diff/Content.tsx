@@ -8,6 +8,8 @@ import { DiffSelection } from './selection-state';
 import { ReviewStore } from './review-state';
 import {
   memo,
+  createContext,
+  useContext,
   Fragment,
   useEffect,
   useLayoutEffect,
@@ -33,11 +35,38 @@ import { HighlightedDiff } from './syntax';
 import { ComparisonFields } from './ConfigurationEditor';
 import { settings, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
+const DiffLoading = createContext(false);
+function ExpandContextButton({ expand }: { expand: () => void }) {
+  const loading = useContext(DiffLoading);
+  return (
+    <Button
+      type="button"
+      className="diff-expand-context"
+      aria-label={t('Show 20 more context lines')}
+      title={t('Show 20 more context lines')}
+      disabled={loading}
+      onClick={expand}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 9V3m-3 3 3-3 3 3M12 15v6m-3-3 3 3 3-3M4 12h16" />
+      </svg>
+    </Button>
+  );
+}
 const Viewer = memo(
   function Viewer({
     patch,
     expand,
-    loading,
     comment,
     threads,
   }: {
@@ -46,11 +75,18 @@ const Viewer = memo(
     comment: (side: 'old' | 'new', line: number) => void;
     patch: string;
     expand: () => void;
-    loading: boolean;
   }) {
+    const parsed = useMemo(() => {
+      try {
+        return { files: parseDiff(patch), error: null };
+      } catch (error) {
+        return { files: [], error };
+      }
+    }, [patch]);
     try {
+      if (parsed.error) throw parsed.error;
       if (!patch) return <p>{t('This file changed during the comparison. Refresh to update.')}</p>;
-      const files = parseDiff(patch);
+      const files = parsed.files;
       if (!files.length || (patch.includes('\n@@ ') && !files.some((file) => file.hunks.length)))
         throw new Error(t('Patch parser returned no text hunks.'));
       const metadata = patch
@@ -136,28 +172,7 @@ const Viewer = memo(
                   hunks.map((hunk) => (
                     <Fragment key={hunk.content}>
                       <Decoration>
-                        <Button
-                          type="button"
-                          className="diff-expand-context"
-                          aria-label={t('Show 20 more context lines')}
-                          title={t('Show 20 more context lines')}
-                          disabled={loading}
-                          onClick={expand}
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M12 9V3m-3 3 3-3 3 3M12 15v6m-3-3 3 3 3-3M4 12h16" />
-                          </svg>
-                        </Button>
+                        <ExpandContextButton expand={expand} />
                         {hunk.content}
                       </Decoration>
                       <Hunk hunk={hunk} />
@@ -188,15 +203,13 @@ const Viewer = memo(
     }
   },
   (previous, next) =>
-    previous.patch === next.patch &&
-    previous.loading === next.loading &&
-    previous.discussionRevision === next.discussionRevision,
+    previous.patch === next.patch && previous.discussionRevision === next.discussionRevision,
 );
 
 export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
   const comments = useMemo(() => new CommentStore(session.id, tab.id), [session.id, tab.id]);
-  const [commentVersion, renderComments] = useState(0);
+  const [, renderComments] = useState(0);
   const [commentError, setCommentError] = useState('');
   const [compose, setCompose] = useState<Location>();
   const composeRevision = useRef('');
@@ -711,112 +724,125 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             {!comparison.files.length && <p>{t('No changes.')}</p>}
           </DiffSidebar>
           <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label={t('Unified diff')}>
-            <div className="diff-page">
-              {comparison.files.map((file) => (
-                <article
-                  className="diff-file"
-                  data-diff-path={file.path}
-                  key={JSON.stringify([
-                    comparison.root,
-                    comparison.config.mode,
-                    comparison.config.baseRef,
-                    comparison.config.targetRef,
-                    file.key,
-                  ])}
-                  ref={(element) => {
-                    if (element) fileElements.current.set(file.key, element);
-                    else fileElements.current.delete(file.key);
-                  }}
-                >
-                  <FileReview
-                    {...reviews.current.get(file.key)}
-                    setExpanded={(value) => setReview([file.path], 'expanded', value)}
-                    setViewed={(value) =>
-                      setReview([file.path], 'viewed', value, reviews.current.revision)
-                    }
-                    comment={() => {
-                      try {
-                        setReview([file.path], 'expanded', true);
-                        composeRevision.current = reviews.current.revision;
-                        setCompose(
-                          comments.anchor(comparison.root, {
-                            ...file,
-                            patch: patches[file.key]?.text,
-                            failed: !!patches[file.key]?.error,
-                          }),
-                        );
-                      } catch (error) {
-                        setCommentError(String(error));
-                      }
+            <DiffLoading.Provider value={loading}>
+              <div className="diff-page">
+                {comparison.files.map((file) => (
+                  <article
+                    className="diff-file"
+                    data-diff-path={file.path}
+                    key={JSON.stringify([
+                      comparison.root,
+                      comparison.config.mode,
+                      comparison.config.baseRef,
+                      comparison.config.targetRef,
+                      file.key,
+                    ])}
+                    ref={(element) => {
+                      if (element) fileElements.current.set(file.key, element);
+                      else fileElements.current.delete(file.key);
                     }}
-                    path={file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}
-                    status={labels[file.status[0]]}
-                    statusCode={file.status[0]}
-                    patch={patches[file.key]?.text}
-                    failed={!!patches[file.key]?.error}
                   >
-                    {comments.threads
-                      .filter((t) => !t.orphan && !t.location.side && t.location.path === file.path)
-                      .map(discussion)}
-                    {compose?.path === file.path && !compose.side && composer}
-                    {patches[file.key]?.error ? (
-                      <p role="alert">{patches[file.key].error}</p>
-                    ) : patches[file.key]?.text !== undefined ? (
-                      <Viewer
-                        discussionRevision={`${comparison.root}:${file.path}:${commentVersion}:${compose?.path}:${compose?.side}:${compose?.line}`}
-                        threads={[
-                          ...comments.threads
-                            .filter(
-                              (t) => !t.orphan && t.location.path === file.path && t.location.side,
-                            )
-                            .map((t) => ({
-                              side: t.location.side!,
-                              line: t.location.line!,
-                              node: discussion(t),
-                            })),
-                          ...(compose?.path === file.path && compose.side
-                            ? [{ side: compose.side, line: compose.line!, node: composer }]
-                            : []),
-                        ]}
-                        patch={patches[file.key].text!}
-                        loading={loading}
-                        comment={(side, line) => {
-                          try {
-                            composeRevision.current = reviews.current.revision;
-                            setCompose(
-                              comments.anchor(
-                                comparison.root,
-                                { ...file, patch: patches[file.key]?.text },
-                                side,
-                                line,
-                              ),
-                            );
-                          } catch (error) {
-                            setCommentError(String(error));
-                          }
-                        }}
-                        expand={() => {
-                          const key = contextKey(comparison.config, file);
-                          contextLines.current[key] = (contextLines.current[key] ?? 3) + 20;
-                          refresh();
-                        }}
-                      />
-                    ) : (
-                      <p>
-                        {loading ? t('Loading patch…') : t('Patch unavailable. Refresh to retry.')}
-                      </p>
-                    )}
-                  </FileReview>
-                </article>
-              ))}
-              {comments.threads.some((t) => t.orphan) && (
-                <section>
-                  <h3>{t('Orphan comments')}</h3>
-                  {comments.threads.filter((t) => t.orphan).map(discussion)}
-                </section>
-              )}
-              {!comparison.files.length && <p>{t('No changes.')}</p>}
-            </div>
+                    <FileReview
+                      {...reviews.current.get(file.key)}
+                      setExpanded={(value) => setReview([file.path], 'expanded', value)}
+                      setViewed={(value) =>
+                        setReview([file.path], 'viewed', value, reviews.current.revision)
+                      }
+                      comment={() => {
+                        try {
+                          setReview([file.path], 'expanded', true);
+                          composeRevision.current = reviews.current.revision;
+                          setCompose(
+                            comments.anchor(comparison.root, {
+                              ...file,
+                              patch: patches[file.key]?.text,
+                              failed: !!patches[file.key]?.error,
+                            }),
+                          );
+                        } catch (error) {
+                          setCommentError(String(error));
+                        }
+                      }}
+                      path={
+                        file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path
+                      }
+                      status={labels[file.status[0]]}
+                      statusCode={file.status[0]}
+                      patch={patches[file.key]?.text}
+                      failed={!!patches[file.key]?.error}
+                    >
+                      {comments.threads
+                        .filter(
+                          (t) => !t.orphan && !t.location.side && t.location.path === file.path,
+                        )
+                        .map(discussion)}
+                      {compose?.path === file.path && !compose.side && composer}
+                      {patches[file.key]?.error ? (
+                        <p role="alert">{patches[file.key].error}</p>
+                      ) : patches[file.key]?.text !== undefined ? (
+                        <Viewer
+                          discussionRevision={JSON.stringify([
+                            comparison.root,
+                            getLocale(),
+                            comments.threads.filter((thread) => thread.location.path === file.path),
+                            compose?.path === file.path ? compose : null,
+                          ])}
+                          threads={[
+                            ...comments.threads
+                              .filter(
+                                (t) =>
+                                  !t.orphan && t.location.path === file.path && t.location.side,
+                              )
+                              .map((t) => ({
+                                side: t.location.side!,
+                                line: t.location.line!,
+                                node: discussion(t),
+                              })),
+                            ...(compose?.path === file.path && compose.side
+                              ? [{ side: compose.side, line: compose.line!, node: composer }]
+                              : []),
+                          ]}
+                          patch={patches[file.key].text!}
+                          comment={(side, line) => {
+                            try {
+                              composeRevision.current = reviews.current.revision;
+                              setCompose(
+                                comments.anchor(
+                                  comparison.root,
+                                  { ...file, patch: patches[file.key]?.text },
+                                  side,
+                                  line,
+                                ),
+                              );
+                            } catch (error) {
+                              setCommentError(String(error));
+                            }
+                          }}
+                          expand={() => {
+                            const key = contextKey(comparison.config, file);
+                            contextLines.current[key] = (contextLines.current[key] ?? 3) + 20;
+                            refresh();
+                          }}
+                        />
+                      ) : (
+                        <p>
+                          {loading
+                            ? t('Loading patch…')
+                            : t('Patch unavailable. Refresh to retry.')}
+                        </p>
+                      )}
+                    </FileReview>
+                  </article>
+                ))}
+                {comments.threads.some((t) => t.orphan) && (
+                  <section>
+                    <h3>{t('Orphan comments')}</h3>
+                    {comments.threads.filter((t) => t.orphan).map(discussion)}
+                  </section>
+                )}
+                {!comparison.files.length && <p>{t('No changes.')}</p>}
+              </div>
+            </DiffLoading.Provider>
           </div>
         </div>
       )}
