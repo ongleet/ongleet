@@ -15,6 +15,8 @@ export type TabPlugin = {
   id: string;
   label: string;
   configVersion: number;
+  // Attach before first visibility when the plugin owns background work.
+  background?: boolean;
   // React attachment/cleanup effects and the visibility prop form the content lifecycle.
   Content: ComponentType<PluginContentProps>;
   ConfigurationEditor: ComponentType<ConfigurationEditorProps>;
@@ -48,6 +50,18 @@ export async function flushPlugins() {
 type HostProps = PluginContentProps & { reportTitle: (id: number, title: string | null) => void };
 export function TabHost(props: HostProps) {
   const plugin = plugins.find((plugin) => plugin.id === props.tab.kind);
+  const requested = !!(
+    plugin?.background ||
+    props.visible ||
+    props.configurationOpen ||
+    props.sessionConfigurationOpen
+  );
+  const [activated, setActivated] = useState(requested);
+  useEffect(() => {
+    if (requested) setActivated(true);
+  }, [requested]);
+  // Once attached, retain the same SDK and content until explicit tab closure.
+  if (!activated && !requested) return null;
   if (plugin && plugin.configVersion === props.tab.configVersion)
     return <AttachedPlugin key={props.tab.id} plugin={plugin} props={props} />;
   return (

@@ -2,6 +2,7 @@ import { PullRequestContent, PullRequestConfigurationEditor } from './Content';
 import { SessionConfiguration } from './SessionConfiguration';
 import { refreshSeconds } from './settings';
 export default {
+  background: true,
   Content: PullRequestContent,
   SessionConfiguration,
   contentConfiguration: true,

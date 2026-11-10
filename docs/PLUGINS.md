@@ -292,8 +292,12 @@ ongleet tab invoke 42 set-files-expanded \
 Capabilities include the manifest descriptor, `available`, `stateAvailable` and
 `availableActions`. Plugins without declarations keep working and return a null
 descriptor with unsupported state/actions. Explicit IDs can cross session
-boundaries. Requests never open or select tabs; hidden open providers remain
-callable. Closed, detached or unregistered providers return `unavailable`.
+boundaries. Requests never open or select tabs. Restored plugin content attaches
+on first visibility or configuration opening, then remains attached while hidden.
+Entrypoints may set `background: true` to attach immediately; Terminal and PR do
+so for output consumption and background status polling. Hidden providers that
+have attached remain callable. Never-visited lazy tabs, closed, detached or
+unregistered providers return `unavailable`.
 
 Rust validates arguments before dispatch and results before delivery, binds
 unique request IDs and replies to the target attachment, and rejects late or

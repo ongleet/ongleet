@@ -64,6 +64,11 @@ On upgrades, revalidate writes, cursor notifications, hover, selection, scrollin
 visibility and listener cleanup. Resize only visible, nonzero containers.
 Dispose resources on explicit closure.
 
+Restored plugin content attaches lazily on first visibility or configuration
+opening, then remains mounted while hidden. Terminal and PR entrypoints opt into
+immediate background attachment to preserve PTY consumption and status polling.
+Lazy attachment delays SDK initialization, not Rust terminal restart policy.
+
 On Linux, wait on PTY readiness and an eventfd cancellation signal without polling.
 Windows uses overlapped pipes and cancellation events; Darwin uses kqueue.
 Use a blocking reaper for child exit. Separate input and reader cancellation: natural
