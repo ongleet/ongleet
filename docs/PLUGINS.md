@@ -182,8 +182,10 @@ order. Each file has paint containment so the browser can skip offscreen file
 contents during editing without replacing their measured layout with placeholders.
 
 The bottom status bar shows comparison refs, refresh time and file counts. Drag the divider beside the file tree
-to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Tracked patches load in serial batches of at most 32 files; oversized or failed
-batches split down to per-file requests, and untracked files load individually.
+to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Tracked patches first load in one request for the whole comparison when they
+share a context size. Oversized or failed requests split into smaller batches,
+with bounded argument lists and per-file error isolation. Untracked files load
+individually.
 Unchanged committed comparisons reuse their bounded in-memory patch snapshot;
 working-tree comparisons always read fresh patches. Patches use
 [react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,
@@ -198,8 +200,10 @@ files show an explicit error; retained patch text is capped at 8 MiB per compari
 
 Inline **Compare** saves comparison settings only after success. Reference inputs
 suggest up to 1,000 local branches, remote refs and tags, and also accept revision
-expressions. **Tab → Configure…** contains only the repository folder. Tab activation refreshes visible tabs without polling. Window focus does not
-refresh comparisons; use **Compare** to refresh after external edits. Hidden tabs cancel work and retain their display; failures
+expressions. **Tab → Configure…** contains only the repository folder. Tab activation and window focus refresh visible tabs without polling. Focus
+refreshes are debounced by 100 ms, ignore focus on individual form controls, and
+skip a comparison already in progress. **Compare** explicitly refreshes and may
+replace an in-progress comparison. Hidden tabs cancel work and retain their display; failures
 mark the previous comparison stale. Restart restores settings and reads fresh
 results; patches and repository contents are never persisted.
 

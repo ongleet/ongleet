@@ -293,12 +293,23 @@ export class GitComparison {
     current: () => boolean = () => true,
   ): AsyncGenerator<PatchResult> {
     const self = this;
-    async function* load(group: FileChange[], context: number): AsyncGenerator<PatchResult> {
+    async function* load(
+      group: FileChange[],
+      context: number,
+      whole = false,
+    ): AsyncGenerator<PatchResult> {
       if (!current()) return;
       try {
         if (group.length === 1) {
           const text = await self.patch(c, group[0], context);
           if (current()) yield { file: group[0], text };
+          return;
+        }
+        const paths = [...new Set(group.flatMap((file) => [file.oldPath, file.path]))];
+        if (!whole && new TextEncoder().encode(JSON.stringify(paths)).length > 24000) {
+          const middle = Math.floor(group.length / 2);
+          yield* load(group.slice(0, middle), context);
+          yield* load(group.slice(middle), context);
           return;
         }
         const output = await self.git(c.root, [
@@ -309,7 +320,7 @@ export class GitComparison {
           '--src-prefix=a/',
           '--dst-prefix=b/',
           '--',
-          ...new Set(group.flatMap((file) => [file.oldPath, file.path])),
+          ...(whole ? [] : paths),
         ]);
         if (!current()) return;
         const headers = new Map(
@@ -338,33 +349,27 @@ export class GitComparison {
         }
       }
     }
-    let group: FileChange[] = [];
-    let context = 3;
-    let argumentBytes = 0;
+    const groups = new Map<number, FileChange[]>();
+    const untracked: FileChange[] = [];
     for (const file of files) {
-      const nextContext = contextFor(file);
-      const size = new TextEncoder().encode(JSON.stringify([file.oldPath, file.path])).length;
-      if (
-        group.length &&
-        (file.untracked ||
-          context !== nextContext ||
-          group.length >= 32 ||
-          argumentBytes + size > 24000)
-      ) {
-        yield* load(group, context);
-        group = [];
-        argumentBytes = 0;
-      }
-      if (!current()) return;
-      if (file.untracked) yield* load([file], nextContext);
+      if (file.untracked) untracked.push(file);
       else {
-        context = nextContext;
+        const context = contextFor(file);
+        const group = groups.get(context) ?? [];
         group.push(file);
-        argumentBytes += size;
+        groups.set(context, group);
       }
     }
-    if (group.length) yield* load(group, context);
+    const allTracked = c.files.filter((file) => !file.untracked);
+    for (const [context, group] of groups) {
+      const requested = new Set(group.map((file) => file.key));
+      const whole =
+        group.length === allTracked.length && allTracked.every((file) => requested.has(file.key));
+      yield* load(group, context, whole);
+    }
+    for (const file of untracked) yield* load([file], contextFor(file));
   }
+
   patch(c: Comparison, file: FileChange, context = 3) {
     if (file.untracked)
       return this.git(

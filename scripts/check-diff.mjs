@@ -34,8 +34,10 @@ async function assertBatched(comparison, expectedRequests) {
   const expected = new Map();
   for (const file of comparison.files) expected.set(file.key, await git.patch(comparison, file));
   let requests = 0;
+  const calls = [];
   const batched = new GitComparison((request) => {
     requests++;
+    calls.push(request);
     return runner(request);
   });
   const actual = new Map();
@@ -45,6 +47,8 @@ async function assertBatched(comparison, expectedRequests) {
   }
   assert.deepEqual(actual, expected, 'batched patches must exactly match individual Git patches');
   if (expectedRequests !== undefined) assert.equal(requests, expectedRequests);
+  if (expectedRequests === 1 && comparison.files.length > 1)
+    assert.equal(calls[0].args.at(-1), '--', 'whole tracked diff omits the per-file path list');
   const threshold = Math.max(...[...expected.values()].map((text) => Buffer.byteLength(text))) + 1;
   let splitRequests = 0;
   const limited = new GitComparison((request) => {
@@ -119,6 +123,18 @@ try {
   assert.equal(expanded.hunks[0].oldStart, 27);
   assert.equal(expanded.hunks[0].oldLines, 47);
   assert.equal(expanded.hunks[0].changes.filter((line) => line.type !== 'normal').length, 2);
+  const groupedContext = [];
+  for await (const result of git.patches(contextComparison, contextComparison.files, (file) =>
+    file.key === contextFile.key ? 23 : 3,
+  ))
+    groupedContext.push(result);
+  const expandedResult = groupedContext.find((result) => result.file.key === contextFile.key);
+  assert.equal(
+    parseDiff(expandedResult.text)[0].hunks[0].oldStart,
+    27,
+    'context groups preserve expanded hunk boundaries',
+  );
+  assert.equal(parseDiff(expandedResult.text)[0].hunks[0].oldLines, 47);
   await command(['reset', '--soft', 'HEAD~1']);
   await command(['rm', '--cached', '-f', 'context.txt']);
   await rm(join(root, 'context.txt'));
@@ -393,10 +409,21 @@ try {
   for (let i = 0; i < 40; i++) await writeFile(join(root, 'batch', `${i}.txt`), 'before\n');
   await command(['add', 'batch']);
   await command(['commit', '-m', 'batch fixture']);
+  await command(['reset', '--hard', 'HEAD']);
   for (let i = 0; i < 40; i++) await writeFile(join(root, 'batch', `${i}.txt`), 'after\n');
   const batchComparison = await git.compare(config);
   batchComparison.files = batchComparison.files.filter((file) => file.path.startsWith('batch/'));
-  await assertBatched(batchComparison, 2);
+  await assertBatched(batchComparison, 1);
+  const subset = batchComparison.files.slice(0, 3);
+  const subsetPatches = [];
+  for await (const result of git.patches(batchComparison, subset, () => 3))
+    subsetPatches.push(result);
+  assert.deepEqual(
+    subsetPatches.map((result) => result.file.key),
+    subset.map((file) => file.key),
+  );
+  for (const result of subsetPatches)
+    assert.equal(result.text, await git.patch(batchComparison, result.file));
   const tiny = new GitComparison((request) => runner({ ...request, outputLimit: 1 }));
   let errors = 0;
   for await (const result of tiny.patches(

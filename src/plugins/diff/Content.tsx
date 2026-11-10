@@ -363,6 +363,8 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const [error, setError] = useState('');
   const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
+  const refreshBusy = useRef(false);
+  const refreshGeneration = useRef(0);
   const loadingState = useMemo(createLoadingState, []);
   useLayoutEffect(() => {
     loadingState.set(loading);
@@ -499,6 +501,8 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     commitError,
   });
   const refresh = () => {
+    const generation = ++refreshGeneration.current;
+    refreshBusy.current = true;
     diffDiagnostic('refresh-start');
     setLoading(true);
     setError('');
@@ -632,9 +636,12 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           if (current()) setError(String(e));
         } finally {
           if (current()) setLoading(false);
+          if (generation === refreshGeneration.current) refreshBusy.current = false;
         }
       })
       .catch((e) => {
+        if (generation !== refreshGeneration.current) return;
+        refreshBusy.current = false;
         setError(String(e));
         setLoading(false);
       });
@@ -647,13 +654,18 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       setLoading(false);
       return;
     }
-    const schedule = () => {
-      diffDiagnostic('refresh-scheduled', { reason: 'visibility' });
+    const schedule = (event?: Event) => {
+      if (event && (event.target !== window || document.hidden || refreshBusy.current)) return;
+      diffDiagnostic('refresh-scheduled', { reason: event ? 'window-focus' : 'visibility' });
       clearTimeout(timer.current);
-      timer.current = setTimeout(() => refreshRef.current(), 100);
+      timer.current = setTimeout(() => {
+        if (!event || !refreshBusy.current) refreshRef.current();
+      }, 100);
     };
     schedule();
+    window.addEventListener('focus', schedule);
     return () => {
+      window.removeEventListener('focus', schedule);
       clearTimeout(timer.current);
       void lane.stop();
     };
