@@ -364,3 +364,15 @@ The full Rust suite passed with two existing ignored tests; the added
 on-demand persistence check also passed separately. Frontend build, i18n,
 terminal reuse/history/input checks passed. This does not certify physical
 Wayland input, macOS/Windows startup or performance across many deferred tabs.
+
+## Diff sidebar automatic reveal disabled (2026-11-10)
+
+Profile `localhost-recording-10.json` still sampled the native sidebar `scrollTo`
+operation heavily despite the debounce. Automatic reveal is now disabled;
+selection highlighting and explicit filename navigation remain. A private
+Xvfb/WebKitGTK `check-diff-native.py --navigation-only` run passed 11 checks,
+including highlighting in both directions without moving the sidebar or opening
+folders, sticky headers, tab/session navigation, refresh anchoring and wrapping.
+Artifact: `/tmp/ongleet-diff-native-zrmdt41l/report.json`; zero cleanup survivors.
+Frontend build and Diff checks passed. Desktop scrolling performance remains to
+be confirmed; this focused run does not certify the entire Diff suite.

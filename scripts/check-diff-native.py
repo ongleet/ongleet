@@ -266,6 +266,8 @@ def run(args):
                 for (const folder of nav.querySelectorAll('details')) folder.open=false;
                 viewer.scrollTop+=second.getBoundingClientRect().top-viewer.getBoundingClientRect().top+100;
                 window.diffExpectedScroll=viewer.scrollTop;
+                nav.scrollTop=100;
+                window.treeExpectedScroll=nav.scrollTop;
             """)
             native.wait_for(lambda: client.js("""
                 const viewer=document.querySelector('.diff-viewer');
@@ -273,13 +275,13 @@ def run(args):
                 return Math.abs(header.getBoundingClientRect().top-viewer.getBoundingClientRect().top)<2 &&
                     document.querySelector('.diff-layout nav button[aria-current=true]')?.title==='hello.txt';
             """), 'scroll highlights next file and sticks its header')
-            native.wait_for(lambda: client.js("""
+            time.sleep(.25)  # Check beyond the former 180 ms reveal debounce.
+            assert client.js("""
                 const nav=document.querySelector('.diff-layout nav');
-                const row=nav.querySelector('button[aria-current=true]');
-                const r=row.getBoundingClientRect(), n=nav.getBoundingClientRect();
-                return nav.scrollTop>0 && r.top>=n.top-1 && r.bottom<=n.bottom+1 &&
+                return nav.scrollTop===window.treeExpectedScroll &&
+                    Array.from(nav.querySelectorAll('details')).every(folder=>!folder.open) &&
                     document.querySelector('.diff-viewer').scrollTop===window.diffExpectedScroll;
-            """), 'current tree row revealed without moving diff viewer')
+            """), 'highlighting must not move the sidebar or expand folders'
             def assert_navigation_position():
                 time.sleep(0.5)  # Allow the visibility-triggered refresh debounce to fire.
                 native.wait_for(lambda: client.js("return !document.querySelector('.diff-panel [role=status]')"), 'navigation refresh complete')
@@ -316,14 +318,15 @@ def run(args):
             native.wait_for(lambda: client.js("""
                 const nav=document.querySelector('.diff-layout nav');
                 const row=nav.querySelector('button[aria-current=true]');
-                const r=row.getBoundingClientRect(), n=nav.getBoundingClientRect();
-                return row.title.includes('z-second.txt') && r.top>=n.top-1 && r.bottom<=n.bottom+1 &&
-                    Array.from(nav.querySelectorAll('details')).every(folder=>folder.open) &&
+                return row.title.includes('z-second.txt') && nav.scrollTop===window.treeExpectedScroll &&
+                    Array.from(nav.querySelectorAll('details')).every(folder=>!folder.open) &&
                     document.querySelector('.diff-viewer').scrollTop===0;
             """), 'tree follows scrolling back to first file')
             client.js("document.querySelector('.diff-layout nav > ul').style.paddingTop=''")
             mark('Scrolling keeps current filename header visible and updates the highlighted tree file')
-            mark('Tree reveals current row in both directions, opens ancestors and preserves diff scroll position')
+            mark('Tree highlights in both directions without changing sidebar scroll or opening folders')
+            if args.navigation_only:
+                return
 
             assert client.js(f"return document.querySelector('#tab-{tab} .tab-name').textContent==='Diff (2)'")
             tags = client.invoke('sessions')['sessions'][0]['tags']
@@ -513,6 +516,7 @@ if __name__=='__main__':
     parser.add_argument('--syntax-only', action='store_true')
     parser.add_argument('--interactions-only', action='store_true')
     parser.add_argument('--demand-only', action='store_true')
+    parser.add_argument('--navigation-only', action='store_true')
     parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')
