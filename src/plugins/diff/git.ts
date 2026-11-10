@@ -68,6 +68,37 @@ export function parseFiles(output: string): FileChange[] {
       return { status, oldPath, path, key: JSON.stringify([oldPath, path]) };
     });
 }
+// Git quotes control/non-ASCII bytes in diff headers with core.quotePath=true.
+function headerPath(path: string) {
+  const bytes = new TextEncoder().encode(path);
+  if (!bytes.some((byte) => byte < 32 || byte >= 127 || byte === 34 || byte === 92)) return path;
+  const slash = String.fromCharCode(92);
+  const escapes: Record<number, string> = {
+    7: 'a',
+    8: 'b',
+    9: 't',
+    10: 'n',
+    11: 'v',
+    12: 'f',
+    13: 'r',
+    34: '"',
+    92: slash,
+  };
+  return (
+    '"' +
+    [...bytes]
+      .map((byte) =>
+        escapes[byte] !== undefined
+          ? slash + escapes[byte]
+          : byte < 32 || byte >= 127
+            ? slash + byte.toString(8).padStart(3, '0')
+            : String.fromCharCode(byte),
+      )
+      .join('') +
+    '"'
+  );
+}
+export type PatchResult = { file: FileChange; text?: string; error?: string };
 export class GitComparison {
   private run: Runner;
   constructor(run: Runner) {
@@ -253,6 +284,86 @@ export class GitComparison {
       c.base,
       ...(c.target ? [c.target] : []),
     ];
+  }
+  /** Bounded batches; split failed batches down to independent per-file errors. */
+  async *patches(
+    c: Comparison,
+    files: FileChange[],
+    contextFor: (file: FileChange) => number,
+    current: () => boolean = () => true,
+  ): AsyncGenerator<PatchResult> {
+    const self = this;
+    async function* load(group: FileChange[], context: number): AsyncGenerator<PatchResult> {
+      if (!current()) return;
+      try {
+        if (group.length === 1) {
+          const text = await self.patch(c, group[0], context);
+          if (current()) yield { file: group[0], text };
+          return;
+        }
+        const output = await self.git(c.root, [
+          '--literal-pathspecs',
+          ...self.diffArgs(c),
+          '--patch',
+          `--unified=${context}`,
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          '--',
+          ...new Set(group.flatMap((file) => [file.oldPath, file.path])),
+        ]);
+        if (!current()) return;
+        const headers = new Map(
+          group.map((file) => [
+            `diff --git ${headerPath('a/' + file.oldPath)} ${headerPath('b/' + file.path)}`,
+            file,
+          ]),
+        );
+        const results = new Map<string, string>();
+        for (const chunk of output.split(/(?=^diff --git )/m).filter(Boolean)) {
+          const file = headers.get(chunk.slice(0, chunk.indexOf('\n')));
+          if (!file || results.has(file.key)) throw new Error('Unexpected batch patch header');
+          results.set(file.key, chunk);
+        }
+        for (const file of group) {
+          if (!current()) return;
+          yield { file, text: results.get(file.key) ?? '' };
+        }
+      } catch (error) {
+        if (!current()) return;
+        if (group.length === 1) yield { file: group[0], error: String(error) };
+        else {
+          const middle = Math.floor(group.length / 2);
+          yield* load(group.slice(0, middle), context);
+          yield* load(group.slice(middle), context);
+        }
+      }
+    }
+    let group: FileChange[] = [];
+    let context = 3;
+    let argumentBytes = 0;
+    for (const file of files) {
+      const nextContext = contextFor(file);
+      const size = new TextEncoder().encode(JSON.stringify([file.oldPath, file.path])).length;
+      if (
+        group.length &&
+        (file.untracked ||
+          context !== nextContext ||
+          group.length >= 32 ||
+          argumentBytes + size > 24000)
+      ) {
+        yield* load(group, context);
+        group = [];
+        argumentBytes = 0;
+      }
+      if (!current()) return;
+      if (file.untracked) yield* load([file], nextContext);
+      else {
+        context = nextContext;
+        group.push(file);
+        argumentBytes += size;
+      }
+    }
+    if (group.length) yield* load(group, context);
   }
   patch(c: Comparison, file: FileChange, context = 3) {
     if (file.untracked)

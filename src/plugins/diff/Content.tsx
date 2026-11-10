@@ -295,6 +295,14 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   }, [sdk, tab.name, comparison?.files.length]);
   const selection = useMemo(() => new DiffSelection(), []);
   const [patches, setPatches] = useState<Record<string, { text?: string; error?: string }>>({});
+  const patchSnapshot = useRef<
+    | {
+        identity: string;
+        contexts: Record<string, number>;
+        patches: Record<string, { text?: string; error?: string }>;
+      }
+    | undefined
+  >(undefined);
   const reviews = useRef(new ReviewStore());
   const [, renderReviews] = useState(0);
   const comparisonIdentity = (value: Comparison) =>
@@ -529,38 +537,49 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
               setCommitError(String(error));
             }
           }
-          // Stream patches serially, keeping IPC and total retained text bounded.
           const nextPatches: Record<string, { text?: string; error?: string }> = {};
+          const contexts = Object.fromEntries(
+            next.files.map((file) => [
+              file.key,
+              contextLines.current[contextKey(next.config, file)] ?? 3,
+            ]),
+          );
+          const identity = JSON.stringify([next.root, next.base, next.target]);
+          const cached =
+            next.target && patchSnapshot.current?.identity === identity
+              ? patchSnapshot.current
+              : undefined;
           let bytes = 0;
+          const remaining: FileChange[] = [];
           for (const file of next.files) {
+            const saved = cached?.patches[file.key];
+            if (saved?.text !== undefined && cached?.contexts[file.key] === contexts[file.key]) {
+              nextPatches[file.key] = saved;
+              bytes += new TextEncoder().encode(saved.text).length;
+            } else remaining.push(file);
+          }
+          const limitError = t(
+            'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
+          );
+          for await (const result of git.patches(
+            next,
+            remaining,
+            (file) => contexts[file.key],
+            () => current() && bytes < 8 * 1024 * 1024,
+          )) {
             if (!current()) return;
-            try {
-              if (bytes >= 8 * 1024 * 1024)
-                throw new Error(
-                  t(
-                    'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
-                  ),
-                );
-              const text = await git.patch(
-                next,
-                file,
-                contextLines.current[contextKey(next.config, file)] ?? 3,
-              );
-              const size = new TextEncoder().encode(text).length;
-              if (bytes + size > 8 * 1024 * 1024)
-                throw new Error(
-                  t(
-                    'Comparison exceeds the 8 MiB display limit. Narrow the comparison to view more.',
-                  ),
-                );
+            const size = new TextEncoder().encode(result.text ?? '').length;
+            if (bytes + size > 8 * 1024 * 1024) {
+              nextPatches[result.file.key] = { error: limitError };
+              bytes = 8 * 1024 * 1024;
+            } else {
               bytes += size;
-              if (!current()) return;
-              nextPatches[file.key] = { text };
-            } catch (error) {
-              if (!current()) return;
-              nextPatches[file.key] = { error: String(error) };
+              nextPatches[result.file.key] = result.error
+                ? { error: result.error }
+                : { text: result.text };
             }
           }
+          for (const file of remaining) nextPatches[file.key] ??= { error: limitError };
           if (!current()) return;
           // Capture at commit time: the reader may have scrolled while Git was running.
           const container = viewer.current;
@@ -601,6 +620,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
           } catch (error) {
             setCommentError(String(error));
           }
+          patchSnapshot.current = { identity, contexts, patches: nextPatches };
           setComparison(next);
           setPatches(nextPatches);
           selection.set(
@@ -627,16 +647,14 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       setLoading(false);
       return;
     }
-    const schedule = (event?: Event) => {
-      diffDiagnostic('refresh-scheduled', { reason: event ? 'window-focus' : 'visibility' });
+    const schedule = () => {
+      diffDiagnostic('refresh-scheduled', { reason: 'visibility' });
       clearTimeout(timer.current);
       timer.current = setTimeout(() => refreshRef.current(), 100);
     };
     schedule();
-    window.addEventListener('focus', schedule);
     return () => {
       clearTimeout(timer.current);
-      window.removeEventListener('focus', schedule);
       void lane.stop();
     };
   }, [visible, lane]);

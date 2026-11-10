@@ -30,6 +30,48 @@ const runner = async (r) => {
     return { code: e.code, stdout: e.stdout, stderr: e.stderr };
   }
 };
+async function assertBatched(comparison, expectedRequests) {
+  const expected = new Map();
+  for (const file of comparison.files) expected.set(file.key, await git.patch(comparison, file));
+  let requests = 0;
+  const batched = new GitComparison((request) => {
+    requests++;
+    return runner(request);
+  });
+  const actual = new Map();
+  for await (const result of batched.patches(comparison, comparison.files, () => 3)) {
+    assert.equal(result.error, undefined);
+    actual.set(result.file.key, result.text);
+  }
+  assert.deepEqual(actual, expected, 'batched patches must exactly match individual Git patches');
+  if (expectedRequests !== undefined) assert.equal(requests, expectedRequests);
+  const threshold = Math.max(...[...expected.values()].map((text) => Buffer.byteLength(text))) + 1;
+  let splitRequests = 0;
+  const limited = new GitComparison((request) => {
+    splitRequests++;
+    return runner({ ...request, outputLimit: threshold });
+  });
+  const split = new Map();
+  for await (const result of limited.patches(comparison, comparison.files, () => 3)) {
+    assert.equal(result.error, undefined);
+    split.set(result.file.key, result.text);
+  }
+  assert.deepEqual(split, expected, 'oversized groups split without losing patches');
+  if (expectedRequests !== undefined && expected.size > 2) assert.ok(splitRequests > requests);
+  let active = true;
+  let yielded = 0;
+  for await (const result of batched.patches(
+    comparison,
+    comparison.files,
+    () => 3,
+    () => active,
+  )) {
+    assert.ok(result.text !== undefined);
+    yielded++;
+    active = false;
+  }
+  assert.equal(yielded, Math.min(1, comparison.files.length), 'cancellation stops batch delivery');
+}
 const git = new GitComparison(runner);
 const config = { ...defaults, folder: root, compareFrom: 'HEAD', includeUncommitted: true };
 assert.equal(settings({}).mode, 'branch');
@@ -85,6 +127,7 @@ try {
   for (const name of names) await writeFile(join(root, name), 'changed\n');
   let c = await git.compare(config);
   assert.equal(c.files.length, names.length + 1);
+  await assertBatched(c, 2);
   for (const file of c.files) {
     const parsed = parseDiff(await git.patch(c, file));
     assert.equal(parsed.length, 1);
@@ -96,6 +139,7 @@ try {
   await command(['commit', '-m', 'next']);
   c = await git.compare({ ...config, mode: 'refs', baseRef: 'base-tag', targetRef: 'HEAD' });
   assert.equal(c.files.length, 5);
+  await assertBatched(c, 1);
   const fixed = await git.patch(c, c.files[0]);
   await writeFile(join(root, 'normal'), 'later');
   await command(['add', '.']);
@@ -220,6 +264,7 @@ try {
   await command(['add', 'binary']);
   c = await git.compare(config);
   assert.ok(c.files.some((f) => f.status.startsWith('R')));
+  await assertBatched(c);
   assert.ok(
     (
       await git.patch(
@@ -343,6 +388,27 @@ try {
     ),
   )[0].hunks;
   assert.equal(hunks.length, 2);
+  await assertBatched(c);
+  await mkdir(join(root, 'batch'));
+  for (let i = 0; i < 40; i++) await writeFile(join(root, 'batch', `${i}.txt`), 'before\n');
+  await command(['add', 'batch']);
+  await command(['commit', '-m', 'batch fixture']);
+  for (let i = 0; i < 40; i++) await writeFile(join(root, 'batch', `${i}.txt`), 'after\n');
+  const batchComparison = await git.compare(config);
+  batchComparison.files = batchComparison.files.filter((file) => file.path.startsWith('batch/'));
+  await assertBatched(batchComparison, 2);
+  const tiny = new GitComparison((request) => runner({ ...request, outputLimit: 1 }));
+  let errors = 0;
+  for await (const result of tiny.patches(
+    batchComparison,
+    batchComparison.files.slice(0, 2),
+    () => 3,
+  )) {
+    assert.ok(result.error, 'oversized individual patches retain explicit errors');
+    assert.equal(result.text, undefined);
+    errors++;
+  }
+  assert.equal(errors, 2);
   await mkdir(join(root, 'many'));
   await Promise.all(
     Array.from({ length: 2800 }, (_, i) =>

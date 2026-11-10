@@ -181,7 +181,10 @@ collapsed folders when needed. The diff panels follow the tree's folder-first
 order.
 
 The bottom status bar shows comparison refs, refresh time and file counts. Drag the divider beside the file tree
-to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Patches load serially and use
+to resize it; its preferred width is saved in localStorage across tabs and restarts. The divider also supports arrow keys, Home/End, and double-click to reset. Tracked patches load in serial batches of at most 32 files; oversized or failed
+batches split down to per-file requests, and untracked files load individually.
+Unchanged committed comparisons reuse their bounded in-memory patch snapshot;
+working-tree comparisons always read fresh patches. Patches use
 [react-diff-view](https://github.com/otakustay/react-diff-view) in unified mode,
 with three context lines and diff coloring. Long lines wrap to the panel width,
 preserving indentation and breaking long words when needed.
@@ -194,8 +197,8 @@ files show an explicit error; retained patch text is capped at 8 MiB per compari
 
 Inline **Compare** saves comparison settings only after success. Reference inputs
 suggest up to 1,000 local branches, remote refs and tags, and also accept revision
-expressions. **Tab → Configure…** contains only the repository folder. Activation and application focus refresh visible
-tabs without polling. Hidden tabs cancel work and retain their display; failures
+expressions. **Tab → Configure…** contains only the repository folder. Tab activation refreshes visible tabs without polling. Window focus does not
+refresh comparisons; use **Compare** to refresh after external edits. Hidden tabs cancel work and retain their display; failures
 mark the previous comparison stale. Restart restores settings and reads fresh
 results; patches and repository contents are never persisted.
 
