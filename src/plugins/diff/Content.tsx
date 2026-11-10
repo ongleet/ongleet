@@ -1,3 +1,4 @@
+import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
 import { t, getLocale } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Input, TabPanel } from '../../components/Controls';
 import { SelectionSend } from '../../components/SelectionSend';
@@ -95,6 +96,7 @@ const Viewer = memo(
     patch: string;
     expand: () => void;
   }) {
+    useDiffRenderDiagnostic('Viewer', { patch, threads });
     const parsed = useMemo(() => {
       try {
         return { files: parseDiff(patch), error: null };
@@ -474,7 +476,22 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       }
     }
   }, [tab.config]);
+  useDiffRenderDiagnostic('DiffContent', {
+    comparison,
+    patches,
+    loading,
+    config,
+    compose,
+    filter,
+    references,
+    commits,
+    commentError,
+    error,
+    tagError,
+    commitError,
+  });
   const refresh = () => {
+    diffDiagnostic('refresh-start');
     setLoading(true);
     setError('');
     setTagError('');
@@ -610,7 +627,8 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       setLoading(false);
       return;
     }
-    const schedule = () => {
+    const schedule = (event?: Event) => {
+      diffDiagnostic('refresh-scheduled', { reason: event ? 'window-focus' : 'visibility' });
       clearTimeout(timer.current);
       timer.current = setTimeout(() => refreshRef.current(), 100);
     };
@@ -925,6 +943,7 @@ function FileTree({
   labels: Record<string, string>;
 }) {
   const selected = useSyncExternalStore(selection.subscribe, selection.getSnapshot);
+  useDiffRenderDiagnostic('FileTree', { files, selected, visible });
   useEffect(() => {
     const container = tree.current;
     if (!visible || !container) return;

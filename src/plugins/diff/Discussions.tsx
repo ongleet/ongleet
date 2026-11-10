@@ -1,3 +1,4 @@
+import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
 import { t, getLocale } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../components/Controls';
 import { useRef, useState } from 'react';
@@ -17,6 +18,7 @@ export function Composer({
 }) {
   // Keep typing native: the draft is only needed when the form is submitted.
   const textarea = useRef<HTMLTextAreaElement>(null);
+  useDiffRenderDiagnostic('Composer', { submit, label, autoFocus, initialText, cancel });
   return (
     <form
       className="diff-comment-composer"
@@ -38,6 +40,7 @@ export function Composer({
         autoFocus={autoFocus}
         ref={textarea}
         defaultValue={initialText}
+        onInput={() => diffDiagnostic('textarea-input')}
         required
       />
       <div className="diff-composer-actions">
@@ -69,6 +72,17 @@ export function Discussion({
   const [recipients, setRecipients] = useState<{ id: number; name: string }[]>([]);
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
+  useDiffRenderDiagnostic('Discussion', {
+    thread,
+    recipients,
+    status,
+    editing,
+    reply,
+    edit,
+    remove,
+    targets,
+    send,
+  });
   const location: Location = thread.orphan ? thread.original : thread.location;
   return (
     <section className="diff-discussion" aria-label={t('Thread {value0}', { value0: thread.id })}>

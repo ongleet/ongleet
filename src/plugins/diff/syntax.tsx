@@ -1,3 +1,4 @@
+import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { LanguageDescription, type LanguageSupport } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
@@ -26,7 +27,15 @@ export function HighlightedDiff(props: React.ComponentProps<typeof Diff> & { pat
       current = false;
     };
   }, [language]);
+  useDiffRenderDiagnostic('HighlightedDiff', {
+    hunks: diffProps.hunks,
+    loaded,
+    language,
+    theme,
+    widgets: diffProps.widgets,
+  });
   const tokens = useMemo(() => {
+    diffDiagnostic('highlight-recompute');
     if (!loaded || loaded.language !== language) return undefined;
     try {
       return highlightHunks(diffProps.hunks, loaded.support);

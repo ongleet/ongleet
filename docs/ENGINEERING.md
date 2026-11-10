@@ -213,3 +213,23 @@ recording using Inspector's export control for analysis. Available labels depend
 on the installed WebKit version. Source maps accompany the optimized assets.
 This profiles the installed WebView; the proc sampler above only measures thread
 CPU. The normal `package:deb` build does not enable the profiling feature.
+
+## Diff render diagnostics
+
+With `ONGLEET_DEBUG=1`, Diff logs bounded console batches prefixed
+`[diff-diagnostics]`. In the profiling package's WebKit Inspector Console, filter
+by that prefix, reproduce the slowdown, then copy the output. These are frontend
+console messages, not entries in the native `debug.log`.
+
+`render-committed` records the component, instance number, render count and names
+of changed tracked inputs. `parent-or-untracked-input` means none of those tracked
+inputs changed; it does not establish the exact scheduling cause. The hook logs
+commits, not aborted render attempts or DOM paint duration. Initialization reads
+the shared debug environment once; initial commits before that read completes
+are omitted. Instance numbers are local to the current WebView.
+
+`textarea-input`, `refresh-scheduled`, `refresh-start` and `highlight-recompute`
+provide timestamped correlation. Comment text, paths and prop/state values are
+never printed. Batches flush after 500 ms when the event loop permits; at most
+128 events are retained per batch and overflow is dropped. Console diagnostics
+add overhead and cannot alone establish that input caused a concurrent render.
