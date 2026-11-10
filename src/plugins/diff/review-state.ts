@@ -1,14 +1,25 @@
 import { SdkError } from '../../sdk';
 export type ReviewState = { expanded: boolean; viewed: boolean };
 export type ReviewFile = { path: string; key: string; patch?: string; failed: boolean };
+function startsExpanded(patch: string | undefined) {
+  if (!patch) return true;
+  if (new TextEncoder().encode(patch).length > 64 * 1024) return false;
+  let lines = 1;
+  for (let i = 0; i < patch.length; i++) {
+    if (patch[i] === '\n' && i < patch.length - 1 && ++lines > 500) return false;
+  }
+  return true;
+}
 /** Memory-only tab review state. A changed comparison resets all marks. */
 export class ReviewStore {
   revision = crypto.randomUUID();
   private identity = '';
   private files: ReviewFile[] = [];
   private states = new Map<string, ReviewState>();
+  private expandedByUser = new Set<string>();
   reconcile(identity: string, files: ReviewFile[]) {
     const reset = identity !== this.identity;
+    if (reset) this.expandedByUser.clear();
     if (
       reset ||
       files.length !== this.files.length ||
@@ -26,13 +37,16 @@ export class ReviewStore {
     for (const file of files) {
       const old = previous.get(file.key);
       const state = this.states.get(file.key);
-      next.set(
-        file.key,
-        !reset && old && state && (!state.viewed || (!file.failed && old.patch === file.patch))
-          ? state
-          : { expanded: true, viewed: false },
-      );
+      const retain =
+        !reset &&
+        old &&
+        state &&
+        ((!file.failed && old.patch === file.patch) ||
+          (!state.viewed && this.expandedByUser.has(file.key)));
+      if (!retain) this.expandedByUser.delete(file.key);
+      next.set(file.key, retain ? state : { expanded: startsExpanded(file.patch), viewed: false });
     }
+    this.expandedByUser = new Set([...this.expandedByUser].filter((key) => next.has(key)));
     this.states = next;
     this.identity = identity;
     this.files = files;
@@ -52,6 +66,7 @@ export class ReviewStore {
     });
     for (const file of files) {
       const previous = this.get(file.key);
+      this.expandedByUser.add(file.key);
       this.states.set(
         file.key,
         field === 'viewed' ? { viewed: value, expanded: !value } : { ...previous, expanded: value },

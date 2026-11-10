@@ -170,7 +170,10 @@ background.
 
 Each file header has a **Viewed** checkbox that folds its patch and a separate
 expand/collapse button. Viewed marks survive unchanged refreshes within the open
-tab; changed patches reopen and clear their marks. Changing comparison settings
+tab; changed patches clear their marks and return to their default expansion.
+Patches over 500 lines or 64 KiB of UTF-8 patch text start collapsed. They remain
+available through the header expand button; manually expanded unviewed files stay
+open through refreshes. Small files start expanded. Changing comparison settings
 or reloading the app resets review state; marks and patch contents are
 never stored on disk.
 

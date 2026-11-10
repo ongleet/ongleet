@@ -49,3 +49,41 @@ console.log('Diff interaction batch validation, revision and reset checks passed
 store.set(['a'], 'expanded', false);
 store.reconcile('another comparison', [{ ...files[0], patch: 'changed but unviewed' }]);
 assert.deepEqual(store.get('a'), { viewed: false, expanded: false });
+
+const large = new ReviewStore();
+const smallPatch = Array.from({ length: 500 }, () => '+x').join('\n');
+const hugePatch = smallPatch + '\n+x';
+const fixture = (patch) => [{ path: 'large.ts', key: 'large', patch, failed: false }];
+large.reconcile('same', fixture(smallPatch));
+assert.equal(large.get('large').expanded, true, '500 lines remain open');
+large.reconcile('same', fixture(hugePatch));
+assert.deepEqual(
+  large.get('large'),
+  { expanded: false, viewed: false },
+  'newly large patches close without marking viewed',
+);
+large.set(['large.ts'], 'expanded', true);
+large.reconcile('same', fixture(hugePatch + '\n+changed'));
+assert.equal(large.get('large').expanded, true, 'manual expansion survives refresh and edits');
+large.reconcile('other', fixture(hugePatch));
+assert.equal(large.get('large').expanded, false, 'new comparison resets manual expansion');
+large.reconcile('bytes', fixture('x'.repeat(65536)));
+assert.equal(large.get('large').expanded, true, '64 KiB remains open');
+large.reconcile('bytes', fixture('x'.repeat(65537)));
+assert.equal(large.get('large').expanded, false, 'large single lines start closed');
+large.reconcile('unicode', fixture('é'.repeat(32769)));
+assert.equal(large.get('large').expanded, false, 'size threshold uses UTF-8 bytes');
+large.set(['large.ts'], 'viewed', true, large.revision);
+large.reconcile('unicode', fixture(hugePatch));
+assert.deepEqual(
+  large.get('large'),
+  { expanded: false, viewed: false },
+  'changed large viewed patches clear the mark and retain large-file default',
+);
+large.reconcile('unicode', fixture('small again'));
+assert.equal(
+  large.get('large').expanded,
+  true,
+  'automatic reset after a viewed patch changes must not become a manual collapse',
+);
+console.log('Large Diff defaults, UTF-8 bounds and manual expansion checks passed.');
