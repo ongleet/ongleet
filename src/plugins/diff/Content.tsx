@@ -35,9 +35,28 @@ import { HighlightedDiff } from './syntax';
 import { ComparisonFields } from './ConfigurationEditor';
 import { settings, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
-const DiffLoading = createContext(false);
+function createLoadingState() {
+  let value = false;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => value,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set: (next: boolean) => {
+      if (next === value) return;
+      value = next;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+const DiffLoading = createContext<ReturnType<typeof createLoadingState> | null>(null);
 function ExpandContextButton({ expand }: { expand: () => void }) {
-  const loading = useContext(DiffLoading);
+  const state = useContext(DiffLoading)!;
+  const loading = useSyncExternalStore(state.subscribe, state.getSnapshot);
   return (
     <Button
       type="button"
@@ -334,6 +353,10 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const [error, setError] = useState('');
   const [tagError, setTagError] = useState('');
   const [loading, setLoading] = useState(false);
+  const loadingState = useMemo(createLoadingState, []);
+  useLayoutEffect(() => {
+    loadingState.set(loading);
+  }, [loading, loadingState]);
   useTabInteractions({
     state: (args) => {
       const offset = (args.offset as number | undefined) ?? 0;
@@ -724,7 +747,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
             {!comparison.files.length && <p>{t('No changes.')}</p>}
           </DiffSidebar>
           <div ref={viewer} className="diff-viewer" tabIndex={0} aria-label={t('Unified diff')}>
-            <DiffLoading.Provider value={loading}>
+            <DiffLoading.Provider value={loadingState}>
               <div className="diff-page">
                 {comparison.files.map((file) => (
                   <article
