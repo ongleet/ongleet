@@ -67,7 +67,15 @@ Dispose resources on explicit closure.
 Restored plugin content attaches lazily on first visibility or configuration
 opening, then remains mounted while hidden. Terminal and PR entrypoints opt into
 immediate background attachment to preserve PTY consumption and status polling.
-Lazy attachment delays SDK initialization, not Rust terminal restart policy.
+Terminal `loadOnDemand` configuration overrides eager attachment until first
+visibility or a validated state/action interaction. Wake requests use bounded
+broker reservations before emitting `tab-wake`, bind the registered attachment,
+and revalidate caller/target identities before dispatch. Startup shares the
+five-second request deadline. Terminal handlers register after startup/replay;
+input actions serialize and check cancellation before dispatch. Once attached,
+hidden terminals keep consuming output. Snapshot-only `runtimePresent` forces
+reattachment of live PTYs on WebView reload, without persisting runtime state.
+Closed/stopped definitions keep their existing start eligibility.
 
 On Linux, wait on PTY readiness and an eventfd cancellation signal without polling.
 Windows uses overlapped pipes and cancellation events; Darwin uses kqueue.

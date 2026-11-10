@@ -41,6 +41,12 @@ pub use crate::core::pty::TabConfig;
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginTab {
+    #[serde(
+        default,
+        skip_deserializing,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub runtime_present: bool,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub codex_activity: Option<crate::codex::Activity>,
     #[serde(default)]
@@ -171,6 +177,7 @@ impl SessionRegistry {
                 .map(|mut session| {
                     session.tags = session.session_tags();
                     for tab in &mut session.tabs {
+                        tab.runtime_present = self.terminals.contains_key(&tab.id);
                         tab.codex_activity = self.codex_activity.get(&tab.id).map(|activity| {
                             if !tab.resume_on_start {
                                 crate::codex::Activity::Stopped
@@ -464,6 +471,11 @@ impl SessionRegistry {
             serde_json::to_value(association).map_err(|e| e.to_string())?,
         )?;
         Ok(self.snapshot())
+    }
+    pub fn prepare_plugin_attachment(&mut self, tab: u64) -> Result<(), String> {
+        self.interactions.begin_attach(tab);
+        self.file_watches.remove(&tab);
+        self.cancel_plugin_jobs(&[tab])
     }
     pub fn cancel_plugin_work(&mut self, tab: u64) -> Result<(), String> {
         self.interactions.detach(tab);

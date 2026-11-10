@@ -16,6 +16,7 @@ struct Pending {
     caller: Option<u64>,
     output: Value,
     sender: mpsc::Sender<Reply>,
+    ready: Option<mpsc::Sender<Result<String, String>>>,
 }
 #[derive(Default)]
 pub struct Broker {
@@ -49,9 +50,37 @@ impl Broker {
                 caller,
                 output,
                 sender,
+                ready: None,
             },
         );
         Ok((self.next, receiver))
+    }
+    // Preserve only requests waiting for this tab's first provider during attach.
+    pub fn begin_attach(&mut self, id: u64) {
+        self.providers.remove(&id);
+        self.pending.retain(|_, p| {
+            if p.target == id && p.ready.is_some() {
+                return true;
+            }
+            if p.target == id || p.caller == Some(id) {
+                let _ = p
+                    .sender
+                    .send(Err("Interaction unavailable: attachment replaced".into()));
+                false
+            } else {
+                true
+            }
+        });
+    }
+    fn register(&mut self, id: u64, attachment: String, has_state: bool, actions: Vec<String>) {
+        self.providers
+            .insert(id, (attachment.clone(), has_state, actions));
+        for pending in self.pending.values_mut().filter(|p| p.target == id) {
+            if let Some(ready) = pending.ready.take() {
+                pending.attachment = attachment.clone();
+                let _ = ready.send(Ok(attachment.clone()));
+            }
+        }
     }
     fn reply(
         &mut self,
@@ -137,7 +166,7 @@ pub fn execute(
     args: Value,
 ) -> Reply {
     let started = Instant::now();
-    let (request_id, attachment, receiver, identity) = {
+    let (request_id, mut attachment, readiness, receiver, identity) = {
         let mut registry = shared.lock().map_err(|e| e.to_string())?;
         authorize(&registry, caller)?;
         let snapshot = registry.snapshot();
@@ -159,9 +188,13 @@ pub fn execute(
         let manifest = crate::plugins::manifest(&tab.kind).unwrap_or(Value::Null);
         let descriptor = &manifest["interactions"];
         let provider = registry.interactions.providers.get(&id);
+        let can_wake = tab.is_open
+            && tab.kind == "terminal"
+            && tab.config["loadOnDemand"] == true
+            && crate::plugins::available(&tab.kind, tab.config_version);
         if operation == "capabilities" {
             return Ok(
-                json!({"tab":identity,"interactions":descriptor,"available":tab.is_open && provider.is_some(),"stateAvailable":tab.is_open && provider.is_some_and(|p| p.1),"availableActions":provider.map(|p| p.2.clone()).unwrap_or_default()}),
+                json!({"tab":identity,"interactions":descriptor,"available":tab.is_open && (provider.is_some() || can_wake),"stateAvailable":tab.is_open && (provider.is_some_and(|p| p.1) || (can_wake && !descriptor["state"].is_null())),"availableActions":provider.map(|p| p.2.clone()).unwrap_or_else(|| if can_wake { descriptor["actions"].as_object().map(|a| a.keys().cloned().collect()).unwrap_or_default() } else { vec![] })}),
             );
         }
         if !tab.is_open {
@@ -182,24 +215,100 @@ pub fn execute(
         if !tab.is_open {
             return Err("Tab unavailable: closed".into());
         }
-        let provider = provider.ok_or("Interaction provider unavailable")?;
-        if (operation == "state" && !provider.1)
-            || (operation != "state" && !provider.2.iter().any(|a| a == operation))
-        {
-            return Err("Interaction handler unavailable".into());
-        }
-        let attachment = provider.0.clone();
-        if registry.sdk_attachments.get(&id) != Some(&attachment) {
-            return Err("Target attachment unavailable".into());
-        }
+        let mut readiness = None;
+        let attachment = if let Some(provider) = provider {
+            if (operation == "state" && !provider.1)
+                || (operation != "state" && !provider.2.iter().any(|a| a == operation))
+            {
+                return Err("Interaction handler unavailable".into());
+            }
+            if registry.sdk_attachments.get(&id) != Some(&provider.0) {
+                return Err("Target attachment unavailable".into());
+            }
+            provider.0.clone()
+        } else if can_wake {
+            String::new()
+        } else {
+            return Err("Interaction provider unavailable".into());
+        };
         let (request_id, receiver) = registry.interactions.reserve(
             id,
             attachment.clone(),
             caller.map(|c| c.0),
             declaration["outputSchema"].clone(),
         )?;
-        (request_id, attachment, receiver, identity)
+        if attachment.is_empty() {
+            let (sender, ready) = mpsc::channel();
+            registry
+                .interactions
+                .pending
+                .get_mut(&request_id)
+                .unwrap()
+                .ready = Some(sender);
+            readiness = Some(ready);
+        }
+        (request_id, attachment, readiness, receiver, identity)
     };
+    if let Some(readiness) = readiness {
+        let wake = app
+            .emit("tab-wake", json!({"id":id}))
+            .map_err(|e| format!("Frontend unavailable: {e}"))
+            .and_then(|_| {
+                readiness
+                    .recv_timeout(Duration::from_secs(5).saturating_sub(started.elapsed()))
+                    .map_err(|_| {
+                        "Interaction startup timed out or disconnected; no action was dispatched"
+                            .to_string()
+                    })?
+            });
+        match wake {
+            Ok(ready) => attachment = ready,
+            Err(error) => {
+                shared
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .interactions
+                    .pending
+                    .remove(&request_id);
+                return Err(error);
+            }
+        }
+        // Revalidate identity and authorization after startup, before any action is emitted.
+        let validation = (|| {
+            let registry = shared.lock().map_err(|e| e.to_string())?;
+            authorize(&registry, caller)?;
+            registry.open_plugin_tab(id)?;
+            let provider = registry
+                .interactions
+                .providers
+                .get(&id)
+                .ok_or("Interaction provider unavailable")?;
+            if provider.0 != attachment
+                || registry.sdk_attachments.get(&id) != Some(&attachment)
+                || !registry.interactions.pending.contains_key(&request_id)
+            {
+                return Err("Target attachment unavailable".into());
+            }
+            if (operation == "state" && !provider.1)
+                || (operation != "state" && !provider.2.iter().any(|a| a == operation))
+            {
+                return Err("Interaction handler unavailable".into());
+            }
+            if started.elapsed() >= Duration::from_secs(5) {
+                return Err("Interaction startup timed out; no action was dispatched".into());
+            }
+            Ok(())
+        })();
+        if let Err(error) = validation {
+            shared
+                .lock()
+                .map_err(|e| e.to_string())?
+                .interactions
+                .pending
+                .remove(&request_id);
+            return Err(error);
+        }
+    }
     let event = format!("tab-interaction-{id}-{attachment}");
     let sent = app.emit(
         &event,
@@ -208,7 +317,7 @@ pub fn execute(
     let result = if let Err(error) = sent {
         Err(format!("Frontend unavailable: {error}"))
     } else {
-        receiver.recv_timeout(Duration::from_secs(5)).unwrap_or_else(|e| Err(match e {
+        receiver.recv_timeout(Duration::from_secs(5).saturating_sub(started.elapsed())).unwrap_or_else(|e| Err(match e {
             mpsc::RecvTimeoutError::Timeout => "Interaction timed out; an action may have executed. Do not automatically retry.".into(),
             _ => "Interaction unavailable: disconnected".into(),
         }))
@@ -233,6 +342,17 @@ pub fn execute(
             value
         }
     })
+}
+/// Catch a wake request emitted before the tab host installed its listener.
+#[tauri::command]
+pub fn sdk_tab_wake_pending(state: State<'_, AppRegistry>, id: u64) -> Result<bool, SdkError> {
+    let registry = state.0.lock().map_err(|e| SdkError::from(e.to_string()))?;
+    registry.open_plugin_tab(id).map_err(SdkError::from)?;
+    Ok(registry
+        .interactions
+        .pending
+        .values()
+        .any(|p| p.target == id && p.ready.is_some()))
 }
 #[tauri::command]
 pub async fn sdk_interaction(
@@ -289,12 +409,13 @@ pub fn sdk_interaction_register(
             "unsupported_operation: Registration does not match manifest".to_string(),
         ));
     }
-    registry.interactions.detach(id);
     if enabled {
+        registry.interactions.begin_attach(id);
         registry
             .interactions
-            .providers
-            .insert(id, (attachment, has_state, actions));
+            .register(id, attachment, has_state, actions);
+    } else {
+        registry.interactions.detach(id);
     }
     Ok(())
 }
@@ -333,6 +454,58 @@ mod tests {
                 json!({"type":"integer"}),
             )
             .unwrap()
+    }
+    fn waiting(
+        broker: &mut Broker,
+        target: u64,
+    ) -> (
+        u64,
+        mpsc::Receiver<Reply>,
+        mpsc::Receiver<Result<String, String>>,
+    ) {
+        let (id, result) = broker
+            .reserve(target, String::new(), Some(7), json!({"type":"integer"}))
+            .unwrap();
+        let (send, ready) = mpsc::channel();
+        broker.pending.get_mut(&id).unwrap().ready = Some(send);
+        (id, result, ready)
+    }
+    #[test]
+    fn concurrent_wake_requests_share_registration_and_bind_the_new_attachment() {
+        let mut broker = Broker::default();
+        let (one, first, ready_one) = waiting(&mut broker, 42);
+        let (two, second, ready_two) = waiting(&mut broker, 42);
+        broker.begin_attach(42);
+        assert!(ready_one.try_recv().is_err());
+        broker.register(42, "new".into(), true, vec!["send-text".into()]);
+        assert_eq!(ready_one.recv().unwrap().unwrap(), "new");
+        assert_eq!(ready_two.recv().unwrap().unwrap(), "new");
+        assert!(broker.reply(42, "old", one, json!(1), None).is_err());
+        broker.reply(42, "new", one, json!(1), None).unwrap();
+        broker.reply(42, "new", two, json!(2), None).unwrap();
+        assert_eq!(first.recv().unwrap().unwrap(), json!(1));
+        assert_eq!(second.recv().unwrap().unwrap(), json!(2));
+    }
+    #[test]
+    fn wakes_are_bounded_and_close_reload_timeout_release_their_reservations() {
+        let mut broker = Broker::default();
+        let mut calls = vec![];
+        for _ in 0..4 {
+            calls.push(waiting(&mut broker, 42));
+        }
+        assert!(broker.reserve(42, String::new(), None, json!({})).is_err());
+        let (expired, _, ready) = calls.remove(0);
+        broker.pending.remove(&expired);
+        assert!(ready.recv().is_err());
+        let (_, result, ready) = waiting(&mut broker, 42);
+        broker.detach(42);
+        assert!(result.recv().unwrap().unwrap_err().contains("detached"));
+        assert!(ready.recv().is_err());
+        let (_, result, ready) = waiting(&mut broker, 42);
+        broker.disconnect();
+        assert!(result.recv().unwrap().unwrap_err().contains("disconnected"));
+        assert!(ready.recv().is_err());
+        assert!(broker.pending.is_empty());
     }
     #[test]
     fn replies_require_target_attachment_and_are_single_use() {

@@ -12,7 +12,10 @@ export function useSdk(): PluginSdk {
 export type { ThemePreset, ThemeId } from '../theme-presets';
 
 /** Retains one registration while handlers read the latest committed component state. */
-export function useTabInteractions(handlers: import('./types').InteractionHandlers) {
+export function useTabInteractions(
+  handlers: import('./types').InteractionHandlers,
+  enabled = true,
+) {
   const sdk = useSdk();
   const current = useRef(handlers);
   useEffect(() => {
@@ -20,19 +23,21 @@ export function useTabInteractions(handlers: import('./types').InteractionHandle
   });
   useEffect(
     () =>
-      sdk.tab.registerInteractions({
-        state: handlers.state
-          ? (args, context) => current.current.state!(args, context)
-          : undefined,
-        actions: Object.fromEntries(
-          Object.keys(handlers.actions ?? {}).map((name) => [
-            name,
-            (args: Record<string, unknown>, context: { signal: AbortSignal }) =>
-              current.current.actions![name](args, context),
-          ]),
-        ),
-      }),
-    [sdk],
+      enabled
+        ? sdk.tab.registerInteractions({
+            state: handlers.state
+              ? (args, context) => current.current.state!(args, context)
+              : undefined,
+            actions: Object.fromEntries(
+              Object.keys(handlers.actions ?? {}).map((name) => [
+                name,
+                (args: Record<string, unknown>, context: { signal: AbortSignal }) =>
+                  current.current.actions![name](args, context),
+              ]),
+            ),
+          })
+        : undefined,
+    [sdk, enabled],
   );
 }
 

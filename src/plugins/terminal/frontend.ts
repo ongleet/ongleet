@@ -37,6 +37,7 @@ export class TerminalFrontend {
   private visible = true;
   private fitVisible?: () => void;
   private replaying = false;
+  private finishStartupReplay?: () => void;
   private history?: TerminalHistory;
   private disposed = false;
   private unregisterValidation?: () => void;
@@ -285,6 +286,12 @@ export class TerminalFrontend {
       return '';
     });
     if (this.disposed || this.term !== term) return;
+    let replayError: unknown;
+    let finishReplay!: () => void;
+    const replayFinished = new Promise<void>((resolve) => {
+      finishReplay = resolve;
+    });
+    this.finishStartupReplay = finishReplay;
     let started: Promise<number | undefined>;
     const receive = (event: Output) => {
       void (async () => {
@@ -307,14 +314,23 @@ export class TerminalFrontend {
           this.history?.changed();
           fitVisible();
           await this.sdk.pty.acknowledge(id, event.seq);
+          finishReplay();
         } else if (event.type === 'exit') {
           // Reconcile restart eligibility and Codex tags once, on actual exit.
           const status = await this.sdk.pty.status(id);
           if (this.id === id && this.term === term && !this.disposed) this.changed(status);
         } else if (event.type === 'eof') {
           await this.saveHistory();
-        } else if (event.type === 'error') this.error(event.message);
-      })().catch(this.error);
+        } else if (event.type === 'error') {
+          replayError = new Error(event.message);
+          finishReplay();
+          this.error(event.message);
+        }
+      })().catch((error) => {
+        replayError = error;
+        finishReplay();
+        this.error(error);
+      });
     };
     started = this.sdk.pty
       .connect(
@@ -347,6 +363,9 @@ export class TerminalFrontend {
       });
     try {
       await started;
+      if (this.replaying) await replayFinished;
+      this.finishStartupReplay = undefined;
+      if (replayError) throw replayError;
       if (this.disposed || this.id === undefined) return;
       const status = await this.sdk.pty.status(this.id);
       if (this.disposed || this.term !== term) return;
@@ -529,6 +548,8 @@ export class TerminalFrontend {
   dispose() {
     TerminalFrontend.instances.delete(this);
     this.disposed = true;
+    this.finishStartupReplay?.();
+    this.finishStartupReplay = undefined;
     document.removeEventListener('visibilitychange', this.visibilityChanged);
     this.unregisterValidation?.();
     this.id = undefined;

@@ -340,3 +340,27 @@ complete native suite did not pass. Production build and Diff engine checks
 passed. The 180 ms sidebar auto-scroll debounce and paint containment still need
 a desktop scrolling/profile comparison; navigation checks do not establish
 performance improvement.
+
+## On-demand terminals (2026-11-10)
+
+With the production frontend embedded in the debug GUI, a private Xvfb/WebKitGTK
+run passed six on-demand checks: no initial emulator/process for a hidden lazy
+tab; discovery/invalid arguments do not wake it; concurrent API input starts one
+PTY without selecting it or interleaving messages; WebView reload reattaches a
+live hidden PTY; closed tabs reject wake-up; first visibility starts a deferred
+terminal; immediate API calls after tab creation survive listener installation
+races. The fixture reported zero cleanup survivors at
+`/tmp/ongleet-diff-native-d4q2ufrr/report.json`.
+
+```bash
+mise exec -- /usr/bin/python3 scripts/check-diff-native.py --demand-only \
+  --application src-tauri/target/debug/ongleet-gui \
+  --cli src-tauri/target/debug/ongleet --driver /usr/bin/WebKitWebDriver
+```
+
+Rust checks cover wake reservation limits, attachment binding, close/reload
+cancellation, schema validation and persistence without restoring runtime state.
+The full Rust suite passed with two existing ignored tests; the added
+on-demand persistence check also passed separately. Frontend build, i18n,
+terminal reuse/history/input checks passed. This does not certify physical
+Wayland input, macOS/Windows startup or performance across many deferred tabs.

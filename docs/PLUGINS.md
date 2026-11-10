@@ -308,13 +308,21 @@ descriptor with unsupported state/actions. Explicit IDs can cross session
 boundaries. Requests never open or select tabs. Restored plugin content attaches
 on first visibility or configuration opening, then remains attached while hidden.
 Entrypoints may set `background: true` to attach immediately; Terminal and PR do
-so for output consumption and background status polling. Hidden providers that
-have attached remain callable. Never-visited lazy tabs, closed, detached or
-unregistered providers return `unavailable`.
+so for output consumption and background status polling. Terminal configuration
+may opt out with `loadOnDemand: true` (default false). Validated state/action
+requests wake those terminals without selecting them; capabilities advertise the
+declared callable operations without waking them. Concurrent wake callers share
+one frontend initialization, and all pending callers count against the existing
+interaction limits. Input actions execute sequentially after readiness; state
+reads do not queue behind them. Startup waits for initial terminal replay before
+registering handlers. Already running PTYs reconnect immediately after WebView
+reload; the snapshot's transient `runtimePresent` field is never restored from
+storage. Hidden initialized providers remain callable. Other never-visited lazy
+tabs, closed, detached or unregistered providers return `unavailable`.
 
 Rust validates arguments before dispatch and results before delivery, binds
 unique request IDs and replies to the target attachment, and rejects late or
-duplicate replies. Each request has a five-second deadline, 64 KiB encoded
+duplicate replies. Each request has a five-second deadline including on-demand startup, 64 KiB encoded
 argument/result limits, four pending requests per target and 32 globally. Unregister, caller/target detach, reload and shutdown cancel pending requests;
 providers receive an abort signal.
 

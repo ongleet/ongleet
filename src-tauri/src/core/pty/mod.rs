@@ -9,6 +9,8 @@ pub struct TabConfig {
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub shell_command: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub load_on_demand: bool,
 }
 
 impl TabConfig {

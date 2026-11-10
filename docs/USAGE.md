@@ -161,7 +161,19 @@ Use the arrow keys, Home, and End while focused on the tab bar to select tabs. D
 
 Archiving a tab with a running process requires confirmation. The configured-tab reopening selector has been removed; New tab creates a fresh opening from YAML. Copy the terminal selection with Ctrl+Shift+C and paste with Ctrl+Shift+V. Archiving a session retains its definitions in Archives and confirms termination of all its terminals.
 
-Hidden tabs continue consuming output with painting suppressed.
+Hidden initialized tabs continue consuming output with painting suppressed.
+
+Terminal **Tab → Configure…** includes **Load on demand** (off by default).
+When enabled, a saved terminal waits until first shown or requested through
+`tab state` / `tab invoke` (or the equivalent SDK interaction API). API wake-up
+does not select the tab. Capabilities/listing do not start it. Once initialized,
+it stays attached and runs while hidden. Existing running PTYs reconnect after a
+WebView reload so their output remains consumed. A full application restart again
+defers unselected tabs; their servers/watchers/Codex processes do not restart
+until needed. Explicitly stopped or closed terminals are not restarted by wake-up.
+The YAML/plugin configuration field is `loadOnDemand: true`. Startup counts toward
+the existing five-second interaction deadline; timed-out actions are not retried.
+Changing the checkbox does not stop an already running terminal.
 
 ## Built-in tab plugins
 

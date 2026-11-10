@@ -32,6 +32,11 @@
       "shellCommand": {
         "type": ["string", "null"],
         "description": "Explicit shell syntax; cannot be combined with executable or nonempty args."
+      },
+      "loadOnDemand": {
+        "type": "boolean",
+        "default": false,
+        "description": "Initialize on first visibility or state/action API interaction; remain loaded afterward."
       }
     }
   },
@@ -65,7 +70,8 @@
     "executable": null,
     "args": [],
     "env": {},
-    "shellCommand": null
+    "shellCommand": null,
+    "loadOnDemand": false
   },
   "capabilities": ["pty", "desktop", "storage"],
   "runtime": "pty",

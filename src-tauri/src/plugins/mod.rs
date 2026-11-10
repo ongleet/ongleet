@@ -151,6 +151,16 @@ mod settings_tests {
     use serde_json::json;
 
     #[test]
+    fn terminal_on_demand_is_optional_boolean_configuration() {
+        validate("terminal", 1, &json!({})).unwrap();
+        validate("terminal", 1, &json!({"loadOnDemand": true})).unwrap();
+        assert!(validate("terminal", 1, &json!({"loadOnDemand": "true"})).is_err());
+        let config: crate::core::pty::TabConfig =
+            serde_json::from_value(json!({"loadOnDemand":true})).unwrap();
+        assert!(config.load_on_demand);
+        assert_eq!(serde_json::to_value(config).unwrap()["loadOnDemand"], true);
+    }
+    #[test]
     fn local_pr_reset_inherits_without_allowing_incomplete_associations() {
         validate(
             "pull-request",

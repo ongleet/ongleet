@@ -1,5 +1,8 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Load on demand': 'Charger à la demande',
+  'Start when first shown or requested through the API. Keep running afterward.':
+    'Démarrer au premier affichage ou appel de l’API, puis rester actif.',
   'Delete file': 'Supprimer le fichier',
   'Permanently delete {path}? Unsaved changes will be discarded. This cannot be undone.':
     'Supprimer définitivement {path} ? Les modifications non enregistrées seront perdues. Cette action est irréversible.',

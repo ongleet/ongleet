@@ -818,6 +818,7 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             core::commands::sdk_attach,
             core::commands::sdk_detach,
             core::commands::sdk_request,
+            core::interactions::sdk_tab_wake_pending,
             core::interactions::sdk_interaction,
             core::interactions::sdk_interaction_register,
             core::interactions::sdk_interaction_reply,

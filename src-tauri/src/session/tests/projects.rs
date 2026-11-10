@@ -110,10 +110,27 @@ fn projects_persist_defaults_membership_and_folding_without_touching_directories
         .unwrap();
     registry.fold_project(group, true).unwrap();
     registry.select(session).unwrap();
-    let expected = serde_json::to_value(registry.snapshot()).unwrap();
+    let mut expected = serde_json::to_value(registry.snapshot()).unwrap();
+    assert!(expected["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|s| s["tabs"].as_array().unwrap())
+        .any(|tab| tab["runtimePresent"] == true));
+    for session in expected["sessions"].as_array_mut().unwrap() {
+        for tab in session["tabs"].as_array_mut().unwrap() {
+            tab.as_object_mut().unwrap().remove("runtimePresent");
+        }
+    }
     registry.shutdown(true).unwrap();
     drop(registry);
     let mut restored = SessionRegistry::open(&data.0).unwrap();
+    assert!(restored
+        .snapshot()
+        .sessions
+        .iter()
+        .flat_map(|s| &s.tabs)
+        .all(|tab| !tab.runtime_present));
     assert_eq!(serde_json::to_value(restored.snapshot()).unwrap(), expected);
     assert!(restored.project(group).unwrap().collapsed);
     restored.close(session, false).unwrap();
@@ -592,4 +609,33 @@ fn tag_styles_priority_and_name_uniqueness_share_one_persisted_list() {
     assert_eq!(restored.snapshot().sessions[0].tags, tags);
     let legacy: SessionTag = serde_json::from_str(r##"{"name":"Old","color":"#abcdef"}"##).unwrap();
     assert_eq!(legacy, tag("Old", None, Some("#abcdef"), 0));
+}
+
+#[test]
+fn on_demand_setting_and_start_intent_survive_metadata_restart_without_a_runtime() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry.create("Deferred".into(), root.path()).unwrap();
+    let tab = registry.sessions[0].selected_tab_id.unwrap();
+    registry
+        .configure_tab(
+            tab,
+            TabConfig {
+                executable: Some("deferred-process-must-not-launch".into()),
+                load_on_demand: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let resume = registry.sessions[0].tabs[0].resume_on_start;
+    assert!(registry.terminals.is_empty());
+    drop(registry);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    let saved = &restored.snapshot().sessions[0].tabs[0];
+    assert_eq!(saved.id, tab);
+    assert_eq!(saved.config["loadOnDemand"], true);
+    assert_eq!(saved.resume_on_start, resume);
+    assert!(!saved.runtime_present);
+    assert!(restored.terminals.is_empty());
 }

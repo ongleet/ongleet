@@ -157,7 +157,9 @@ pub async fn sdk_attach(
     }
     let mut guard = state.0.lock().map_err(|e| SdkError::from(e.to_string()))?;
     guard.open_plugin_tab(id).map_err(SdkError::from)?;
-    guard.cancel_plugin_work(id).map_err(SdkError::from)?;
+    guard
+        .prepare_plugin_attachment(id)
+        .map_err(SdkError::from)?;
     guard.sdk_attachments.insert(id, attachment);
     Ok(())
 }

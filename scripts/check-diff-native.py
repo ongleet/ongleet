@@ -56,6 +56,12 @@ def run(args):
         {'id': 'pr', 'name': 'PR', 'kind': 'pull-request', 'config': {}},
         {'id': 'probe', 'name': 'Probe', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', '-c', "import sys\nfor n in range(600): print(f'row {n} café 日本語 🙂')\nfor line in sys.stdin:\n if line.strip() == 'alternate': print('\x1b[?1049hALT 日本語 🙂', flush=True)\n elif line.strip() == 'budget':\n  for n in range(150): print('日'*1000, flush=True)\n elif line.strip() == 'normal': print('\x1b[?1049l', flush=True)"]}}
     ]}, ensure_ascii=False))
+    if args.demand_only:
+        configuration = json.loads(actions.read_text())
+        configuration['actions'].append({'id': 'demand', 'name': 'Demand', 'kind': 'terminal', 'config': {
+            'loadOnDemand': True, 'executable': '/usr/bin/python3', 'args': ['-u', '-c',
+            "\n".join(["import os,sys", "from pathlib import Path", "with Path('demand-starts').open('a') as f: f.write(str(os.getpid())+chr(10))", "print('demand-ready',flush=True)", "for line in sys.stdin:", " with Path('demand-input').open('a') as f: f.write(line)", " print('received',flush=True)"])]}})
+        actions.write_text(json.dumps(configuration, ensure_ascii=False))
     report = {'artifacts': str(directory), 'backend': args.backend, 'checks': []}
     def mark(text):
         report['checks'].append(text)
@@ -106,6 +112,12 @@ def run(args):
                 notes = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(notes)
                 notes.check(client, native, directory, env, session, mark, Path(args.cli).resolve())
+                return
+            if args.demand_only:
+                spec = importlib.util.spec_from_file_location('demand', Path(__file__).with_name('on-demand-native.py'))
+                demand = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(demand)
+                demand.check(client, native, directory, env, session, mark, Path(args.cli).resolve())
                 return
             created = client.invoke('create_tab',{'sessionId':session['id'],'actionId':'diff'})
             tab = created['sessions'][0]['selectedTabId']
@@ -500,6 +512,7 @@ if __name__=='__main__':
     parser.add_argument('--comments-only', action='store_true')
     parser.add_argument('--syntax-only', action='store_true')
     parser.add_argument('--interactions-only', action='store_true')
+    parser.add_argument('--demand-only', action='store_true')
     parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')

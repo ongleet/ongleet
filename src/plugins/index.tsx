@@ -1,11 +1,13 @@
 import { t } from '../i18n';
 import { Button, Dialog, Select, TabPanel } from '../components/Controls';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useState, type ComponentType } from 'react';
 import { createSdk } from '../sdk/transport';
 import { SdkContext, type PluginSdk } from '../sdk';
 import type { PluginContentProps } from './types';
 import {
-  TerminalConfigurationEditor,
+  CommandConfigurationEditor,
   launchDraft,
   launchConfig,
 } from './terminal/ConfigurationEditor';
@@ -50,13 +52,38 @@ export async function flushPlugins() {
 type HostProps = PluginContentProps & { reportTitle: (id: number, title: string | null) => void };
 export function TabHost(props: HostProps) {
   const plugin = plugins.find((plugin) => plugin.id === props.tab.kind);
+  const onDemand =
+    props.tab.kind === 'terminal' &&
+    (props.tab.config as { loadOnDemand?: boolean })?.loadOnDemand === true;
   const requested = !!(
-    plugin?.background ||
+    (plugin?.background && (!onDemand || props.tab.runtimePresent)) ||
     props.visible ||
     props.configurationOpen ||
     props.sessionConfigurationOpen
   );
   const [activated, setActivated] = useState(requested);
+  useEffect(() => {
+    if (!onDemand) return;
+    let active = true;
+    const off = listen<{ id: number }>('tab-wake', ({ payload }) => {
+      if (active && payload.id === props.tab.id) setActivated(true);
+    });
+    // Subscribe first, then catch wake requests that raced host mounting.
+    void off
+      .then(async () => {
+        if (
+          active &&
+          (await invoke<boolean>('sdk_tab_wake_pending', { id: props.tab.id })) &&
+          active
+        )
+          setActivated(true);
+      })
+      .catch(console.error);
+    return () => {
+      active = false;
+      void off.then((stop) => stop()).catch(console.error);
+    };
+  }, [onDemand, props.tab.id]);
   useEffect(() => {
     if (requested) setActivated(true);
   }, [requested]);
@@ -84,7 +111,7 @@ export function TabHost(props: HostProps) {
 
 // External commands reuse the launch form but remain outside the tab registry.
 export const commandEditor = {
-  ConfigurationEditor: TerminalConfigurationEditor,
+  ConfigurationEditor: CommandConfigurationEditor,
   toDraft: launchDraft,
   fromDraft: launchConfig,
 };

@@ -23,19 +23,41 @@ export function TerminalContent({
   const [error, setError] = useState('');
   const [status, setStatus] = useState<ProcessStatus | null>(null);
   const [starting, setStarting] = useState(true);
+  const [interactionReady, setInteractionReady] = useState(false);
   const [slow, setSlow] = useState(false);
-  useTabInteractions({
-    state: (args) => {
-      if (!frontend.current) throw new SdkError('unavailable', 'Terminal unavailable');
-      return frontend.current.interactionState(args.lines as number | undefined);
-    },
-    actions: {
-      'send-text': (args) => {
+  const inputActions = useRef<Promise<unknown>>(Promise.resolve());
+  const queuedActions = useRef(0);
+  useTabInteractions(
+    {
+      state: (args) => {
         if (!frontend.current) throw new SdkError('unavailable', 'Terminal unavailable');
-        return frontend.current.sendText(args.text as string, args.enter as boolean | undefined);
+        return frontend.current.interactionState(args.lines as number | undefined);
+      },
+      actions: {
+        'send-text': (args, { signal }) => {
+          if (queuedActions.current >= 4)
+            throw new SdkError('limit_exceeded', 'Terminal interaction queue exceeds limit');
+          queuedActions.current++;
+          const task = inputActions.current
+            .catch(() => {})
+            .then(() => {
+              if (signal.aborted) throw new SdkError('cancelled', 'Interaction cancelled');
+              if (!frontend.current) throw new SdkError('unavailable', 'Terminal unavailable');
+              return frontend.current.sendText(
+                args.text as string,
+                args.enter as boolean | undefined,
+              );
+            })
+            .finally(() => {
+              queuedActions.current--;
+            });
+          inputActions.current = task;
+          return task;
+        },
       },
     },
-  });
+    interactionReady,
+  );
   const report: Report = (error) => setError(String(error));
 
   useEffect(() => {
@@ -60,6 +82,7 @@ export function TerminalContent({
       markRestoring(-1);
     };
     setStarting(true);
+    setInteractionReady(false);
     setSlow(false);
     markRestoring(1);
     const timer = setTimeout(() => {
@@ -67,6 +90,9 @@ export function TerminalContent({
     }, 10_000);
     void terminal
       .start(tab.resumeOnStart)
+      .then(() => {
+        if (!disposed) setInteractionReady(true);
+      })
       .catch((error) => {
         if (!disposed) report(error);
       })

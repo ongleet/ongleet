@@ -1,4 +1,5 @@
 import { t } from '../../i18n';
+import { Checkbox } from '../../components/Checkbox';
 import { Input, Select } from '../../components/Controls';
 import type { ConfigurationEditorProps } from '..';
 export type LaunchDraft = {
@@ -115,7 +116,44 @@ export function launchConfig(text: string): unknown {
     shellCommand: action.mode === 'shell' ? action.shell : null,
   };
 }
+export function terminalDraft(config: unknown): string {
+  return JSON.stringify({
+    ...JSON.parse(launchDraft(config)),
+    loadOnDemand: (config as { loadOnDemand?: boolean }).loadOnDemand === true,
+  });
+}
+export function terminalConfig(text: string): unknown {
+  return {
+    ...(launchConfig(text) as object),
+    loadOnDemand: JSON.parse(text).loadOnDemand === true,
+  };
+}
+
 export function TerminalConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
+  const action = JSON.parse(value) as LaunchDraft & { loadOnDemand?: boolean };
+  return (
+    <>
+      <LaunchConfigurationEditor
+        action={action}
+        patch={(changes) => onChange(JSON.stringify({ ...action, ...changes }))}
+      />
+      <label>
+        <Checkbox
+          checked={action.loadOnDemand === true}
+          onChange={(event) =>
+            onChange(JSON.stringify({ ...action, loadOnDemand: event.target.checked }))
+          }
+        />
+        {t('Load on demand')}
+      </label>
+      <p className="muted">
+        {t('Start when first shown or requested through the API. Keep running afterward.')}
+      </p>
+    </>
+  );
+}
+
+export function CommandConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
   const action = JSON.parse(value) as LaunchDraft;
   return (
     <LaunchConfigurationEditor
