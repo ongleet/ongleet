@@ -1,6 +1,6 @@
 import { t, getLocale } from '../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../components/Controls';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Location, Thread } from './comments';
 export function Composer({
   submit,
@@ -15,15 +15,18 @@ export function Composer({
   initialText?: string;
   cancel?: () => void;
 }) {
-  const [text, setText] = useState(initialText);
+  // Keep typing native: the draft is only needed when the form is submitted.
+  const textarea = useRef<HTMLTextAreaElement>(null);
   return (
     <form
       className="diff-comment-composer"
       onSubmit={(e) => {
         e.preventDefault();
+        const input = textarea.current;
+        if (!input) return;
         try {
-          submit(text);
-          setText('');
+          submit(input.value);
+          input.value = '';
         } catch {
           /* Keep the draft; the shared store reports the error. */
         }
@@ -33,8 +36,8 @@ export function Composer({
         aria-label={t(label)}
         placeholder={label === 'Reply' ? t('Write a reply…') : t('Write a comment or question…')}
         autoFocus={autoFocus}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
+        ref={textarea}
+        defaultValue={initialText}
         required
       />
       <div className="diff-composer-actions">
