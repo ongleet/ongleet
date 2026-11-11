@@ -228,8 +228,15 @@ With `ONGLEET_DEBUG=1`, Diff logs bounded console batches prefixed
 by that prefix, reproduce the slowdown, then copy the output. These are frontend
 console messages, not entries in the native `debug.log`.
 
+The first batch includes an `enabled` event. Select Info or All message levels
+in Inspector Console. These messages are not embedded in exported timeline JSON;
+copy Console output separately. Diff declares the `env` capability required to
+read `ONGLEET_DEBUG`; initialization errors produce a warning rather than silently
+disabling diagnostics.
+
 `render-committed` records the component, instance number, render count and names
-of changed tracked inputs. `parent-or-untracked-input` means none of those tracked
+of changed tracked inputs. `App` and `SessionPane` are tracked alongside Diff
+components to distinguish parent updates from local state changes. `parent-or-untracked-input` means none of those tracked
 inputs changed; it does not establish the exact scheduling cause. The hook logs
 commits, not aborted render attempts or DOM paint duration. Initialization reads
 the shared debug environment once; initial commits before that read completes

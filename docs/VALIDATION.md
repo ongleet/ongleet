@@ -397,3 +397,20 @@ Wayland and macOS/Windows close behavior remain untested for this change.
 
 Build the bundled GUI after Rust tests and before native checks: a test build
 can replace the target executable with one expecting a development server.
+
+
+## Render diagnostic activation (2026-11-11)
+
+The installed GUI had `ONGLEET_DEBUG=1`, but Diff lacked the SDK `env` capability,
+so its environment read was rejected and a swallowed error disabled logging.
+That declaration is now present; initialization errors warn, and committed-render
+tracking includes App and SessionPane. Profile 12 contains scrolling, no keyboard
+or input events; its remaining React/terminal work does not establish the cause
+of textarea latency.
+
+A private WebKitGTK `check-diff-native.py --render-logs-only` run verified the
+actual SDK gate, enabled marker, textarea input events, Composer/Diff/parent
+render records and absence of typed marker text/prop values in the output.
+Report: `/tmp/ongleet-diff-native-8a_brpq1/report.json`. Build and Diff checks
+passed. These logs provide attribution data; they do not certify a performance
+fix or native typing latency.

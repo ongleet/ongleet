@@ -67,6 +67,8 @@ def run(args):
         report['checks'].append(text)
         print(text, flush=True)
     env = dict(os.environ, XDG_DATA_HOME=str(directory/'data'), XDG_CONFIG_HOME=str(directory/'config'), XDG_CACHE_HOME=str(directory/'cache'), GDK_BACKEND=args.backend, TAURI_WEBVIEW_AUTOMATION='true', TERMINAL_VALIDATION_RUN=str(directory))
+    if args.render_logs_only:
+        env['ONGLEET_DEBUG'] = '1'
     if args.backend == 'x11':
         env.pop('WAYLAND_DISPLAY', None)
     elif not env.get('WAYLAND_DISPLAY'):
@@ -118,6 +120,12 @@ def run(args):
                 demand = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(demand)
                 demand.check(client, native, directory, env, session, mark, Path(args.cli).resolve())
+                return
+            if args.render_logs_only:
+                spec = importlib.util.spec_from_file_location('render_logs', Path(__file__).with_name('render-logs-native.py'))
+                render_logs = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(render_logs)
+                render_logs.check(client, native, env, session, mark, Path(args.cli).resolve())
                 return
             created = client.invoke('create_tab',{'sessionId':session['id'],'actionId':'diff'})
             tab = created['sessions'][0]['selectedTabId']
@@ -517,6 +525,7 @@ if __name__=='__main__':
     parser.add_argument('--interactions-only', action='store_true')
     parser.add_argument('--demand-only', action='store_true')
     parser.add_argument('--navigation-only', action='store_true')
+    parser.add_argument('--render-logs-only', action='store_true')
     parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')

@@ -6,7 +6,7 @@
   "sdkVersion": 1,
   "entrypoint": "entrypoint.tsx",
   "runtime": null,
-  "capabilities": ["process", "storage", "tabs"],
+  "capabilities": ["process", "storage", "tabs", "env"],
   "defaults": {
     "folder": null,
     "mode": "branch",

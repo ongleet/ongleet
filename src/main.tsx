@@ -1,3 +1,4 @@
+import { useRenderDiagnostic } from './render-diagnostics';
 import { t, useLocale } from './i18n';
 import { Button, Dialog, Input, Select, Tab, TabList } from './components/Controls';
 import { reconcileCommentSessions } from './diff-comment-cleanup';
@@ -253,6 +254,14 @@ function SessionPane({
   }, []);
   const [dragTabId, setDragTabId] = useState<number | null>(null);
   const [tabDrop, setTabDrop] = useState<{ id: number; after: boolean } | null>(null);
+  useRenderDiagnostic('SessionPane', {
+    session,
+    visible,
+    tabTitles,
+    dragTabId,
+    tabDrop,
+    sharedSettingsTab,
+  });
   function navigate(event: React.KeyboardEvent, index: number) {
     const length = openTabs.length;
     if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
@@ -491,6 +500,16 @@ function App() {
     });
   }, []);
 
+  useRenderDiagnostic('App', {
+    state,
+    statuses,
+    busy,
+    ready,
+    restoring,
+    defaults,
+    error,
+    appearanceReady,
+  });
   const refreshSequence = useRef(0);
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
