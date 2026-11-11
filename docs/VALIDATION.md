@@ -414,3 +414,19 @@ render records and absence of typed marker text/prop values in the output.
 Report: `/tmp/ongleet-diff-native-8a_brpq1/report.json`. Build and Diff checks
 passed. These logs provide attribution data; they do not certify a performance
 fix or native typing latency.
+
+## OSC compatibility (2026-11-11)
+
+The pinned Ghostty engine rejected OSC 10/11 color queries without replies and
+logged unsupported VTE shell (666) and Codex program-status (7501) notifications.
+A bounded frontend adapter now answers the exact `10;?` and `11;?` queries,
+consumes those notifications, and preserves other terminal bytes and warnings.
+Engine checks cover every two-chunk split, byte-wise UTF-8/control input, BEL/ST,
+current colors, cancellation, string isolation, unknown warnings and overflow.
+
+Three private X11 WebKitGTK checks passed via `scripts/check-diff-native.py
+--osc-only`: exact replies through a real PTY without known warnings, hidden-tab
+replies, and WebView reattachment without duplicate historical replies. Report:
+`/tmp/ongleet-diff-native-orj9ool_/report.json`; no cleanup survivors. The frontend
+build, terminal-input suite and WASM suite passed. These checks do not measure
+Diff typing performance or certify other OSC color operations/physical Wayland.

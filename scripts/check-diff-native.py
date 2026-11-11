@@ -56,6 +56,10 @@ def run(args):
         {'id': 'pr', 'name': 'PR', 'kind': 'pull-request', 'config': {}},
         {'id': 'probe', 'name': 'Probe', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', '-c', "import sys\nfor n in range(600): print(f'row {n} café 日本語 🙂')\nfor line in sys.stdin:\n if line.strip() == 'alternate': print('\x1b[?1049hALT 日本語 🙂', flush=True)\n elif line.strip() == 'budget':\n  for n in range(150): print('日'*1000, flush=True)\n elif line.strip() == 'normal': print('\x1b[?1049l', flush=True)"]}}
     ]}, ensure_ascii=False))
+    if args.osc_only:
+        configuration = json.loads(actions.read_text())
+        configuration['actions'].append({'id': 'osc', 'name': 'OSC', 'kind': 'terminal', 'config': {'executable': '/usr/bin/python3', 'args': ['-u', str(Path(__file__).with_name('terminal-osc-native.py').resolve())]}})
+        actions.write_text(json.dumps(configuration, ensure_ascii=False))
     if args.demand_only:
         configuration = json.loads(actions.read_text())
         configuration['actions'].append({'id': 'demand', 'name': 'Demand', 'kind': 'terminal', 'config': {
@@ -109,6 +113,12 @@ def run(args):
             client.click("//button[normalize-space()='Save session']",'xpath')
             snapshot = native.wait_for(lambda: (s if s['sessions'] else None) if (s := client.invoke('sessions')) else None,'session')
             session = snapshot['sessions'][0]
+            if args.osc_only:
+                spec = importlib.util.spec_from_file_location('osc', Path(__file__).with_name('terminal-osc-native.py'))
+                osc = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(osc)
+                osc.check(client, native, directory, env, session, mark, Path(args.cli).resolve())
+                return
             if args.notes_only:
                 spec = importlib.util.spec_from_file_location('notes', Path(__file__).with_name('note-native.py'))
                 notes = importlib.util.module_from_spec(spec)
@@ -526,6 +536,7 @@ if __name__=='__main__':
     parser.add_argument('--demand-only', action='store_true')
     parser.add_argument('--navigation-only', action='store_true')
     parser.add_argument('--render-logs-only', action='store_true')
+    parser.add_argument('--osc-only', action='store_true')
     parser.add_argument('--cli', default='src-tauri/target/debug/ongleet')
     parser.add_argument('--xvfb',default='/usr/bin/Xvfb')
     parser.add_argument('--backend',choices=['x11','wayland'],default='x11')

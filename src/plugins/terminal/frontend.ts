@@ -14,6 +14,7 @@ import { TerminalHistory } from '../../terminal-history';
 import { createEngineLoader } from '../../engine-loader';
 import { attachTerminalMouse } from '../../terminal-mouse';
 import { TerminalLinks } from '../../terminal-links';
+import { TerminalOsc } from '../../terminal-osc';
 import { terminalSelectionText, attachTerminalSelection } from '../../terminal-selection';
 
 const loadGhostty = createEngineLoader(() => Ghostty.load(wasmUrl));
@@ -137,6 +138,11 @@ export class TerminalFrontend {
       term,
       (bytes) => consumeOutput(term, bytes),
       (title) => this.sdk.tab.setTitle(title),
+    );
+    const terminalOsc = new TerminalOsc(
+      (bytes) => terminalLinks.write(bytes),
+      () => this.sdk.theme.getSnapshot().terminal.terminal,
+      (text) => this.send(text),
     );
     this.subscriptions.push(
       attachTerminalMouse(
@@ -300,7 +306,7 @@ export class TerminalFrontend {
         if (event.type === 'data') {
           // Preserve byte boundaries all the way into Ghostty's stateful VT
           // parser. Never decode each PTY chunk as an independent UTF-8 string.
-          terminalLinks.write(event.bytes);
+          terminalOsc.write(event.bytes);
           if (!this.replaying) this.history?.changed();
           // 0.4.0 parses synchronously; its write callback waits for rAF, which
           // can stop in a hidden window. ACK parsing, not painting.

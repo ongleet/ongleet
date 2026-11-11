@@ -64,6 +64,14 @@ On upgrades, revalidate writes, cursor notifications, hover, selection, scrollin
 visibility and listener cleanup. Resize only visible, nonzero containers.
 Dispose resources on explicit closure.
 
+`src/terminal-osc.ts` supplies the pinned engine's missing OSC 10/11 default-color
+query replies from the current terminal theme, preserving BEL/ST terminators.
+Replies use the bounded input queue and its replay/disposal guards. The adapter
+consumes unsupported VTE shell (OSC 666) and program-status (OSC 7501)
+notifications before Ghostty, leaving other bytes and warnings intact. Pending
+OSC capture is capped at 8 KiB; oversized sequences pass through unchanged.
+This is a narrow compatibility boundary, not a second terminal emulator.
+
 Restored plugin content attaches lazily on first visibility or configuration
 opening, then remains mounted while hidden. Terminal and PR entrypoints opt into
 immediate background attachment to preserve PTY consumption and status polling.
