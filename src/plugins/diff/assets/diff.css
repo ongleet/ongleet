@@ -468,3 +468,15 @@
   -webkit-mask: url('./comment-bubble.svg') center / contain no-repeat;
   mask: url('./comment-bubble.svg') center / contain no-repeat;
 }
+
+.diff-tree-comments button {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+.diff-tree-comments small {
+  flex-shrink: 0;
+}
+.diff-message:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}

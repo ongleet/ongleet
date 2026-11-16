@@ -111,7 +111,13 @@ export function Discussion({
       )}
       <div className="diff-messages">
         {thread.comments.map((comment) => (
-          <article className="diff-message" data-origin={comment.origin} key={comment.id}>
+          <article
+            className="diff-message"
+            data-origin={comment.origin}
+            data-comment-id={comment.id}
+            tabIndex={-1}
+            key={comment.id}
+          >
             <div className="diff-message-meta">
               <span
                 className="diff-message-author"

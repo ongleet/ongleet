@@ -1,3 +1,4 @@
+import { useLayoutEffect, useState } from 'react';
 import { Input } from '../../../../components/Controls';
 import { t } from '../../../../i18n';
 import { FileTree } from './FileTree';
@@ -28,6 +29,18 @@ export function DiffComparison({
     discussionIndex,
     discussion,
   } = controller;
+  const [commentTarget, setCommentTarget] = useState<string>();
+  useLayoutEffect(() => {
+    if (!commentTarget) return;
+    const element = [
+      ...(viewer.current?.querySelectorAll<HTMLElement>('[data-comment-id]') ?? []),
+    ].find((node) => node.dataset.commentId === commentTarget);
+    if (element) {
+      element.scrollIntoView({ block: 'center' });
+      element.focus({ preventScroll: true });
+    }
+    setCommentTarget(undefined);
+  }, [commentTarget, viewer]);
   const composer = <NewDiscussion controller={controller} />;
   const labels: Record<string, string> = {
     A: t('Added'),
@@ -55,6 +68,14 @@ export function DiffComparison({
             visible={visible}
             onSelect={select}
             labels={labels}
+            discussions={discussionIndex}
+            onComment={(_thread, commentId, file) => {
+              if (file) {
+                selection.set(file.key);
+                controller.setReview([file.path], 'expanded', true);
+              }
+              setCommentTarget(commentId);
+            }}
           />
         </nav>
         {!comparison.files.length && <p>{t('No changes.')}</p>}
