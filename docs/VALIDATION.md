@@ -187,6 +187,19 @@ mise exec -- /usr/bin/python3 scripts/check-diff-native.py \
   --application src-tauri/target/debug/ongleet-gui --driver /usr/bin/WebKitWebDriver
 ```
 
+Use `--comment-index-only` to seed 160 file/old/new-line discussions across forty
+patches and repeat eight filename-filter updates. The isolated WebKitGTK baseline
+(`wvreq39p`, before indexing) serialized 336 per-file discussion snapshots; the
+indexed build (`tlpquzxx`) serialized zero. Both recorded approximately 32 ms per
+interaction using two animation frames, so this scenario demonstrates removed
+serialization work, not a measured input-latency gain. Profiles are saved as
+`discussion-profile.json` in the reported artifact directory. The same fixture
+checks replies, edits, deletion and retained drafts across files and threads on
+one line. The general Diff suite (`7pt_cst1`, 25 checks) and discussion suite
+(`5c1atojg`, ten checks) also passed. All three acceptance runs left no cleanup
+survivors. Behavioral tests cover stable revisions, renames, orphan transitions,
+side-specific lookups and merged context-row order.
+
 Use `--rendering-only` for a 42-file expanded comparison: it checks native
 offscreen rendering skips, distant sidebar navigation and selectable patch text.
 On 2026-11-16 this scenario and the general Diff suite passed on private X11

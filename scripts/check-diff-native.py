@@ -37,6 +37,9 @@ def run(args):
     if args.rendering_only:
         for i in range(40):
             (folder/f'zz-render-{i:02}.txt').write_text('before\n' * 60)
+    if args.comment_index_only:
+        for i in range(40):
+            (folder/f'zz-comments-{i:02}.txt').write_text(''.join(f'before row {line}\n' for line in range(1,61)))
     git('add', '.')
     git('commit', '-m', 'base')
     file.write_text('original\n')
@@ -50,6 +53,10 @@ def run(args):
     if args.rendering_only:
         for i in range(40):
             (folder/f'zz-render-{i:02}.txt').write_text('changed\n' * 60)
+    if args.comment_index_only:
+        for i in range(40):
+            path=folder/f'zz-comments-{i:02}.txt'
+            path.write_text(''.join(f'changed row {line}\n' for line in range(1,61)))
     original_index = (folder / '.git/index').read_bytes()
     actions = directory / 'config/ongleet/projects/1/actions.yaml'
     actions.parent.mkdir(parents=True)
@@ -267,6 +274,12 @@ def run(args):
                 """)
                 mark('Sidebar navigation beyond twenty files reveals selectable patch text')
                 (directory/'rendering.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+                return
+            if args.comment_index_only:
+                spec = importlib.util.spec_from_file_location('index_check', Path(__file__).with_name('discussion-index-native.py'))
+                index_check = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(index_check)
+                index_check.check(client, native, directory, env, session, tab, mark, Path(args.cli).resolve())
                 return
             if args.checkboxes_only:
                 spec = importlib.util.spec_from_file_location('checkboxes', Path(__file__).with_name('checkboxes-native.py'))
@@ -598,6 +611,7 @@ if __name__=='__main__':
     parser.add_argument('--checkboxes-only', action='store_true')
     parser.add_argument('--notes-only', action='store_true')
     parser.add_argument('--selection-only', action='store_true')
+    parser.add_argument('--comment-index-only', action='store_true')
     parser.add_argument('--comments-only', action='store_true')
     parser.add_argument('--rendering-only', action='store_true')
     parser.add_argument('--syntax-only', action='store_true')

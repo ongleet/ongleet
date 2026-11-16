@@ -18,8 +18,16 @@ export function DiffComparison({
   comparison: Comparison;
   visible: boolean;
 }) {
-  const { filter, setFilter, selection, select, viewer, loadingState, comments, discussion } =
-    controller;
+  const {
+    filter,
+    setFilter,
+    selection,
+    select,
+    viewer,
+    loadingState,
+    discussionIndex,
+    discussion,
+  } = controller;
   const composer = <NewDiscussion controller={controller} />;
   const labels: Record<string, string> = {
     A: t('Added'),
@@ -70,10 +78,10 @@ export function DiffComparison({
                 ])}
               />
             ))}
-            {comments.threads.some((t) => t.orphan) && (
+            {discussionIndex.orphans.length > 0 && (
               <section>
                 <h3>{t('Orphan comments')}</h3>
-                {comments.threads.filter((t) => t.orphan).map(discussion)}
+                {discussionIndex.orphans.map(discussion)}
               </section>
             )}
             {!comparison.files.length && <p>{t('No changes.')}</p>}

@@ -80,6 +80,31 @@ console.log(
   'Diff comments persistence, anchors, orphans, replies, bounds and storage failures passed.',
 );
 
+// Refreshing unchanged anchors must retain references for scoped UI revisions.
+const stable = new CommentStore(20, 21, storage);
+const stableA = stable.add(stable.anchor('/repo', file, 'new', 2), 'A line', 'User');
+const stableB = stable.add(
+  stable.anchor('/repo', { ...file, path: 'b.ts', oldPath: 'b.ts' }),
+  'B file',
+  'User',
+);
+const beforeRefresh = stable.threads;
+stable.reconcile('/repo', [file, { ...file, path: 'b.ts', oldPath: 'b.ts' }]);
+assert.equal(stable.threads, beforeRefresh);
+const unchangedB = stable.get(stableB.threadId);
+stable.reconcile('/repo', [
+  { ...file, patch: '@@ -8,3 +8,3 @@\n alpha\n-target\n+target\n omega\n' },
+  { ...file, path: 'b.ts', oldPath: 'b.ts' },
+]);
+assert.equal(stable.get(stableA.threadId).location.line, 9);
+assert.equal(stable.get(stableB.threadId), unchangedB);
+const afterMove = stable.threads;
+stable.reconcile('/repo', [
+  { ...file, patch: '@@ -8,3 +8,3 @@\n alpha\n-target\n+target\n omega\n' },
+  { ...file, path: 'b.ts', oldPath: 'b.ts' },
+]);
+assert.equal(stable.threads, afterMove);
+
 const gaps = new CommentStore(3, 4, storage);
 const gapFile = { ...file, patch: '@@ -1 +1 @@\n one\n@@ -20 +20 @@\n twenty\n' };
 const gapId = gaps.add(gaps.anchor('/repo', gapFile, 'new', 20), 'Hunk boundary', 'User').threadId;

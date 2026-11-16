@@ -103,6 +103,23 @@ function validThreads(threads: Thread[]) {
   });
 }
 
+/** Keep unchanged anchors referentially stable so other files do not invalidate widgets. */
+function relocate(thread: Thread, orphan: boolean, location = thread.location): Thread {
+  const old = thread.location;
+  if (
+    thread.orphan === orphan &&
+    old.root === location.root &&
+    old.path === location.path &&
+    old.side === location.side &&
+    old.line === location.line &&
+    old.targetOffset === location.targetOffset &&
+    old.context.length === location.context.length &&
+    old.context.every((text, i) => text === location.context[i])
+  )
+    return thread;
+  return { ...thread, orphan, location };
+}
+
 /** Persist bounded discussions per session and tab, retaining original anchors across refreshes. */
 export class CommentStore {
   threads: Thread[] = [];
@@ -254,9 +271,8 @@ export class CommentStore {
           : [];
       const file = candidates.length === 1 ? candidates[0] : undefined;
       if (file && (file.patch === undefined || file.failed)) return thread;
-      if (!file) return { ...thread, orphan: true };
-      if (!anchor.side)
-        return { ...thread, orphan: false, location: { ...anchor, path: file.path } };
+      if (!file) return relocate(thread, true);
+      if (!anchor.side) return relocate(thread, false, { ...anchor, path: file.path });
       const lines = patchLines(file.patch!, anchor.side),
         context = anchor.context;
       const matches = lines.flatMap((_, i) =>
@@ -269,18 +285,14 @@ export class CommentStore {
           : [],
       );
       if (matches.length !== 1 || !lines[matches[0] + (anchor.targetOffset ?? 0)])
-        return { ...thread, orphan: true };
-      return {
-        ...thread,
-        orphan: false,
-        location: {
-          ...anchor,
-          path: file.path,
-          line: lines[matches[0] + (anchor.targetOffset ?? 0)].line,
-        },
-      };
+        return relocate(thread, true);
+      return relocate(thread, false, {
+        ...anchor,
+        path: file.path,
+        line: lines[matches[0] + (anchor.targetOffset ?? 0)].line,
+      });
     });
-    if (JSON.stringify(threads) !== JSON.stringify(this.threads)) this.commit(threads);
+    if (threads.some((thread, i) => thread !== this.threads[i])) this.commit(threads);
   }
 
   /** Page individual comments within the response byte bound, even for long threads. */

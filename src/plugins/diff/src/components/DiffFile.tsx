@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { t, getLocale } from '../../../../i18n';
 import { FileReview } from './FileReview';
 import { PatchViewer } from './PatchViewer';
@@ -26,15 +26,63 @@ export function DiffFile({
     composeRevision,
     setCompose,
     comments,
+    discussionIndex,
     patches,
     setCommentError,
     compose,
     discussion,
-    contextKey,
-    contextLines,
-    refresh,
     loading,
   } = controller;
+  const fileDiscussions = discussionIndex.forFile(file.path);
+  const locale = getLocale();
+  const lineCompose = compose?.path === file.path && compose.side ? compose : undefined;
+  const lineComposer = lineCompose ? composer : undefined;
+  const threads = useMemo(
+    () => [
+      ...fileDiscussions.line.map((thread) => ({
+        key: `thread:${thread.id}`,
+        side: thread.location.side!,
+        line: thread.location.line!,
+        node: discussion(thread),
+      })),
+      ...(lineCompose
+        ? [
+            {
+              key: 'composer',
+              side: lineCompose.side!,
+              line: lineCompose.line!,
+              node: lineComposer,
+            },
+          ]
+        : []),
+    ],
+    [fileDiscussions.line, discussion, lineCompose, lineComposer, locale],
+  );
+  // Memoized patches dispatch through current comparison inputs.
+  const latest = useRef({ controller, comparison, file });
+  latest.current = { controller, comparison, file };
+  const commentLine = useCallback((side: 'old' | 'new', line: number) => {
+    const { controller: current, comparison, file } = latest.current;
+    try {
+      current.composeRevision.current = current.reviews.current.revision;
+      current.setCompose(
+        current.comments.anchor(
+          comparison.root,
+          { ...file, patch: current.patches[file.key]?.text },
+          side,
+          line,
+        ),
+      );
+    } catch (error) {
+      current.setCommentError(String(error));
+    }
+  }, []);
+  const expand = useCallback(() => {
+    const { controller: current, comparison, file } = latest.current;
+    const key = current.contextKey(comparison.config, file);
+    current.contextLines.current[key] = (current.contextLines.current[key] ?? 3) + 20;
+    current.refresh();
+  }, []);
   return (
     <article
       className="diff-file"
@@ -69,53 +117,17 @@ export function DiffFile({
         patch={patches[file.key]?.text}
         failed={!!patches[file.key]?.error}
       >
-        {comments.threads
-          .filter((t) => !t.orphan && !t.location.side && t.location.path === file.path)
-          .map(discussion)}
+        {fileDiscussions.file.map(discussion)}
         {compose?.path === file.path && !compose.side && composer}
         {patches[file.key]?.error ? (
           <p role="alert">{patches[file.key].error}</p>
         ) : patches[file.key]?.text !== undefined ? (
           <PatchViewer
-            discussionRevision={JSON.stringify([
-              comparison.root,
-              getLocale(),
-              comments.threads.filter((thread) => thread.location.path === file.path),
-              compose?.path === file.path ? compose : null,
-            ])}
-            threads={[
-              ...comments.threads
-                .filter((t) => !t.orphan && t.location.path === file.path && t.location.side)
-                .map((t) => ({
-                  side: t.location.side!,
-                  line: t.location.line!,
-                  node: discussion(t),
-                })),
-              ...(compose?.path === file.path && compose.side
-                ? [{ side: compose.side, line: compose.line!, node: composer }]
-                : []),
-            ]}
+            locale={locale}
+            threads={threads}
             patch={patches[file.key].text!}
-            comment={(side, line) => {
-              try {
-                composeRevision.current = reviews.current.revision;
-                setCompose(
-                  comments.anchor(
-                    comparison.root,
-                    { ...file, patch: patches[file.key]?.text },
-                    side,
-                    line,
-                  ),
-                );
-              } catch (error) {
-                setCommentError(String(error));
-              }
-            }}
-            expand={() => {
-              const key = contextKey(comparison.config, file);
-              contextLines.current[key] = (contextLines.current[key] ?? 3) + 20;
-              refresh();
-            }}
+            comment={commentLine}
+            expand={expand}
           />
         ) : (
           <p>{loading ? t('Loading patch…') : t('Patch unavailable. Refresh to retry.')}</p>

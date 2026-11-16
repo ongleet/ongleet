@@ -140,6 +140,15 @@ The worker stops after ten idle seconds. A sixteen-entry LRU caches only patch k
 up to 32K UTF-16 code units (64 KiB); theme changes reuse tokens and update CSS.
 Vite's ES worker format preserves lazy language-parser imports.
 
+Discussion snapshots remain immutable after publication. `CommentStore.reconcile`
+retains unchanged thread references and skips no-op persistence. `DiscussionIndex`
+indexes each new snapshot once by path, separating file, line and orphan threads;
+unchanged buckets retain their identities as scoped render revisions. Patch widgets
+and handlers remain stable across unrelated updates without serializing comments
+inside React renders. `LineDiscussionIndex` looks up widgets by side/line and merges
+both sides in source order on context rows. Thread IDs key widgets so removing one
+thread does not discard another thread's reply draft on the same line.
+
 ## UI localization
 
 Use `t` from `src/i18n.ts` for UI copy. English source messages are catalog keys;
