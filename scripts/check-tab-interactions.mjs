@@ -87,3 +87,26 @@ assert.equal(
   'automatic reset after a viewed patch changes must not become a manual collapse',
 );
 console.log('Large Diff defaults, UTF-8 bounds and manual expansion checks passed.');
+
+// Many small patches must not mount an unbounded number of code tables.
+const many = new ReviewStore();
+const manyFiles = Array.from({ length: 1000 }, (_, i) => ({
+  path: `file-${i}.ts`,
+  key: `file-${i}`,
+  patch: '+small change\n',
+  failed: false,
+}));
+many.reconcile('many', manyFiles);
+assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 20);
+many.set(['file-999.ts'], 'expanded', true);
+many.set(['file-0.ts'], 'expanded', false);
+many.reconcile(
+  'many',
+  manyFiles.map((file) => ({ ...file, patch: '+updated\n' })),
+);
+assert.equal(many.get('file-999').expanded, true);
+assert.equal(many.get('file-0').expanded, false);
+assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 21);
+many.reconcile('different', manyFiles);
+assert.equal(many.get('file-999').expanded, false);
+assert.equal(many.get('file-0').expanded, true);

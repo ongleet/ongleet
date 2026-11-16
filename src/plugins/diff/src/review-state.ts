@@ -41,6 +41,8 @@ export class ReviewStore {
     }
     const previous = new Map(this.files.map((file) => [file.key, file]));
     const next = new Map<string, ReviewState>();
+    // Bound mounted patch tables across many small files; explicit choices remain unrestricted.
+    let automaticExpansions = 0;
     for (const file of files) {
       const old = previous.get(file.key);
       const state = this.states.get(file.key);
@@ -51,7 +53,10 @@ export class ReviewStore {
         ((!file.failed && old.patch === file.patch) ||
           (!state.viewed && this.expandedByUser.has(file.key)));
       if (!retain) this.expandedByUser.delete(file.key);
-      next.set(file.key, retain ? state : { expanded: startsExpanded(file.patch), viewed: false });
+      const retained = retain && (state.viewed || this.expandedByUser.has(file.key));
+      const expanded = automaticExpansions < 20 && startsExpanded(file.patch);
+      if (!retained && expanded) automaticExpansions++;
+      next.set(file.key, retained ? state : { expanded, viewed: false });
     }
     this.expandedByUser = new Set([...this.expandedByUser].filter((key) => next.has(key)));
     this.states = next;

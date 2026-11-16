@@ -29,10 +29,16 @@ export function useDiffScroll(
     const update = () => {
       frame = 0;
       const top = container.getBoundingClientRect().top + 4;
-      const current = comparison.files.find((file) => {
-        const element = fileElements.current.get(file.key);
-        return element && element.getBoundingClientRect().bottom > top;
-      });
+      // Articles follow comparison order; locate the viewport in logarithmic reads.
+      let low = 0;
+      let high = comparison.files.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        const element = fileElements.current.get(comparison.files[middle].key);
+        if (element && element.getBoundingClientRect().bottom > top) high = middle;
+        else low = middle + 1;
+      }
+      const current = comparison.files[low];
       if (current) selection.set(current.key);
     };
 
@@ -63,10 +69,9 @@ export function useDiffScroll(
     const container = viewer.current;
     if (container && container.clientHeight) {
       const top = container.getBoundingClientRect().top;
+      const nextKeys = new Set(next.files.map((file) => file.key));
       const anchor = [...fileElements.current].find(
-        ([key, element]) =>
-          next.files.some((file) => file.key === key) &&
-          element.getBoundingClientRect().bottom > top + 4,
+        ([key, element]) => nextKeys.has(key) && element.getBoundingClientRect().bottom > top + 4,
       );
       if (anchor)
         refreshAnchor.current = {
