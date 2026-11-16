@@ -5,10 +5,10 @@ import { mkdtemp, writeFile, rm, rename, chmod, symlink, mkdir, readFile } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseDiff } from 'react-diff-view';
-import { updateDiffTag } from '../src/plugins/diff/status-tag.ts';
-import { defaults, settings } from '../src/plugins/diff/settings.ts';
-import { GitComparison, decodePath, Lane } from '../src/plugins/diff/git.ts';
-import { filesInTreeOrder } from '../src/plugins/diff/file-tree.ts';
+import { updateDiffTag } from '../src/plugins/diff/src/status-tag.ts';
+import { defaults, settings } from '../src/plugins/diff/src/settings.ts';
+import { GitComparison, decodePath, Lane } from '../src/plugins/diff/src/git.ts';
+import { filesInTreeOrder } from '../src/plugins/diff/src/file-tree.ts';
 const paths = ['a.txt', 'z-folder/b.txt', 'a-folder/root.txt', 'a-folder/nested/deep.txt', 'z.txt'];
 assert.deepEqual(
   filesInTreeOrder(paths.map((path) => ({ path }))).map((file) => file.path),

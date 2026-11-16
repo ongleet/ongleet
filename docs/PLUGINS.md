@@ -5,18 +5,20 @@ containment, metadata and native services. Each open tab has one SDK attachment;
 hiding retains it. Closing, archiving, reloading or quitting cancels subprocess
 and HTTP jobs and waits for cleanup. Reload reattaches existing PTYs.
 
-Add `manifest.json` and `entrypoint.tsx` under `src/plugins/`. Vite discovers both;
+Each plugin lives under `src/plugins/<plugin-id>/`, with `manifest.json` at its
+root, TypeScript/TSX files in `src/`, and styles and images in `assets/` when
+needed. Add `src/entrypoint.tsx` and point the manifest at it. Vite discovers both;
 Rust discovers the same manifest without running JavaScript. No Rust provider or
 registration edit is required. Keep IDs and configuration versions stable.
 Unsupported plugins keep opaque configuration and data.
 
-A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (currently `entrypoint.tsx`), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`.
+A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (`src/entrypoint.tsx`, relative to the manifest), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`.
 
 Declare `contextDefaults: {"folder":"session.directory"}` for a folder initialized from the session directory. PTY plugins declare `runtime: "pty"`; core launch validation still applies. Configuration, runtime compatibility and plugin data have separate versions.
 
 The entrypoint exports `Content`, `ConfigurationEditor`, `toDraft`, `fromDraft` and optionally `beforeQuit`. Content receives its tab/session and visibility through host props. Call `useSdk()` from `src/sdk`; pass that SDK to retained non-React controllers. Importing Tauri packages or SDK transport internals from plugins is rejected by `npm run check:plugins`.
 
-The bundled [SDK example](../src/plugins/sdk-example/entrypoint.tsx) lists a directory, runs an executable with literal arguments and increments a persisted tab counter. Add an action with `kind: sdk-example` and `config: {}` to try it. The example needs no plugin-specific Rust code.
+The bundled [SDK example](../src/plugins/sdk-example/src/entrypoint.tsx) lists a directory, runs an executable with literal arguments and increments a persisted tab counter. Add an action with `kind: sdk-example` and `config: {}` to try it. The example needs no plugin-specific Rust code.
 
 ## Public SDK services
 

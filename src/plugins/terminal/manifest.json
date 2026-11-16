@@ -75,7 +75,7 @@
   },
   "capabilities": ["pty", "desktop", "storage"],
   "runtime": "pty",
-  "entrypoint": "entrypoint.tsx",
+  "entrypoint": "src/entrypoint.tsx",
   "interactions": {
     "version": 1,
     "state": {

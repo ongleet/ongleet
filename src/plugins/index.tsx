@@ -10,7 +10,7 @@ import {
   CommandConfigurationEditor,
   launchDraft,
   launchConfig,
-} from './terminal/ConfigurationEditor';
+} from './terminal/src/ConfigurationEditor';
 
 export type ConfigurationEditorProps = { value: string; onChange: (value: string) => void };
 export type TabPlugin = {
@@ -39,7 +39,7 @@ const manifests = import.meta.glob<{
 }>('./*/manifest.json', { eager: true });
 const entrypoints = import.meta.glob<{
   default: Omit<TabPlugin, 'id' | 'label' | 'configVersion'>;
-}>('./*/entrypoint.tsx', { eager: true });
+}>('./*/src/entrypoint.tsx', { eager: true });
 export const plugins: TabPlugin[] = Object.entries(manifests).flatMap(
   ([path, { default: manifest }]) => {
     const entrypoint = entrypoints[path.replace('manifest.json', manifest.entrypoint)];

@@ -46,7 +46,7 @@
   "defaults": {},
   "capabilities": ["env", "http", "credentials", "desktop", "storage"],
   "runtime": null,
-  "entrypoint": "entrypoint.tsx",
+  "entrypoint": "src/entrypoint.tsx",
   "interactions": {
     "version": 1,
     "state": {

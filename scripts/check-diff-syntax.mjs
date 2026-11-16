@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { languages } from '@codemirror/language-data';
 import { LanguageDescription } from '@codemirror/language';
 import { parseDiff } from 'react-diff-view';
-import { highlightHunks } from '../src/plugins/diff/syntax-tokens.ts';
+import { highlightHunks } from '../src/plugins/diff/src/syntax-tokens.ts';
 
 const support = await LanguageDescription.matchFilename(languages, 'example.ts').load();
 const [{ hunks }] = parseDiff(`diff --git a/example.ts b/example.ts

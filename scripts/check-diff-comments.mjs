@@ -6,8 +6,8 @@ const moduleUrl = (source) =>
 const types = moduleUrl(await readFile('src/sdk/types.ts', 'utf8'));
 const { CommentStore, commentMessage, commentTargets, deliverComment } = await import(
   moduleUrl(
-    (await readFile('src/plugins/diff/comments.ts', 'utf8')).replaceAll(
-      "'../../sdk'",
+    (await readFile('src/plugins/diff/src/comments.ts', 'utf8')).replaceAll(
+      "'../../../sdk'",
       JSON.stringify(types),
     ),
   )

@@ -6,8 +6,8 @@ const types = ts.transpileModule(await readFile('src/sdk/types.ts', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const typesUrl = `data:text/javascript;base64,${Buffer.from(types).toString('base64')}`;
-const source = (await readFile('src/plugins/diff/review-state.ts', 'utf8')).replace(
-  "'../../sdk'",
+const source = (await readFile('src/plugins/diff/src/review-state.ts', 'utf8')).replace(
+  "'../../../sdk'",
   JSON.stringify(typesUrl),
 );
 const model = ts.transpileModule(source, {

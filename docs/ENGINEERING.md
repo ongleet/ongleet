@@ -155,7 +155,7 @@ Checkbox-style menu items keep menu roles and button behavior.
 ## Code map
 
 - UI/plugins: `src/main.tsx`, `src/plugins/`, `src/ProjectEditor.tsx`, `src/SessionSidebar.tsx`.
-- Terminal frontend: `src/plugins/terminal/frontend.ts`, `src/byte-transport.ts`, `src/terminal-rendering.ts`, `src/render-visibility.ts`.
+- Terminal frontend: `src/plugins/terminal/src/frontend.ts`, `src/byte-transport.ts`, `src/terminal-rendering.ts`, `src/render-visibility.ts`.
 - Rust PTY/containment: `src-tauri/src/terminal_session.rs`, `src-tauri/src/system/linux/terminal.rs`, `src-tauri/src/system/linux/containment.rs`.
 - Plugin SDK/core services: `src/sdk/`, `src/plugins/*/manifest.json`, `src-tauri/src/core/`; see [plugin development](PLUGINS.md).
 - Registry/storage/actions: `src-tauri/src/session/`, `plugins/`, `storage.rs`, `migrations/`, `actions.rs`.

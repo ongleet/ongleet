@@ -7,8 +7,8 @@ const moduleUrl = (source) =>
 const types = moduleUrl(await readFile('src/sdk/types.ts', 'utf8'));
 const { NoteModel } = await import(
   moduleUrl(
-    (await readFile('src/plugins/note/model.ts', 'utf8')).replaceAll(
-      "'../../sdk'",
+    (await readFile('src/plugins/note/src/model.ts', 'utf8')).replaceAll(
+      "'../../../sdk'",
       JSON.stringify(types),
     ),
   )

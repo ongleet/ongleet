@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pullRequestStatus, updatePullRequestTag } from '../src/plugins/pull-request/status-tag.ts';
-import { refreshSeconds } from '../src/plugins/pull-request/settings.ts';
+import { pullRequestStatus, updatePullRequestTag } from '../src/plugins/pull-request/src/status-tag.ts';
+import { refreshSeconds } from '../src/plugins/pull-request/src/settings.ts';
 import {
   otherReviews,
   unreadReviews,
   acknowledgeReviews,
-} from '../src/plugins/pull-request/reviews.ts';
+} from '../src/plugins/pull-request/src/reviews.ts';
 
 test('existing configurations default to two minutes and unsafe timer values are rejected', () => {
   assert.equal(refreshSeconds({}), 120);
@@ -92,8 +92,8 @@ test('PR transitions and removal preserve sibling tags and avoid redundant write
 });
 
 // Only SDK I/O is replaced; authentication and GraphQL pagination use production code.
-const { createAuthController } = await import('../src/plugins/pull-request/auth.ts');
-const { fetchPullRequest, GitHubError } = await import('../src/plugins/pull-request/github.ts');
+const { createAuthController } = await import('../src/plugins/pull-request/src/auth.ts');
+const { fetchPullRequest, GitHubError } = await import('../src/plugins/pull-request/src/github.ts');
 const response = (data, status = 200, headers = {}) => ({
   status,
   headers,
@@ -408,7 +408,7 @@ test('storage failure during replacement preserves saved and in-memory credentia
   stop();
 });
 test('GitHub status and GraphQL rate limits honor reset headers; forbidden partial data is rejected', async () => {
-  const { graphql } = await import('../src/plugins/pull-request/github.ts');
+  const { graphql } = await import('../src/plugins/pull-request/src/github.ts');
   const reset = Math.ceil(Date.now() / 1000) + 600;
   for (const result of [
     response({}, 429, { 'retry-after': '120' }),
@@ -541,7 +541,7 @@ test('draft status applies only to open PRs', () => {
 });
 
 const { pipelineStatus, updatePipelineTag } =
-  await import('../src/plugins/pull-request/status-tag.ts');
+  await import('../src/plugins/pull-request/src/status-tag.ts');
 test('pipeline handles running reruns, mixed failures, skipped checks and absent checks', () => {
   assert.equal(pipelineStatus([]), 'No checks');
   assert.equal(

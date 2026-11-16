@@ -63,7 +63,7 @@
   "contextDefaults": {
     "folder": "session.directory"
   },
-  "entrypoint": "entrypoint.tsx",
+  "entrypoint": "src/entrypoint.tsx",
   "interactions": {
     "version": 1,
     "state": {

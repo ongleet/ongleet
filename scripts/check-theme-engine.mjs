@@ -26,7 +26,7 @@ for (const name of [
   dependencies[name] = await import(name);
 const require = (name) => dependencies[name];
 vm.runInNewContext(
-  ts.transpileModule(readFileSync('src/plugins/files/editor-syntax.ts', 'utf8'), {
+  ts.transpileModule(readFileSync('src/plugins/files/src/editor-syntax.ts', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS },
   }).outputText,
   { exports: syntaxExports, require },

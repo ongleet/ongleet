@@ -11,7 +11,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import type { ProcessStatus } from './terminal';
-import { allowEditorClose, fileEditors } from './plugins/files/editor-guards';
+import { allowEditorClose, fileEditors } from './plugins/files/src/editor-guards';
 import { TabHost, flushPlugins, plugins } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';

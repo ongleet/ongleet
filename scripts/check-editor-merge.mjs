@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mergeText } from '../src/plugins/files/editor-merge.ts';
+import { mergeText } from '../src/plugins/files/src/editor-merge.ts';
 
 test('applies independent local edits onto the new disk contents', () => {
   assert.deepEqual(
