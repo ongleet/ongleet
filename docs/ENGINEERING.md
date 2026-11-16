@@ -127,7 +127,8 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 ## Diff rendering
 
 Small Diff patches remain expanded regardless of file count. Patches above
-500 lines or 64 KiB still start collapsed; manual review choices are retained.
+500 lines or 64 KiB show a size-limit explanation and a Load diff button instead
+of mounting the patch renderer immediately; manual review choices are retained.
 Viewed marks are tied to the exact patch text in memory. When that text changes,
 the mark clears and the file reopens regardless of size, staying open on refresh
 until the reader changes its expansion state. Unchanged patches retain their marks.

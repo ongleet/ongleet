@@ -4,15 +4,15 @@ export type ReviewState = { expanded: boolean; viewed: boolean };
 
 export type ReviewFile = { path: string; key: string; patch?: string; failed: boolean };
 
-/** Collapse patches above 64 KiB or 500 lines by default. */
-function startsExpanded(patch: string | undefined) {
-  if (!patch) return true;
-  if (new TextEncoder().encode(patch).length > 64 * 1024) return false;
+/** Identify why a patch needs explicit loading before rendering. */
+export function largePatchReason(patch: string | undefined): 'bytes' | 'lines' | undefined {
+  if (!patch) return undefined;
+  if (new TextEncoder().encode(patch).length > 64 * 1024) return 'bytes';
   let lines = 1;
   for (let i = 0; i < patch.length; i++) {
-    if (patch[i] === '\n' && i < patch.length - 1 && ++lines > 500) return false;
+    if (patch[i] === '\n' && i < patch.length - 1 && ++lines > 500) return 'lines';
   }
-  return true;
+  return undefined;
 }
 
 /** Memory-only tab review state. A changed comparison resets all marks. */
@@ -55,7 +55,7 @@ export class ReviewStore {
       // A changed reviewed patch must be visible again, including large patches.
       const reopen = !reset && state?.viewed && !retain;
       if (reopen) this.expandedByUser.add(file.key);
-      const expanded = reopen || startsExpanded(file.patch);
+      const expanded = reopen || !largePatchReason(file.patch);
       next.set(file.key, retained ? state : { expanded, viewed: false });
     }
     this.expandedByUser = new Set([...this.expandedByUser].filter((key) => next.has(key)));

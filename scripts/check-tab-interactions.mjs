@@ -13,7 +13,7 @@ const source = (await readFile('src/plugins/diff/src/review-state.ts', 'utf8')).
 const model = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { ReviewStore } = await import(
+const { ReviewStore, largePatchReason } = await import(
   `data:text/javascript;base64,${Buffer.from(model).toString('base64')}`
 );
 const store = new ReviewStore();
@@ -53,6 +53,11 @@ assert.deepEqual(store.get('a'), { viewed: false, expanded: false });
 const large = new ReviewStore();
 const smallPatch = Array.from({ length: 500 }, () => '+x').join('\n');
 const hugePatch = smallPatch + '\n+x';
+assert.equal(largePatchReason(smallPatch), undefined);
+assert.equal(largePatchReason(hugePatch), 'lines');
+assert.equal(largePatchReason('é'.repeat(32769)), 'bytes');
+assert.equal(largePatchReason('x'.repeat(65536)), undefined);
+assert.equal(largePatchReason(undefined), undefined);
 const fixture = (patch) => [{ path: 'large.ts', key: 'large', patch, failed: false }];
 large.reconcile('same', fixture(smallPatch));
 assert.equal(large.get('large').expanded, true, '500 lines remain open');

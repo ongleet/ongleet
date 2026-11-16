@@ -1,7 +1,8 @@
 import { t } from '../../../../i18n';
 import { Button } from '../../../../components/Controls';
 import { Checkbox } from '../../../../components/Checkbox';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { largePatchReason } from '../review-state';
 
 /** Render file-level review controls and the expandable patch content. */
 export function FileReview({
@@ -29,6 +30,7 @@ export function FileReview({
   setExpanded: (value: boolean) => void;
   setViewed: (value: boolean) => void;
 }) {
+  const largeReason = useMemo(() => largePatchReason(patch), [patch]);
   return (
     <>
       <header>
@@ -60,6 +62,16 @@ export function FileReview({
           {t('Viewed')}
         </label>
       </header>
+      {!expanded && !viewed && !failed && largeReason && (
+        <div className="diff-large-placeholder">
+          <p>
+            {largeReason === 'bytes'
+              ? t('This diff exceeds 64 KiB. Load it to display the changes.')
+              : t('This diff exceeds 500 lines. Load it to display the changes.')}
+          </p>
+          <Button onClick={() => setExpanded(true)}>{t('Load diff')}</Button>
+        </div>
+      )}
       {expanded && <div className="diff-file-content">{children}</div>}
     </>
   );

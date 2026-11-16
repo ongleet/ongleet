@@ -1,5 +1,10 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Load diff': 'Charger le diff',
+  'This diff exceeds 64 KiB. Load it to display the changes.':
+    'Ce diff dépasse 64 Kio. Chargez-le pour afficher les modifications.',
+  'This diff exceeds 500 lines. Load it to display the changes.':
+    'Ce diff dépasse 500 lignes. Chargez-le pour afficher les modifications.',
   Search: 'Recherche',
   'Files to include': 'Fichiers à inclure',
   'Files to exclude': 'Fichiers à exclure',
