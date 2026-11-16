@@ -3,6 +3,7 @@ import { Button } from '../../../components/Controls';
 import { Checkbox } from '../../../components/Checkbox';
 import type { ReactNode } from 'react';
 
+/** Render file-level review controls and the expandable patch content. */
 export function FileReview({
   comment,
   path,

@@ -41,6 +41,8 @@ import { HighlightedDiff } from './syntax';
 import { ComparisonFields } from './ConfigurationEditor';
 import { settings, type Settings } from './settings';
 import { GitComparison, Lane, type Comparison, type FileChange, type CommitOption } from './git';
+
+/** Notify loading subscribers without invalidating every memoized patch viewer. */
 function createLoadingState() {
   let value = false;
   const listeners = new Set<() => void>();
@@ -59,7 +61,10 @@ function createLoadingState() {
     },
   };
 }
+
 const DiffLoading = createContext<ReturnType<typeof createLoadingState> | null>(null);
+
+/** Subscribe only the context-expansion control to shared loading state. */
 function ExpandContextButton({ expand }: { expand: () => void }) {
   const state = useContext(DiffLoading)!;
   const loading = useSyncExternalStore(state.subscribe, state.getSnapshot);
@@ -88,6 +93,8 @@ function ExpandContextButton({ expand }: { expand: () => void }) {
     </Button>
   );
 }
+
+/** Memoize parsed patches and render line discussions alongside selectable code. */
 const Viewer = memo(
   function Viewer({
     patch,
@@ -232,6 +239,7 @@ const Viewer = memo(
     previous.patch === next.patch && previous.discussionRevision === next.discussionRevision,
 );
 
+/** Coordinate comparison refreshes, review marks, discussions and scoped tab interactions. */
 export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
   const comments = useMemo(() => new CommentStore(session.id, tab.id), [session.id, tab.id]);
@@ -239,6 +247,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const [commentError, setCommentError] = useState('');
   const [compose, setCompose] = useState<Location>();
   const composeRevision = useRef('');
+
   const changeComments = <T,>(operation: () => T): T => {
     try {
       const value = operation();
@@ -250,9 +259,12 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       throw error;
     }
   };
+
   const targets = () => commentTargets(sdk.tabs, session.id, tab.id);
+
   const sendComment = (threadId: string, commentId: string, targetTabId: number) =>
     deliverComment(sdk.tabs, session.id, tab.id, comments.get(threadId), commentId, targetTabId);
+
   const discussion = (thread: import('./comments').Thread) => (
     <Discussion
       key={thread.id}
@@ -272,6 +284,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       }}
     />
   );
+
   const scopedGit = (current: () => boolean) =>
     new GitComparison((request) => {
       if (!current()) throw new Error(t('Comparison cancelled.'));
@@ -280,6 +293,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   const lane = useMemo(() => new Lane(sdk.process.cancel), [sdk]);
   const [config, setConfig] = useState<Settings>(() => settings(tab.config));
   const contextLines = useRef<Record<string, number>>({});
+
   const contextKey = (value: Settings, file: FileChange) =>
     JSON.stringify([
       value.folder,
@@ -310,8 +324,10 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   >(undefined);
   const reviews = useRef(new ReviewStore());
   const [, renderReviews] = useState(0);
+
   const comparisonIdentity = (value: Comparison) =>
     JSON.stringify([value.root, value.config, value.base, value.target]);
+
   const setReview = (
     paths: string[],
     field: 'viewed' | 'expanded',
@@ -342,6 +358,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     const container = viewer.current;
     if (!visible || !comparison || !container) return;
     let frame = 0;
+
     const update = () => {
       frame = 0;
       const top = container.getBoundingClientRect().top + 4;
@@ -351,6 +368,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       });
       if (current) selection.set(current.key);
     };
+
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);
     };
@@ -504,6 +522,8 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
     tagError,
     commitError,
   });
+
+  /** Replace prior Git work and publish current patches while retaining review and scroll context. */
   const refresh = () => {
     const generation = ++refreshGeneration.current;
     refreshBusy.current = true;
@@ -658,6 +678,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       setLoading(false);
       return;
     }
+
     const schedule = (event?: Event) => {
       if (event && (event.target !== window || document.hidden || refreshBusy.current)) return;
       diffDiagnostic('refresh-scheduled', { reason: event ? 'window-focus' : 'visibility' });
@@ -674,6 +695,8 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
       void lane.stop();
     };
   }, [visible, lane]);
+
+  /** Select a sidebar file and scroll its patch into view. */
   function select(file: FileChange) {
     selection.set(file.key);
     fileElements.current.get(file.key)?.scrollIntoView({ block: 'start' });
@@ -960,6 +983,7 @@ export function DiffContent({ tab, session, visible }: PluginContentProps) {
   );
 }
 
+/** Render directory groups with selection updates isolated from comparison state. */
 function FileTree({
   files,
   selection,
@@ -976,6 +1000,7 @@ function FileTree({
   const selected = useSyncExternalStore(selection.subscribe, selection.getSnapshot);
   useDiffRenderDiagnostic('FileTree', { files, selected, visible });
   const root = useMemo(() => buildFileTree(files), [files]);
+
   const render = (node: FileTreeNode) => (
     <ul>
       {[...node.directories]

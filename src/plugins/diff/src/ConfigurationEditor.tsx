@@ -5,6 +5,8 @@ import { useId } from 'react';
 import type { CommitOption } from './git';
 import type { ConfigurationEditorProps } from '../..';
 import { changeMode, defaults, type Settings } from './settings';
+
+/** Share comparison controls between the tab toolbar and configuration editor. */
 export function ComparisonFields({
   config,
   onChange,
@@ -102,6 +104,8 @@ export function ComparisonFields({
     </>
   );
 }
+
+/** Edit a validated configuration draft and display parsing or validation failures. */
 export function ConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
   let config = defaults;
   try {

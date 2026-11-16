@@ -19,8 +19,7 @@ const highlighter = tagHighlighter([
   { tag: tags.invalid, class: 'diff-syntax-invalid' },
 ]);
 
-// Parse each contiguous hunk independently: omitted source is unavailable, and
-// allocating placeholder lines up to a large file's line numbers is unnecessary.
+/** Parse contiguous hunks independently without allocating placeholders for omitted source lines. */
 export function highlightHunks(hunks: HunkData[], support: LanguageSupport): HunkTokens {
   const result: HunkTokens = { old: [], new: [] };
   for (const hunk of hunks) {
@@ -30,6 +29,7 @@ export function highlightHunks(hunks: HunkData[], support: LanguageSupport): Hun
       );
       const source = changes.map((change) => change.content).join('\n');
       const lines: TokenNode[][] = [[]];
+
       const append = (text: string, className?: string) => {
         text.split('\n').forEach((value, index) => {
           if (index) lines.push([]);

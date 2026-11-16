@@ -1,6 +1,10 @@
 import { SdkError } from '../../../sdk';
+
 export type ReviewState = { expanded: boolean; viewed: boolean };
+
 export type ReviewFile = { path: string; key: string; patch?: string; failed: boolean };
+
+/** Collapse patches above 64 KiB or 500 lines by default. */
 function startsExpanded(patch: string | undefined) {
   if (!patch) return true;
   if (new TextEncoder().encode(patch).length > 64 * 1024) return false;
@@ -10,6 +14,7 @@ function startsExpanded(patch: string | undefined) {
   }
   return true;
 }
+
 /** Memory-only tab review state. A changed comparison resets all marks. */
 export class ReviewStore {
   revision = crypto.randomUUID();
@@ -17,6 +22,8 @@ export class ReviewStore {
   private files: ReviewFile[] = [];
   private states = new Map<string, ReviewState>();
   private expandedByUser = new Set<string>();
+
+  /** Retain valid review choices across refreshes and reset them for a different comparison. */
   reconcile(identity: string, files: ReviewFile[]) {
     const reset = identity !== this.identity;
     if (reset) this.expandedByUser.clear();
@@ -51,9 +58,13 @@ export class ReviewStore {
     this.identity = identity;
     this.files = files;
   }
+
+  /** Return the current marks, defaulting unknown files to expanded and unviewed. */
   get(key: string): ReviewState {
     return this.states.get(key) ?? { expanded: true, viewed: false };
   }
+
+  /** Validate the entire batch before changing marks; viewed updates require the current revision. */
   set(paths: string[], field: 'expanded' | 'viewed', value: boolean, revision?: string) {
     if (field === 'viewed' && revision !== this.revision)
       throw new SdkError('revision_conflict', 'Comparison changed; read state again');

@@ -6,6 +6,7 @@ type TagService = {
   removeTag(name: string): Promise<SessionTag[]>;
 };
 
+/** Update this tab’s file-count tag while preserving unrelated session tags and ignoring stale work. */
 export async function updateDiffTag(
   service: TagService,
   tabId: number,

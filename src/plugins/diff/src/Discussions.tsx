@@ -3,6 +3,8 @@ import { t, getLocale } from '../../../i18n';
 import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../../components/Controls';
 import { useRef, useState } from 'react';
 import type { Location, Thread } from './comments';
+
+/** Keep unsent comment text local until submission so typing does not rerender the comparison. */
 export function Composer({
   submit,
   label = 'Comment',
@@ -54,6 +56,8 @@ export function Composer({
     </form>
   );
 }
+
+/** Render a thread with reply, edit, deletion and explicit recipient actions. */
 export function Discussion({
   thread,
   reply,

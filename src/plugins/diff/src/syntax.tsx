@@ -6,6 +6,7 @@ import { Diff } from 'react-diff-view';
 import { highlightHunks } from './syntax-tokens';
 import { useSdk } from '../../../sdk';
 
+/** Load the file language lazily and memoize hunk tokens using the active theme. */
 export function HighlightedDiff(props: React.ComponentProps<typeof Diff> & { path: string }) {
   const { path, ...diffProps } = props;
   const sdk = useSdk();

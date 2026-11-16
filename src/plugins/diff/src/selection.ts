@@ -1,4 +1,5 @@
 import type { SelectedCode } from '../../../components/tab-send';
+
 /** Read only selected code cells: gutters, discussion widgets and controls are excluded. */
 export function captureDiffSelection(
   viewer: HTMLElement,
@@ -12,6 +13,7 @@ export function captureDiffSelection(
   const range = selection.getRangeAt(0);
   if (!viewer.contains(range.startContainer) || !viewer.contains(range.endContainer))
     throw new Error('Keep the selection inside one diff file.');
+
   const codeCell = (node: Node) =>
     (node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement)?.closest(
       'td.diff-code',

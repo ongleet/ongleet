@@ -1,6 +1,7 @@
 import { DiffContent } from './Content';
 import { ConfigurationEditor } from './ConfigurationEditor';
 import { settings } from './settings';
+
 export default {
   Content: DiffContent,
   ConfigurationEditor,

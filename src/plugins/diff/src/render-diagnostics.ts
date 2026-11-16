@@ -1,9 +1,12 @@
 import { useEffect } from 'react';
 import { useSdk } from '../../../sdk';
 import { setRenderDiagnosticsEnabled, useRenderDiagnostic } from '../../../render-diagnostics';
+
 export { renderDiagnostic as diffDiagnostic } from '../../../render-diagnostics';
 
 let initialization: Promise<void> | undefined;
+
+/** Enable render diagnostics from the shared debug environment before recording commits. */
 export function useDiffRenderDiagnostic(component: string, inputs: Record<string, unknown>) {
   const sdk = useSdk();
   useEffect(() => {

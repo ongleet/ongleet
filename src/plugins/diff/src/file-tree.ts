@@ -2,6 +2,7 @@ import type { FileChange } from './git';
 
 export type FileTreeNode = { directories: Map<string, FileTreeNode>; files: FileChange[] };
 
+/** Group changed files by directory while preserving their input order within each folder. */
 export function buildFileTree(files: FileChange[]): FileTreeNode {
   const root: FileTreeNode = { directories: new Map(), files: [] };
   for (const file of files) {
@@ -16,8 +17,10 @@ export function buildFileTree(files: FileChange[]): FileTreeNode {
   return root;
 }
 
+/** Flatten the sidebar order: alphabetized subdirectories before files in each folder. */
 export function filesInTreeOrder(files: FileChange[]): FileChange[] {
   const result: FileChange[] = [];
+
   const visit = (node: FileTreeNode) => {
     for (const [, child] of [...node.directories].sort(([a], [b]) => a.localeCompare(b)))
       visit(child);

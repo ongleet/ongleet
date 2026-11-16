@@ -1,5 +1,6 @@
 import type { PluginSdk } from '../../../sdk';
 import { SdkError } from '../../../sdk';
+
 export type Location = {
   root: string;
   path: string;
@@ -8,7 +9,9 @@ export type Location = {
   context: string[];
   targetOffset?: number;
 };
+
 export type Comment = { id: string; text: string; origin: 'User' | 'Agent'; at: string };
+
 export type Thread = {
   id: string;
   original: Location;
@@ -16,9 +19,14 @@ export type Thread = {
   orphan: boolean;
   comments: Comment[];
 };
+
 export type CommentFile = { path: string; oldPath: string; patch?: string; failed?: boolean };
+
 const prefix = 'ongleet.diff-comments.v1.';
+
 const bytes = (text: string) => new TextEncoder().encode(text).length;
+
+/** Extract visible line numbers and text for one side of a unified patch. */
 export function patchLines(patch: string, side: 'old' | 'new') {
   const result: { line: number; text: string }[] = [];
   let old = 0,
@@ -40,6 +48,8 @@ export function patchLines(patch: string, side: 'old' | 'new') {
   }
   return result;
 }
+
+/** Check persisted anchor shape and bound its paths and captured context. */
 function validLocation(value: Location) {
   return (
     value &&
@@ -57,6 +67,8 @@ function validLocation(value: Location) {
     bytes(JSON.stringify(value.context)) <= 4096
   );
 }
+
+/** Validate stored threads, unique IDs and bounded comment contents. */
 function validThreads(threads: Thread[]) {
   const ids = new Set<string>();
   return threads.every((thread) => {
@@ -90,11 +102,14 @@ function validThreads(threads: Thread[]) {
     });
   });
 }
+
+/** Persist bounded discussions per session and tab, retaining original anchors across refreshes. */
 export class CommentStore {
   threads: Thread[] = [];
   error = '';
   private key: string;
   private storage?: Storage;
+
   constructor(sessionId: number, tabId: number, storage?: Storage) {
     this.key = `${prefix}${sessionId}.${tabId}`;
     try {
@@ -111,6 +126,8 @@ export class CommentStore {
       this.error = `Could not load comments: ${String(error)}`;
     }
   }
+
+  /** Persist the next discussion snapshot before publishing it in memory. */
   private commit(threads: Thread[]) {
     const raw = JSON.stringify({ version: 1, threads });
     if (bytes(raw) > 1024 * 1024)
@@ -125,16 +142,22 @@ export class CommentStore {
     }
     this.threads = threads;
   }
+
+  /** Validate comment text and assign its ID, origin label and timestamp. */
   private comment(text: string, origin: 'User' | 'Agent'): Comment {
     if (!text.trim() || bytes(text) > 4096)
       throw new SdkError('invalid_arguments', 'Comment must contain text and fit in 4 KiB');
     return { id: crypto.randomUUID(), text, origin, at: new Date().toISOString() };
   }
+
+  /** Find a thread or reject an unknown interaction ID. */
   get(id: string) {
     const thread = this.threads.find((t) => t.id === id);
     if (!thread) throw new SdkError('invalid_arguments', 'Unknown thread ID');
     return thread;
   }
+
+  /** Persist a new thread with both its original and current location. */
   add(location: Location, text: string, origin: 'User' | 'Agent') {
     if (!validLocation(location))
       throw new SdkError('invalid_arguments', 'Location exceeds comment bounds');
@@ -148,6 +171,8 @@ export class CommentStore {
     this.commit([...this.threads, thread]);
     return { threadId: thread.id, commentId: thread.comments[0].id };
   }
+
+  /** Append a validated reply without changing the thread anchor. */
   reply(id: string, text: string, origin: 'User' | 'Agent') {
     const thread = this.get(id),
       comment = this.comment(text, origin);
@@ -156,6 +181,8 @@ export class CommentStore {
     );
     return { threadId: id, commentId: comment.id };
   }
+
+  /** Replace comment text while preserving its ID, origin and timestamp. */
   edit(threadId: string, commentId: string, text: string) {
     const thread = this.get(threadId);
     if (!thread.comments.some((comment) => comment.id === commentId))
@@ -176,11 +203,15 @@ export class CommentStore {
     );
     return { threadId, commentId };
   }
+
+  /** Remove an existing thread and all of its replies. */
   delete(id: string) {
     this.get(id);
     this.commit(this.threads.filter((t) => t.id !== id));
     return { deleted: true };
   }
+
+  /** Capture bounded file or adjacent-line context from an available patch. */
   anchor(root: string, file: CommentFile, side?: 'old' | 'new', line?: number): Location {
     if (file.patch === undefined || file.failed)
       throw new SdkError('unavailable', 'Patch unavailable');
@@ -207,6 +238,8 @@ export class CommentStore {
       throw new SdkError('invalid_arguments', 'Line context exceeds 4 KiB');
     return { root, path: file.path, side, line, context, targetOffset: index - start };
   }
+
+  /** Reattach original context only when it matches uniquely; mark missing or ambiguous anchors orphaned. */
   reconcile(root: string, files: CommentFile[]) {
     const threads = this.threads.map((thread) => {
       const anchor = thread.original;
@@ -249,6 +282,8 @@ export class CommentStore {
     });
     if (JSON.stringify(threads) !== JSON.stringify(this.threads)) this.commit(threads);
   }
+
+  /** Page individual comments within the response byte bound, even for long threads. */
   page(offset = 0, limit = 20) {
     // Page individual comments so even a long thread cannot exceed the response bound.
     const all = this.threads.flatMap((t) =>
@@ -276,6 +311,8 @@ export class CommentStore {
     };
   }
 }
+
+/** Build a bounded agent message that prioritizes the selected comment and captured context. */
 export function commentMessage(tabId: number, thread: Thread, commentId: string) {
   const selected = thread.comments.find((c) => c.id === commentId);
   if (!selected) throw new SdkError('invalid_arguments', 'Unknown comment ID');
@@ -293,6 +330,7 @@ export function commentMessage(tabId: number, thread: Thread, commentId: string)
   return result + excerpt;
 }
 
+/** Find other open tabs in this session that currently accept text. */
 export async function commentTargets(tabs: PluginSdk['tabs'], sessionId: number, tabId: number) {
   const list = await tabs.list({ sessionId });
   const candidates = await Promise.all(
@@ -304,6 +342,8 @@ export async function commentTargets(tabs: PluginSdk['tabs'], sessionId: number,
     (t) => t.capabilities?.available && t.capabilities.availableActions.includes('send-text'),
   );
 }
+
+/** Revalidate the recipient and require write acknowledgement without automatic retries. */
 export async function deliverComment(
   tabs: PluginSdk['tabs'],
   sessionId: number,

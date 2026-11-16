@@ -1,6 +1,8 @@
 import type { ProcessRequest, ProcessResult } from '../../../sdk';
 import { settings, type Settings } from './settings.ts';
+
 export type CommitOption = { hash: string; subject: string };
+
 export type FileChange = {
   status: string;
   oldPath: string;
@@ -8,6 +10,7 @@ export type FileChange = {
   key: string;
   untracked?: boolean;
 };
+
 export type Comparison = {
   root: string;
   base: string;
@@ -19,7 +22,10 @@ export type Comparison = {
   targetLabel: string;
   detectedBase: string;
 };
+
 export type Runner = (request: ProcessRequest) => Promise<ProcessResult>;
+
+/** Decode Git C-style filename quoting, rejecting invalid UTF-8 and escapes. */
 export function decodePath(value: string): string {
   if (!value.startsWith('"')) return value;
   if (!value.endsWith('"')) throw new Error('Malformed Git filename.');
@@ -55,6 +61,8 @@ export function decodePath(value: string): string {
     throw new Error('Non-UTF-8 filenames are unsupported.');
   }
 }
+
+/** Parse name-status output while retaining both paths for renames. */
 export function parseFiles(output: string): FileChange[] {
   return output
     .split('\n')
@@ -68,7 +76,8 @@ export function parseFiles(output: string): FileChange[] {
       return { status, oldPath, path, key: JSON.stringify([oldPath, path]) };
     });
 }
-// Git quotes control/non-ASCII bytes in diff headers with core.quotePath=true.
+
+/** Quote diff header paths consistently with Git’s core.quotePath=true output. */
 function headerPath(path: string) {
   const bytes = new TextEncoder().encode(path);
   if (!bytes.some((byte) => byte < 32 || byte >= 127 || byte === 34 || byte === 92)) return path;
@@ -98,12 +107,18 @@ function headerPath(path: string) {
     '"'
   );
 }
+
 export type PatchResult = { file: FileChange; text?: string; error?: string };
+
+/** Resolve comparison endpoints and load patches through the scoped process runner. */
 export class GitComparison {
   private run: Runner;
+
   constructor(run: Runner) {
     this.run = run;
   }
+
+  /** Run bounded, noninteractive Git commands without refreshing the index or fetching. */
   async git(cwd: string, args: string[], diffExit = false) {
     const result = await this.run({
       executable: 'git',
@@ -127,6 +142,8 @@ export class GitComparison {
       );
     return result.stdout;
   }
+
+  /** Resolve the configured comparison and collect tracked and optional untracked changes. */
   async compare(value: Settings): Promise<Comparison> {
     const config = settings(value);
     if (!config.folder) throw new Error('Choose an absolute repository folder.');
@@ -138,6 +155,7 @@ export class GitComparison {
     const root = bare
       ? config.folder
       : (await this.git(config.folder, ['rev-parse', '--show-toplevel'])).replace(/\n$/, '');
+
     const resolve = async (ref: string, kind: string) =>
       (
         await this.git(root, ['rev-parse', '--verify', '--end-of-options', `${ref}^{${kind}}`])
@@ -233,6 +251,8 @@ export class GitComparison {
     }
     return comparison;
   }
+
+  /** List up to 200 HEAD commits for the starting-commit selector. */
   async commits(folder: string): Promise<CommitOption[]> {
     const output = await this.git(folder, [
       'log',
@@ -250,6 +270,8 @@ export class GitComparison {
         return { hash: line.slice(0, separator), subject: line.slice(separator + 1) };
       });
   }
+
+  /** List conventional endpoints and up to 1,000 local, remote and tag references. */
   async references(folder: string): Promise<string[]> {
     return [
       'HEAD',
@@ -269,6 +291,8 @@ export class GitComparison {
         .filter(Boolean),
     ];
   }
+
+  /** Use the same endpoints and diff options for file lists and patches. */
   diffArgs(c: Comparison) {
     return [
       'diff',
@@ -285,6 +309,7 @@ export class GitComparison {
       ...(c.target ? [c.target] : []),
     ];
   }
+
   /** Bounded batches; split failed batches down to independent per-file errors. */
   async *patches(
     c: Comparison,
@@ -293,6 +318,7 @@ export class GitComparison {
     current: () => boolean = () => true,
   ): AsyncGenerator<PatchResult> {
     const self = this;
+
     async function* load(
       group: FileChange[],
       context: number,
@@ -370,6 +396,7 @@ export class GitComparison {
     for (const file of untracked) yield* load([file], contextFor(file));
   }
 
+  /** Load one literal-path patch, comparing untracked files against an empty file. */
   patch(c: Comparison, file: FileChange, context = 3) {
     if (file.untracked)
       return this.git(
@@ -401,14 +428,18 @@ export class GitComparison {
     ]);
   }
 }
-// All operations share a serial lane. Cancellation joins before replacement starts.
+
+/** Serialize operations, joining cancellation before replacement work starts. */
 export class Lane {
   generation = 0;
   private tail: Promise<unknown> = Promise.resolve();
   private cancel: () => Promise<void>;
+
   constructor(cancel: () => Promise<void>) {
     this.cancel = cancel;
   }
+
+  /** Invalidate earlier work and wait for cancellation before starting its replacement. */
   replace<T>(work: (current: () => boolean) => Promise<T>): Promise<T | undefined> {
     const generation = ++this.generation;
     const cancelled = this.cancel();
@@ -422,6 +453,8 @@ export class Lane {
     this.tail = next;
     return next;
   }
+
+  /** Invalidate pending work and join cancellation through the shared serial lane. */
   stop() {
     return this.replace(async () => {});
   }

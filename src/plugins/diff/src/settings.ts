@@ -6,6 +6,7 @@ export type Settings = {
   compareFrom: string;
   includeUncommitted: boolean;
 };
+
 export const defaults: Settings = {
   folder: null,
   mode: 'branch',
@@ -14,6 +15,8 @@ export const defaults: Settings = {
   compareFrom: 'divergence',
   includeUncommitted: false,
 };
+
+/** Merge defaults, migrate legacy comparison modes and validate saved configuration. */
 export function settings(value: unknown): Settings {
   const saved = value as Partial<Settings> & { mode?: string };
   const config = { ...defaults, ...saved };
@@ -43,6 +46,8 @@ export function settings(value: unknown): Settings {
       throw new Error('Enter a nonempty revision that does not start with a dash.');
   return config;
 }
+
+/** Switch comparison mode while retaining the saved endpoints and options. */
 export function changeMode(config: Settings, mode: Settings['mode']): Settings {
   return { ...config, mode };
 }
