@@ -11,7 +11,7 @@
   "contextDefaults": {
     "folder": "session.directory"
   },
-  "capabilities": ["fs", "desktop"],
+  "capabilities": ["fs", "desktop", "tabs"],
   "runtime": null,
   "examples": [{}],
   "configSchema": {

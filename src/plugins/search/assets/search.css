@@ -1,6 +1,8 @@
 .search-panel {
+  display: flex;
+  flex-direction: column;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden;
 }
 .search-toolbar {
   display: flex;
@@ -16,8 +18,12 @@
   display: flex;
   gap: 16px;
   min-height: 0;
+  flex: 1;
+  overflow: hidden;
 }
 .search-matches {
+  overflow: auto;
+  margin: 0;
   flex: 1;
   min-width: 0;
 }
@@ -33,12 +39,10 @@
   overflow-wrap: anywhere;
 }
 .search-preview {
+  display: flex;
+  overflow: hidden;
   flex: 1;
   min-width: 0;
-}
-.search-preview pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .search-filters {

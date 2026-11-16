@@ -34,6 +34,7 @@ export function TextEditor({
   visible,
   back,
   deleted,
+  revealLine,
 }: {
   id: number;
   sessionId: number;
@@ -41,6 +42,7 @@ export function TextEditor({
   visible: boolean;
   back: () => Promise<void>;
   deleted: () => Promise<void>;
+  revealLine?: number;
 }) {
   const sdk = useSdk();
   const { readText, writeText } = sdk.desktop;
@@ -325,6 +327,16 @@ export function TextEditor({
       fileEditors.delete(id);
     };
   }, [id, document.path]);
+  useEffect(() => {
+    const editor = view.current;
+    if (!editor || revealLine === undefined) return;
+    const line = editor.state.doc.line(Math.max(1, Math.min(revealLine, editor.state.doc.lines)));
+    editor.dispatch({
+      selection: { anchor: line.from },
+      effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+    });
+    editor.focus();
+  }, [document.path, revealLine]);
   useEffect(() => {
     view.current?.dispatch({
       effects: wrapCompartment.current.reconfigure(wrap ? EditorView.lineWrapping : []),

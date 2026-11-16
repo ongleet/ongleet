@@ -5,6 +5,9 @@ import { t } from '../../../i18n';
 import { useSdk, type FileSearch } from '../../../sdk';
 import type { PluginContentProps } from '../../types';
 import type { ConfigurationEditorProps } from '../..';
+import { TextEditor, type TextDocument } from '../../files/src/TextEditor';
+import { fileEditors } from '../../files/src/editor-guards';
+import { FileDetails, editorLimitation, type UnsupportedFile } from '../../files/src/FileDetails';
 import '../assets/search.css';
 
 function ConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
@@ -26,7 +29,7 @@ function ConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
   );
 }
 
-function Content({ tab, visible }: PluginContentProps) {
+function Content({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
   const folder = (tab.config as { folder?: string }).folder ?? '';
   const [query, setQuery] = useState('');
@@ -39,11 +42,53 @@ function Content({ tab, visible }: PluginContentProps) {
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<FileSearch['matches'][number]>();
+  const [editing, setEditing] = useState<TextDocument>();
+  const [details, setDetails] = useState<UnsupportedFile>();
+  const [opening, setOpening] = useState(false);
+  const openingRef = useRef(false);
+  async function closeFile() {
+    setEditing(undefined);
+    setDetails(undefined);
+    setSelected(undefined);
+  }
+  async function openMatch(match: FileSearch['matches'][number]) {
+    if (openingRef.current) return;
+    const checkEditor = () => {
+      const editor = fileEditors.get(tab.id);
+      if (editor && (editor.busy || !editor.canSwitch()))
+        throw new Error('Save or close the current file before opening another file.');
+    };
+    openingRef.current = true;
+    setOpening(true);
+    setError('');
+    try {
+      checkEditor();
+      if (editing?.path !== match.path && details?.path !== match.path) {
+        let document: TextDocument | null = null;
+        let reason = 'This file is not supported UTF-8 text.';
+        try {
+          document = await sdk.fs.readText(match.path);
+        } catch (error) {
+          const limitation = editorLimitation(error);
+          if (!limitation) throw error;
+          reason = limitation;
+        }
+        checkEditor();
+        setEditing(document ?? undefined);
+        setDetails(document ? undefined : { path: match.path, reason });
+      }
+      setSelected(match);
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      openingRef.current = false;
+      setOpening(false);
+    }
+  }
   const queue = useRef(Promise.resolve());
   useEffect(() => {
     let cancelled = false;
     setError('');
-    setSelected(undefined);
     setResult(undefined);
     setBusy(!!query && !!folder);
     if (!query || !folder) return;
@@ -150,7 +195,8 @@ function Content({ tab, visible }: PluginContentProps) {
                 type="button"
                 title={match.path}
                 aria-pressed={selected === match}
-                onClick={() => setSelected(match)}
+                disabled={opening}
+                onClick={() => void openMatch(match)}
               >
                 <strong>
                   {match.relativePath}:{match.line}
@@ -160,22 +206,22 @@ function Content({ tab, visible }: PluginContentProps) {
             </li>
           ))}
         </ul>
-        {selected && (
-          <section className="search-preview">
-            <h3>
-              {selected.relativePath}:{selected.line}
-            </h3>
-            <pre>{selected.text}</pre>
-            <Button
-              type="button"
-              onClick={() =>
-                void sdk.desktop.openFile(selected.path).catch((e) => setError(String(e)))
-              }
-            >
-              {t('Open file')}
-            </Button>
-          </section>
-        )}
+        <section className="search-preview" aria-busy={opening}>
+          {editing ? (
+            <TextEditor
+              key={editing.path}
+              id={tab.id}
+              sessionId={session.id}
+              document={editing}
+              visible={visible}
+              revealLine={selected?.line}
+              back={closeFile}
+              deleted={closeFile}
+            />
+          ) : details ? (
+            <FileDetails key={details.path} file={details} close={closeFile} deleted={closeFile} />
+          ) : null}
+        </section>
       </div>
     </TabPanel>
   );
