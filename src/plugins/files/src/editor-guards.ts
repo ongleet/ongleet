@@ -2,7 +2,14 @@ import { t } from '../../../i18n';
 // Keep editors mounted across navigation, and guard explicit GUI destruction.
 export const fileEditors = new Map<
   number,
-  { path: string; dirty: boolean; busy: boolean; conflict?: boolean; canSwitch: () => boolean }
+  {
+    path: string;
+    dirty: boolean;
+    busy: boolean;
+    conflict?: boolean;
+    flush?: () => void;
+    canSwitch: () => boolean;
+  }
 >();
 export async function allowEditorClose(
   ids: number[],
@@ -10,6 +17,7 @@ export async function allowEditorClose(
 ) {
   const editors = ids.flatMap((id) => fileEditors.get(id) ?? []);
   if (editors.some((editor) => editor.busy)) return false;
+  editors.forEach((editor) => editor.flush?.());
   const dirty = editors.filter((editor) => editor.dirty);
   return (
     dirty.length === 0 ||

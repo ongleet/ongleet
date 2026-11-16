@@ -68,17 +68,27 @@ export function TextEditor({
   const dialog = useRef<HTMLDialogElement>(null);
   const saveRef = useRef<() => void>(() => {});
   const statusRef = useRef({ dirty: false, busy: false });
-  function publish(nextDirty: boolean, nextBusy: boolean) {
+  const draftTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  function flushDraft() {
+    clearTimeout(draftTimer.current);
+    draftTimer.current = undefined;
+    if (!view.current || !persistDraft.current) return;
+    try {
+      storeDraft(id, baseline.current, view.current.state.doc.toString());
+      setDraftError('');
+    } catch (error) {
+      setDraftError(
+        `Could not store the local draft: ${String(error)}. Keep this editor open or save the file.`,
+      );
+    }
+  }
+  function publish(nextDirty: boolean, nextBusy: boolean, deferDraft = false) {
     if (!view.current) return;
-    if (persistDraft.current) {
-      try {
-        storeDraft(id, baseline.current, view.current.state.doc.toString());
-        setDraftError('');
-      } catch (error) {
-        setDraftError(
-          `Could not store the local draft: ${String(error)}. Keep this editor open or save the file.`,
-        );
-      }
+    if (deferDraft) {
+      clearTimeout(draftTimer.current);
+      draftTimer.current = setTimeout(flushDraft, 500);
+    } else {
+      flushDraft();
     }
     statusRef.current = { dirty: nextDirty, busy: nextBusy };
     fileEditors.set(id, {
@@ -88,9 +98,11 @@ export function TextEditor({
       get conflict() {
         return confirmationRef.current === 'overwrite';
       },
+      flush: flushDraft,
       canSwitch: () => {
         if (saving.current || confirmationRef.current) return false;
         if (!statusRef.current.dirty) return true;
+        flushDraft();
         try {
           return readDraft(id, baseline.current.path)?.text === view.current?.state.doc.toString();
         } catch {
@@ -242,7 +254,7 @@ export function TextEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               persistDraft.current = true;
-              publish(update.state.doc.toString() !== baseline.current.text, saving.current);
+              publish(update.state.doc.toString() !== baseline.current.text, saving.current, true);
             }
             if (update.selectionSet || update.docChanged) {
               const head = update.state.selection.main.head;
@@ -304,6 +316,7 @@ export function TextEditor({
     publish(initialText !== baseline.current.text, false);
     editor.focus();
     return () => {
+      flushDraft();
       view.current = null;
       mergeJob.current?.cancel();
       unsubscribeTheme();
@@ -318,7 +331,10 @@ export function TextEditor({
     });
   }, [wrap]);
   useEffect(() => {
-    if (!visible) menu.current?.hidePopover();
+    if (!visible) {
+      flushDraft();
+      menu.current?.hidePopover();
+    }
   }, [visible]);
   useEffect(() => {
     if (visible) view.current?.requestMeasure();
