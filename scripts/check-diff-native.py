@@ -166,10 +166,13 @@ def run(args):
                 mark('Native lazy parser renders old/new syntax, multiline comments, literal text and preserved diff background')
                 (directory/'syntax-dark.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
                 client.click('.titlebar-menu > summary')
-                client.click("//button[normalize-space()='Appearance…']", 'xpath')
-                client.js("const el=document.querySelector('dialog select');el.value='light-plus';el.dispatchEvent(new Event('change',{bubbles:true}));")
-                native.wait_for(lambda: probe()['numberColor'] != first['numberColor'], 'live syntax theme update')
-                client.click("//button[normalize-space()='Done']", 'xpath')
+                client.click("//button[normalize-space()='Configure…']", 'xpath')
+                client.click('#settings-appearance')
+                client.js("const el=document.querySelectorAll('.appearance-settings select')[1];el.value='light-plus';el.dispatchEvent(new Event('change',{bubbles:true}));")
+                assert probe()['numberColor'] == first['numberColor'], 'Unsaved theme draft changed rendered syntax'
+                client.click("//button[normalize-space()='Save configuration']", 'xpath')
+                native.wait_for(lambda: probe()['numberColor'] != first['numberColor'], 'saved syntax theme update')
+                client.click("//dialog[@open]//button[normalize-space()='Close']", 'xpath')
                 second_probe=probe()
                 assert second_probe['keywordColor'] != first['keywordColor'], second_probe
                 (directory/'syntax-light.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
@@ -418,7 +421,9 @@ def run(args):
             native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'focus refresh')
             mark('Tab activation and focus event refresh visible comparison')
 
-            client.js("const inputs=document.querySelectorAll('.diff-toolbar input'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(inputs[0],'missing'); inputs[0].dispatchEvent(new Event('input',{bubbles:true}));")
+            # Revision text fields are available in refs mode, not branch mode.
+            mode('refs')
+            client.fill('.diff-toolbar input[list]', 'missing')
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return !!document.querySelector('.diff-panel [role=alert]')"),'invalid ref')
             assert client.js("return document.querySelector('.diff-code-insert').textContent.includes('refreshed') && document.querySelector('.diff-summary').textContent.includes('Stale')")
@@ -429,7 +434,7 @@ def run(args):
             client.session=None
             start()
             native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'restart comparison')
-            assert client.js("return document.querySelectorAll('.diff-toolbar input')[0].value==='HEAD'")
+            assert client.js("return document.querySelector('.diff-mode-field select').value==='branch' && document.querySelectorAll('.diff-toolbar select')[1].value==='divergence' && document.querySelector('.diff-uncommitted-field input').checked"), 'Failed comparison overwrote the last successful branch configuration'
             mark('Restart restores successful settings and fetches fresh patch')
             assert client.js("return Number(document.querySelector('.diff-sidebar .file-sidebar-resizer').getAttribute('aria-valuenow'))") == initial_width+50
             client.click('.diff-sidebar .file-sidebar-resizer')

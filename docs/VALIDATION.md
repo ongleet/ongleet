@@ -445,9 +445,15 @@ The harness now explicitly opens folders before testing collapse and uses a
 short-line fixture for compact discussion-row checks; general checks retain
 the long-line wrapping fixture.
 
-The broader run passed 17 checks before the previously observed invalid-reference
-alert timeout (`/tmp/ongleet-diff-native-eblixipk/report.json`). Syntax rendering
-passed its first check, but theme/reload checks stopped at the outdated
-Appearance menu selector (`/tmp/ongleet-diff-native-0nohs4le/report.json`).
-Both runs cleaned up without survivors. These runs do not establish a complete
-native-suite pass, live desktop performance, or physical input acceptance.
+Follow-up fixture repairs select refs mode before entering an invalid revision,
+verify that restart restores the last successful branch configuration, and open
+Appearance through Configure before saving a theme draft. An unsaved theme must
+leave the rendered syntax unchanged; saving updates colors and survives reload.
+The general Diff run now passes all 25 checks, including stale-result retention,
+restart, native Git cancellation/reaping and sibling PTY preservation. Syntax
+acceptance passes all four checks, including theme persistence and unchanged Git
+index contents. Reports: `/tmp/ongleet-diff-native-8_ilsb9n/report.json` and
+`/tmp/ongleet-diff-native-s2dxs85f/report.json`; both report zero cleanup survivors.
+These results resolve the earlier invalid-reference and Appearance-selector
+failures. They do not establish live desktop performance, physical input
+acceptance, or a pass of every optional native scenario.
