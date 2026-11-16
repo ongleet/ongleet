@@ -74,12 +74,28 @@ assert.equal(large.get('large').expanded, false, 'large single lines start close
 large.reconcile('unicode', fixture('é'.repeat(32769)));
 assert.equal(large.get('large').expanded, false, 'size threshold uses UTF-8 bytes');
 large.set(['large.ts'], 'viewed', true, large.revision);
+large.reconcile('unicode', fixture('é'.repeat(32769)));
+assert.deepEqual(
+  large.get('large'),
+  { expanded: false, viewed: true },
+  'unchanged large viewed patches remain viewed and collapsed',
+);
 large.reconcile('unicode', fixture(hugePatch));
 assert.deepEqual(
   large.get('large'),
-  { expanded: false, viewed: false },
-  'changed large viewed patches clear the mark and retain large-file default',
+  { expanded: true, viewed: false },
+  'changed large viewed patches clear the mark and reopen',
 );
+large.reconcile('unicode', fixture(hugePatch));
+assert.deepEqual(
+  large.get('large'),
+  { expanded: true, viewed: false },
+  'automatically reopened patches stay open on subsequent refreshes',
+);
+large.set(['large.ts'], 'expanded', false);
+large.reconcile('unicode', fixture(hugePatch));
+assert.equal(large.get('large').expanded, false, 'manual collapse overrides automatic reopening');
+large.set(['large.ts'], 'viewed', true, large.revision);
 large.reconcile('unicode', fixture('small again'));
 assert.equal(
   large.get('large').expanded,

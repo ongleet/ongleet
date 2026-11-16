@@ -52,7 +52,10 @@ export class ReviewStore {
           (!state.viewed && this.expandedByUser.has(file.key)));
       if (!retain) this.expandedByUser.delete(file.key);
       const retained = retain && (state.viewed || this.expandedByUser.has(file.key));
-      const expanded = startsExpanded(file.patch);
+      // A changed reviewed patch must be visible again, including large patches.
+      const reopen = !reset && state?.viewed && !retain;
+      if (reopen) this.expandedByUser.add(file.key);
+      const expanded = reopen || startsExpanded(file.patch);
       next.set(file.key, retained ? state : { expanded, viewed: false });
     }
     this.expandedByUser = new Set([...this.expandedByUser].filter((key) => next.has(key)));

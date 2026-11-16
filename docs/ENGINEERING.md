@@ -128,6 +128,9 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 
 Small Diff patches remain expanded regardless of file count. Patches above
 500 lines or 64 KiB still start collapsed; manual review choices are retained.
+Viewed marks are tied to the exact patch text in memory. When that text changes,
+the mark clears and the file reopens regardless of size, staying open on refresh
+until the reader changes its expansion state. Unchanged patches retain their marks.
 Expanded file contents use `content-visibility: auto` with a remembered intrinsic
 block size, allowing the browser to skip offscreen layout and paint while keeping
 DOM selections and discussions mounted. Headers remain outside size containment
