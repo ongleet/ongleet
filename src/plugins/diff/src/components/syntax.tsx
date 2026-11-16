@@ -1,10 +1,10 @@
-import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
+import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
 import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { LanguageDescription, type LanguageSupport } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { Diff } from 'react-diff-view';
-import { highlightHunks } from './syntax-tokens';
-import { useSdk } from '../../../sdk';
+import { highlightHunks } from '../syntax-tokens';
+import { useSdk } from '../../../../sdk';
 
 /** Load the file language lazily and memoize hunk tokens using the active theme. */
 export function HighlightedDiff(props: React.ComponentProps<typeof Diff> & { path: string }) {

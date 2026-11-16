@@ -428,3 +428,26 @@ replies, and WebView reattachment without duplicate historical replies. Report:
 `/tmp/ongleet-diff-native-orj9ool_/report.json`; no cleanup survivors. The frontend
 build, terminal-input suite and WASM suite passed. These checks do not measure
 Diff typing performance or certify other OSC color operations/physical Wayland.
+
+## Diff component split (2026-11-16)
+
+The Diff tab now composes UI from `components/` and retains its comparison,
+discussion, scroll and interaction state in `hooks/`. Production frontend/native
+builds, Prettier, Diff model checks and localization checks pass.
+
+Private Xvfb/WebKitGTK navigation passed 11 checks, including sidebar resizing,
+tab/session navigation, refresh anchoring and retained unchanged patch DOM.
+Discussion acceptance passed 10 checks, including inline UI creation, CLI replies,
+stale revision rejection, acknowledged PTY delivery, persistence and cleanup.
+Reports: `/tmp/ongleet-diff-native-_ctvaam6/report.json` and
+`/tmp/ongleet-diff-native-d1prvsz9/report.json`; both report zero cleanup survivors.
+The harness now explicitly opens folders before testing collapse and uses a
+short-line fixture for compact discussion-row checks; general checks retain
+the long-line wrapping fixture.
+
+The broader run passed 17 checks before the previously observed invalid-reference
+alert timeout (`/tmp/ongleet-diff-native-eblixipk/report.json`). Syntax rendering
+passed its first check, but theme/reload checks stopped at the outdated
+Appearance menu selector (`/tmp/ongleet-diff-native-0nohs4le/report.json`).
+Both runs cleaned up without survivors. These runs do not establish a complete
+native-suite pass, live desktop performance, or physical input acceptance.

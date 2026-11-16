@@ -1,10 +1,10 @@
-import { t } from '../../../i18n';
-import { Input, Select } from '../../../components/Controls';
-import { Checkbox } from '../../../components/Checkbox';
+import { t } from '../../../../i18n';
+import { Input, Select } from '../../../../components/Controls';
+import { Checkbox } from '../../../../components/Checkbox';
 import { useId } from 'react';
-import type { CommitOption } from './git';
-import type { ConfigurationEditorProps } from '../..';
-import { changeMode, defaults, type Settings } from './settings';
+import type { CommitOption } from '../git';
+import type { ConfigurationEditorProps } from '../../..';
+import { changeMode, defaults, type Settings } from '../settings';
 
 /** Share comparison controls between the tab toolbar and configuration editor. */
 export function ComparisonFields({

@@ -1,5 +1,5 @@
 import { DiffContent } from './Content';
-import { ConfigurationEditor } from './ConfigurationEditor';
+import { ConfigurationEditor } from './components/ConfigurationEditor';
 import { settings } from './settings';
 
 export default {

@@ -39,7 +39,8 @@ def run(args):
     file.write_text('original\n')
     git('add', '.')
     git('commit', '-m', 'next')
-    file.write_text('changed ' + 'long line ' * 80 + 'x' * 400 + '\n')
+    # Discussion hover checks need a single visual row; general Diff checks exercise wrapping.
+    file.write_text('changed\n' if args.comments_only else 'changed ' + 'long line ' * 80 + 'x' * 400 + '\n')
     second.write_text('second changed\n')
     if args.syntax_only:
         (folder/'syntax.ts').write_text('/* comment\n * continued */\nconst value = 42;\nconsole.log("<tag>&");\n')
@@ -366,6 +367,8 @@ def run(args):
             native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('refreshed'))"),'refresh')
             assert client.js("return !document.querySelector('.diff-file input').checked && !!document.querySelector('.diff-file:first-child .diff-file-content')")
             mark('Changed patch clears viewed marker, expands file and displays fresh contents')
+            # The scroll scenario leaves folders closed; start the collapse check open.
+            client.js("for (const folder of document.querySelectorAll('.diff-layout nav details')) folder.open=true")
             client.click('.diff-layout nav summary')
             assert client.js("return !document.querySelector('.diff-layout nav details').open")
             client.click('.diff-layout nav summary')

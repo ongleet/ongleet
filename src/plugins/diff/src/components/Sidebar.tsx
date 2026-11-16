@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { FileSidebar } from '../../../components/FileSidebar';
+import { FileSidebar } from '../../../../components/FileSidebar';
 
 /** Use the shared file sidebar layout for comparison navigation. */
 export function DiffSidebar({ children }: { children: ReactNode }) {

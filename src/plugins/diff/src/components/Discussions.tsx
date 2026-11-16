@@ -1,8 +1,8 @@
-import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
-import { t, getLocale } from '../../../i18n';
-import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../../components/Controls';
+import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
+import { t, getLocale } from '../../../../i18n';
+import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../../../components/Controls';
 import { useRef, useState } from 'react';
-import type { Location, Thread } from './comments';
+import type { Location, Thread } from '../comments';
 
 /** Keep unsent comment text local until submission so typing does not rerender the comparison. */
 export function Composer({
