@@ -78,6 +78,7 @@ export const PatchViewer = memo(
           {files.map((file, i) =>
             file.hunks.length ? (
               <HighlightedDiff
+                patch={patch}
                 key={i}
                 path={file.type === 'delete' ? file.oldPath : file.newPath}
                 widgets={Object.fromEntries(

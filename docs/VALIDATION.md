@@ -194,6 +194,21 @@ WebKitGTK (`9yctl2kl`, `giw1p9hk`), with no cleanup survivors. This establishes
 rendering behavior, not a measured latency or CPU improvement. Native discussion
 checks also passed (`kf53i86v`) with no cleanup survivors.
 
+On 2026-11-16, `--syntax-only` passed six native WebKitGTK checks (`bibwgzwg`):
+plain rendering before worker delivery, old/new syntax, live themes, cancellation
+across two pending refreshes, reload and unchanged Git index. No cleanup survivors.
+
+`mise exec -- node scripts/profile-diff-syntax.mjs` compares synchronous parsing
+against the production worker using Node threads and a 5 ms timer. For twenty
+400-line TypeScript patches, one run measured a maximum timer gap of 176 ms
+synchronously versus 7 ms with the worker; completion took 171 ms versus 296 ms.
+This isolates parser/transport work, including cold worker startup, and does not
+measure WebKit rendering, input latency or total application CPU. The worker
+client tests cover real-thread tokens, shared requests, cancellation, stale
+replies, cache eviction, startup/crash fallback and timeout cleanup. General Diff (25 checks,
+`9zgevz7z`) and 42-file rendering (five checks, `y0poza03`) also passed without
+cleanup survivors.
+
 Use `--syntax-only`, `--comments-only`, `--selection-only` or `--checkboxes-only`
 for focused Diff scenarios. Appearance uses the native-validation build:
 

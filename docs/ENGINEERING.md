@@ -130,7 +130,15 @@ Expanded file contents use `content-visibility: auto` with a remembered intrinsi
 block size, allowing the browser to skip offscreen layout and paint while keeping
 DOM selections and discussions mounted. Headers remain outside size containment
 for sidebar navigation and sticky positioning. Unsupported engines render normally.
-This does not defer React mounting, patch parsing or syntax analysis.
+React mounting and patch parsing still run on the UI thread. Syntax highlighting
+runs through one lazy shared module worker (`syntax-client.ts`, `syntax-worker.ts`),
+with one request in flight, queued requests shared by patch/path, and a ten-second
+request deadline. Plain patches render before tokens arrive. Unmounts and patch
+changes cancel their subscriptions; the last cancellation terminates active work.
+Results are applied only to matching path/patch/hunks. Errors retain plain text.
+The worker stops after ten idle seconds. A sixteen-entry LRU caches only patch keys
+up to 32K UTF-16 code units (64 KiB); theme changes reuse tokens and update CSS.
+Vite's ES worker format preserves lazy language-parser imports.
 
 ## UI localization
 
@@ -269,7 +277,7 @@ commits, not aborted render attempts or DOM paint duration. Initialization reads
 the shared debug environment once; initial commits before that read completes
 are omitted. Instance numbers are local to the current WebView.
 
-`textarea-input`, `refresh-scheduled`, `refresh-start` and `highlight-recompute`
+`textarea-input`, `refresh-scheduled`, `refresh-start`, `highlight-request` and `highlight-ready`
 provide timestamped correlation. Comment text, paths and prop/state values are
 never printed. Batches flush after 500 ms when the event loop permits; at most
 128 events are retained per batch and overflow is dropped. Console diagnostics

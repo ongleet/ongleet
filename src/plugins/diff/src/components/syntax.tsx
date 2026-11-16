@@ -1,49 +1,52 @@
 import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
-import { useEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from 'react';
-import { LanguageDescription, type LanguageSupport } from '@codemirror/language';
-import { languages } from '@codemirror/language-data';
+import { useEffect, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { Diff } from 'react-diff-view';
-import { highlightHunks } from '../syntax-tokens';
+import { LanguageDescription } from '@codemirror/language';
+import { languages } from '@codemirror/language-data';
+import { syntaxClient } from '../syntax-client';
+import type { HunkData, HunkTokens } from 'react-diff-view';
 import { useSdk } from '../../../../sdk';
 
-/** Load the file language lazily and memoize hunk tokens using the active theme. */
-export function HighlightedDiff(props: React.ComponentProps<typeof Diff> & { path: string }) {
-  const { path, ...diffProps } = props;
+/** Render plain hunks immediately and apply matching worker tokens when available. */
+export function HighlightedDiff(
+  props: React.ComponentProps<typeof Diff> & { path: string; patch: string },
+) {
+  const { path, patch, ...diffProps } = props;
   const sdk = useSdk();
   const theme = useSyncExternalStore(sdk.theme.subscribe, sdk.theme.getSnapshot).application;
   const language = LanguageDescription.matchFilename(languages, path.split('/').pop() ?? path);
-  const [loaded, setLoaded] = useState<{ language: typeof language; support: LanguageSupport }>();
+  const [highlight, setHighlight] = useState<{
+    path: string;
+    patch: string;
+    hunks: HunkData[];
+    tokens: HunkTokens | undefined;
+  }>();
   useEffect(() => {
+    if (!language) return;
     let current = true;
-    if (language)
-      void language
-        .load()
-        .then((support) => {
-          if (current) setLoaded({ language, support });
-        })
-        .catch(() => {
-          /* Keep plain text when a language cannot be loaded. */
-        });
+    const request = syntaxClient.request(path, patch, diffProps.hunks);
+    diffDiagnostic('highlight-request');
+    void request.result.then((tokens) => {
+      if (current) {
+        setHighlight({ path, patch, hunks: diffProps.hunks, tokens });
+        diffDiagnostic('highlight-ready');
+      }
+    });
     return () => {
       current = false;
+      request.cancel();
     };
-  }, [language]);
+  }, [path, patch, diffProps.hunks, language]);
+  const tokens =
+    highlight?.path === path && highlight.patch === patch && highlight.hunks === diffProps.hunks
+      ? highlight.tokens
+      : undefined;
   useDiffRenderDiagnostic('HighlightedDiff', {
     hunks: diffProps.hunks,
-    loaded,
-    language,
+    tokens,
     theme,
     widgets: diffProps.widgets,
   });
-  const tokens = useMemo(() => {
-    diffDiagnostic('highlight-recompute');
-    if (!loaded || loaded.language !== language) return undefined;
-    try {
-      return highlightHunks(diffProps.hunks, loaded.support);
-    } catch {
-      return undefined;
-    }
-  }, [diffProps.hunks, loaded, language]);
   const style = Object.fromEntries(
     Object.entries(theme.syntax).map(([key, color]) => [`--diff-syntax-${key}`, color]),
   ) as CSSProperties;

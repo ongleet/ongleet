@@ -149,8 +149,28 @@ def run(args):
             client.request('POST','/refresh',{})
             if args.syntax_only:
                 native.wait_for(lambda: client.js("return !!document.querySelector('.diff-toolbar select')"), 'diff toolbar')
+                # Hold worker messages so plain rendering is observable without timing races.
+                def hold_syntax():
+                    client.js("""
+                        window.syntaxPosts=[];
+                        window.syntaxPost=Worker.prototype.postMessage;
+                        Worker.prototype.postMessage=function(...args) {
+                            const worker=this;
+                            window.syntaxPosts.push(()=>window.syntaxPost.apply(worker,args));
+                        };
+                    """)
+                def release_syntax():
+                    client.js("""
+                        Worker.prototype.postMessage=window.syntaxPost;
+                        for(const send of window.syntaxPosts.splice(0)) send();
+                    """)
+                hold_syntax()
                 client.js("document.querySelector('.diff-uncommitted-field input').click()")
                 client.click("//button[normalize-space()='Compare']", 'xpath')
+                native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('const value = 42')) && window.syntaxPosts.length>0"), 'plain patch before worker delivery')
+                assert client.js("return !document.querySelector('.diff-syntax-number')"), 'Patch must render before syntax work completes'
+                mark('Plain patch renders while syntax worker requests are pending')
+                release_syntax()
                 native.wait_for(lambda: client.js("return !!document.querySelector('.diff-syntax-number')"), 'lazy syntax spans')
                 def probe():
                     return client.js("""
@@ -183,6 +203,18 @@ def run(args):
                 assert second_probe['keywordColor'] != first['keywordColor'], second_probe
                 (directory/'syntax-light.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
                 mark('Changing appearance updates rendered syntax colors live in WebKitGTK')
+                hold_syntax()
+                syntax_file=folder/'syntax.ts'
+                syntax_source=syntax_file.read_text()
+                for value in [43,44]:
+                    syntax_file.write_text(syntax_source.replace('42',str(value)))
+                    client.click("//button[normalize-space()='Refresh']", 'xpath')
+                    native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes(arguments[0])) && !document.querySelector('.diff-syntax-number')", f'const value = {value}'), f'plain updated patch {value}')
+                release_syntax()
+                native.wait_for(lambda: client.js("return document.querySelector('.diff-syntax-number')?.textContent==='44'"), 'latest worker result')
+                assert client.js("return !Array.from(document.querySelectorAll('.diff-code-insert')).some(el=>el.textContent.includes('const value = 43'))")
+                mark('Refresh during pending syntax work cancels stale results and colors only the latest patch')
+                syntax_file.write_text(syntax_source)
                 client.request('POST','/refresh',{})
                 native.wait_for(lambda: client.js("return document.querySelector('.diff-syntax-number')?.textContent==='42'"), 'syntax after reload')
                 assert probe()['numberColor']==second_probe['numberColor']
