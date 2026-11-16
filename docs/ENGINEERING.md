@@ -122,6 +122,16 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 - Window close and Quit share confirmation, plugin flush and immediate cleanup/exit; repeated launch/`--show` activates an existing instance. `--show` never starts an unavailable app. Bundled terminal launches detach after startup; `--foreground` retains diagnostic output. Restart the last recorded running set and eligible failed launches/nonzero `ong-codex` exits. Explicitly stopped/closed tabs and other exited commands never auto-start.
 - UI/CLI share Rust operations. Keep sockets current-user-only, stable IDs, structured errors and meaningful exit codes. Never silently start the app.
 
+## Diff rendering
+
+Small Diff patches remain expanded regardless of file count. Patches above
+500 lines or 64 KiB still start collapsed; manual review choices are retained.
+Expanded file contents use `content-visibility: auto` with a remembered intrinsic
+block size, allowing the browser to skip offscreen layout and paint while keeping
+DOM selections and discussions mounted. Headers remain outside size containment
+for sidebar navigation and sticky positioning. Unsupported engines render normally.
+This does not defer React mounting, patch parsing or syntax analysis.
+
 ## UI localization
 
 Use `t` from `src/i18n.ts` for UI copy. English source messages are catalog keys;

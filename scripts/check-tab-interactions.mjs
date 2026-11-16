@@ -88,7 +88,7 @@ assert.equal(
 );
 console.log('Large Diff defaults, UTF-8 bounds and manual expansion checks passed.');
 
-// Many small patches must not mount an unbounded number of code tables.
+// File count must not silently collapse otherwise small patches.
 const many = new ReviewStore();
 const manyFiles = Array.from({ length: 1000 }, (_, i) => ({
   path: `file-${i}.ts`,
@@ -97,7 +97,7 @@ const manyFiles = Array.from({ length: 1000 }, (_, i) => ({
   failed: false,
 }));
 many.reconcile('many', manyFiles);
-assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 20);
+assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 1000);
 many.set(['file-999.ts'], 'expanded', true);
 many.set(['file-0.ts'], 'expanded', false);
 many.reconcile(
@@ -106,7 +106,7 @@ many.reconcile(
 );
 assert.equal(many.get('file-999').expanded, true);
 assert.equal(many.get('file-0').expanded, false);
-assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 21);
+assert.equal(manyFiles.filter((file) => many.get(file.key).expanded).length, 999);
 many.reconcile('different', manyFiles);
-assert.equal(many.get('file-999').expanded, false);
+assert.equal(many.get('file-999').expanded, true);
 assert.equal(many.get('file-0').expanded, true);

@@ -187,6 +187,13 @@ mise exec -- /usr/bin/python3 scripts/check-diff-native.py \
   --application src-tauri/target/debug/ongleet-gui --driver /usr/bin/WebKitWebDriver
 ```
 
+Use `--rendering-only` for a 42-file expanded comparison: it checks native
+offscreen rendering skips, distant sidebar navigation and selectable patch text.
+On 2026-11-16 this scenario and the general Diff suite passed on private X11
+WebKitGTK (`9yctl2kl`, `giw1p9hk`), with no cleanup survivors. This establishes
+rendering behavior, not a measured latency or CPU improvement. Native discussion
+checks also passed (`kf53i86v`) with no cleanup survivors.
+
 Use `--syntax-only`, `--comments-only`, `--selection-only` or `--checkboxes-only`
 for focused Diff scenarios. Appearance uses the native-validation build:
 

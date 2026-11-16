@@ -133,6 +133,13 @@
   overflow-wrap: anywhere;
   border-bottom: 1px solid var(--subtleBorder);
 }
+/* Keep DOM selections and discussions alive while skipping offscreen layout/paint.
+   The browser remembers measured heights; headers stay outside size containment.
+   Engines without content-visibility support retain the ordinary full rendering. */
+.diff-file-content {
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 800px;
+}
 .diff-file-content > p,
 .diff-file-content > pre {
   margin: 12px;

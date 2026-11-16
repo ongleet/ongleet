@@ -34,6 +34,9 @@ def run(args):
     nested.mkdir(parents=True)
     second = nested/('z-second.txt-' + 'long-filename-' * 6)
     second.write_text('second original\n')
+    if args.rendering_only:
+        for i in range(40):
+            (folder/f'zz-render-{i:02}.txt').write_text('before\n' * 60)
     git('add', '.')
     git('commit', '-m', 'base')
     file.write_text('original\n')
@@ -44,6 +47,9 @@ def run(args):
     second.write_text('second changed\n')
     if args.syntax_only:
         (folder/'syntax.ts').write_text('/* comment\n * continued */\nconst value = 42;\nconsole.log("<tag>&");\n')
+    if args.rendering_only:
+        for i in range(40):
+            (folder/f'zz-render-{i:02}.txt').write_text('changed\n' * 60)
     original_index = (folder / '.git/index').read_bytes()
     actions = directory / 'config/ongleet/projects/1/actions.yaml'
     actions.parent.mkdir(parents=True)
@@ -208,6 +214,28 @@ def run(args):
             client.click("//button[normalize-space()='Compare']",'xpath')
             native.wait_for(lambda: client.js("return document.querySelector('.diff-code-insert')?.textContent.includes('changed')"),'unified patch')
             mark('Manifest discovery, native SDK Git execution, unified rendering')
+            if args.rendering_only:
+                native.wait_for(lambda: client.js("return document.querySelectorAll('.diff-file-content table').length===42"), 'all patches remain expanded')
+                assert client.js("return CSS.supports('content-visibility','auto') && CSS.supports('contain-intrinsic-block-size','auto 800px')"), 'WebKit must support offscreen rendering containment'
+                native.wait_for(lambda: client.js("return Array.from(document.querySelectorAll('.diff-file-content')).filter(content=>!content.querySelector('table').checkVisibility({contentVisibilityAuto:true})).length>20"), 'offscreen patches skipped by WebKit')
+                mark('All 42 patches stay expanded while WebKit skips more than 20 offscreen contents')
+                client.click('.diff-layout nav button[title="zz-render-39.txt"]')
+                native.wait_for(lambda: client.js("""
+                    const file=document.querySelector('[data-diff-path="zz-render-39.txt"]');
+                    const content=file.querySelector('.diff-file-content');
+                    const viewer=document.querySelector('.diff-viewer').getBoundingClientRect();
+                    const rect=file.getBoundingClientRect();
+                    return content.querySelector('table').checkVisibility({contentVisibilityAuto:true}) && rect.top>=viewer.top-2 && rect.top<viewer.bottom;
+                """), 'distant sidebar target becomes rendered')
+                assert client.js("""
+                    const node=document.querySelector('[data-diff-path="zz-render-39.txt"] .diff-code-insert');
+                    const range=document.createRange();range.selectNodeContents(node);
+                    getSelection().removeAllRanges();getSelection().addRange(range);
+                    return getSelection().toString().includes('changed');
+                """)
+                mark('Sidebar navigation beyond twenty files reveals selectable patch text')
+                (directory/'rendering.png').write_bytes(base64.b64decode(client.request('GET','/screenshot')))
+                return
             if args.checkboxes_only:
                 spec = importlib.util.spec_from_file_location('checkboxes', Path(__file__).with_name('checkboxes-native.py'))
                 checkboxes = importlib.util.module_from_spec(spec)
@@ -539,6 +567,7 @@ if __name__=='__main__':
     parser.add_argument('--notes-only', action='store_true')
     parser.add_argument('--selection-only', action='store_true')
     parser.add_argument('--comments-only', action='store_true')
+    parser.add_argument('--rendering-only', action='store_true')
     parser.add_argument('--syntax-only', action='store_true')
     parser.add_argument('--interactions-only', action='store_true')
     parser.add_argument('--demand-only', action='store_true')
