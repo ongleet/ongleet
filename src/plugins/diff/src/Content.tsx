@@ -1,6 +1,12 @@
 import { diffDiagnostic, useDiffRenderDiagnostic } from './render-diagnostics';
 import { t, getLocale } from '../../../i18n';
-import { Button, Disclosure, DisclosureTrigger, Input, TabPanel } from '../../../components/Controls';
+import {
+  Button,
+  Disclosure,
+  DisclosureTrigger,
+  Input,
+  TabPanel,
+} from '../../../components/Controls';
 import { SelectionSend } from '../../../components/SelectionSend';
 import { captureDiffSelection } from './selection';
 import { CommentStore, commentTargets, deliverComment, type Location } from './comments';

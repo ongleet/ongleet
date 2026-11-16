@@ -29,6 +29,8 @@ jobs:
       - uses: jdx/mise-action@v4
       - name: Install frontend dependencies
         run: mise exec -- npm ci
+      - name: Check Prettier formatting
+        run: mise exec -- npm run format:check
       - name: Check Rust formatting and native boundaries
         run: |
           mise exec -- cargo fmt --manifest-path src-tauri/Cargo.toml --check

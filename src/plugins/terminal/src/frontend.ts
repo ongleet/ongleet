@@ -1,4 +1,9 @@
-import { SdkError, type PluginSdk, type PtyOutput as Output, type ProcessStatus } from '../../../sdk';
+import {
+  SdkError,
+  type PluginSdk,
+  type PtyOutput as Output,
+  type ProcessStatus,
+} from '../../../sdk';
 import {
   FitAddon,
   Ghostty,

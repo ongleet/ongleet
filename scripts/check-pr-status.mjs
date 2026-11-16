@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pullRequestStatus, updatePullRequestTag } from '../src/plugins/pull-request/src/status-tag.ts';
+import {
+  pullRequestStatus,
+  updatePullRequestTag,
+} from '../src/plugins/pull-request/src/status-tag.ts';
 import { refreshSeconds } from '../src/plugins/pull-request/src/settings.ts';
 import {
   otherReviews,

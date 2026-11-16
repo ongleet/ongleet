@@ -16,7 +16,7 @@ of every subsequent change.
 | Terminal         | Wayland/XWayland typing, UTF-8, mouse/curses, clipboard, alternate-screen resize/replay, reload, hidden output and reuse passed (`nbj7b88j`, `odspnvg9`). Hidden floods reached 350,000 lines with bounded scrollback and replay-overflow warnings. Finite runs do not prove global memory bounds. |
 | PTY ownership    | Real PTYs passed ACK backpressure, blocked-input cancellation, exact bytes, exit notifications, replay, detached descendants and owner-death cleanup. Event-driven waits passed 146 Rust tests on 2026-11-05; desktop CPU impact remains unmeasured.                                               |
 | Idle and history | Five-terminal sampling found zero frames/draws/status polls over three seconds (`8fohim6s`). Later five-second snapshot throttling passed model/build checks; native lifecycle/restart and CPU comparisons remain untested. Abrupt death can lose the latest history.                              |
-| Lifecycle        | Close and Quit now share immediate confirmed shutdown. Eight private X11 checks passed, including PTY/detached-child cleanup and cancellation (`i363vr68`). Earlier delayed-close evidence is superseded. Broader mixed-plugin lifecycle acceptance remains incomplete.                                                        |
+| Lifecycle        | Close and Quit now share immediate confirmed shutdown. Eight private X11 checks passed, including PTY/detached-child cleanup and cancellation (`i363vr68`). Earlier delayed-close evidence is superseded. Broader mixed-plugin lifecycle acceptance remains incomplete.                            |
 | Files/editor     | Refresh, drafts, conflict/merge, restoration and archives passed 23 checks (`6p264nv5`). Hidden-tab CLI/SDK `open-path` safeguards passed (`ld39o4eu`). Physical shortcuts and external-writer races remain limits.                                                                                |
 | Diff             | General checks passed (`f8p_k8zr`); syntax/theme/reload passed on both backends (`3_590aof`, `9aq64pbc`). Navigation and refresh retained file/viewport/unchanged DOM (`o6k1uyxg`, `57rr9kk8`). New line wrapping has build evidence only.                                                         |
 | Interactions     | CLI/SDK discovery, hidden targets, ownership, bounds, cancellation and ambiguous errors passed (`nne3so8x`). Discussions/UI and exact PTY delivery passed (`vt2w5hyf`); selected code and unsaved-buffer delivery passed (`thq9n1ru`). Delivery does not prove agent processing.                   |
@@ -377,7 +377,6 @@ Artifact: `/tmp/ongleet-diff-native-zrmdt41l/report.json`; zero cleanup survivor
 Frontend build and Diff checks passed. Desktop scrolling performance remains to
 be confirmed; this focused run does not certify the entire Diff suite.
 
-
 ## Unified close and Quit (2026-11-10)
 
 The title-bar cross, application Quit and native window-manager close use the
@@ -397,7 +396,6 @@ Wayland and macOS/Windows close behavior remain untested for this change.
 
 Build the bundled GUI after Rust tests and before native checks: a test build
 can replace the target executable with one expecting a development server.
-
 
 ## Render diagnostic activation (2026-11-11)
 

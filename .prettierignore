@@ -8,3 +8,10 @@ package-lock.json
 
 # Local working notes
 *.ignore.md
+
+# Local browser captures and profiling recordings
+.playwright-mcp/
+localhost-recording*.json
+
+# Desktop entry syntax must not be formatted as HTML/Handlebars
+src-tauri/linux/Ongleet.desktop.hbs

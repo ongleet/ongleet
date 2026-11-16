@@ -167,6 +167,12 @@ Preserve database sidecars/Codex mappings during branding migration; reject live
 
 ## Checks
 
+Format JavaScript, TypeScript, CSS, JSON, YAML and Markdown with
+`mise exec -- npm run format`. Prettier uses `.prettierrc.json`; generated files,
+local notes, browser captures and profiling recordings are excluded through
+`.prettierignore`. CI runs `mise exec -- npm run format:check`. Rust formatting
+uses `cargo fmt` separately.
+
 Run checks appropriate to the change through mise:
 
 ```bash

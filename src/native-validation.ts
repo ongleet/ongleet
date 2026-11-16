@@ -67,7 +67,7 @@ export function registerSdk(id: number, sdk: PluginSdk) {
         const mode = interactionModes.get(`${id}:${operation}`);
         if (mode === 'invalid') return { invalid: true };
         if (mode === 'oversized') return 'x'.repeat(70000);
-      if (mode === 'nonJson') return BigInt(1);
+        if (mode === 'nonJson') return BigInt(1);
         if (mode === 'hold') {
           interactionCounts.started++;
           await new Promise<void>((resolve) =>

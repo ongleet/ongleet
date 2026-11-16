@@ -257,21 +257,25 @@ Register only declared handlers on the current attachment:
 
 ```tsx
 const sdk = useSdk();
-useEffect(() => sdk.tab.registerInteractions({
-  state: async (args, { signal }) => ({
-    summary: 'Ready',
-    data: { loading: false },
-    observedAt: new Date().toISOString(),
-    stale: false,
-  }),
-  actions: {
-    'set-enabled': async ({ enabled }, { signal }) => {
-      signal.throwIfAborted();
-      setEnabled(enabled as boolean);
-      return { enabled };
-    },
-  },
-}), [sdk]);
+useEffect(
+  () =>
+    sdk.tab.registerInteractions({
+      state: async (args, { signal }) => ({
+        summary: 'Ready',
+        data: { loading: false },
+        observedAt: new Date().toISOString(),
+        stale: false,
+      }),
+      actions: {
+        'set-enabled': async ({ enabled }, { signal }) => {
+          signal.throwIfAborted();
+          setEnabled(enabled as boolean);
+          return { enabled };
+        },
+      },
+    }),
+  [sdk],
+);
 ```
 
 The state output schema must describe `{ summary, data, observedAt, stale }`.
