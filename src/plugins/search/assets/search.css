@@ -40,3 +40,14 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.search-filters {
+  margin-top: 12px;
+}
+.search-filters label {
+  flex: 1;
+  min-width: 180px;
+}
+.search-filters input {
+  width: 100%;
+}

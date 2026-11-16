@@ -2773,6 +2773,7 @@ dependencies = [
  "block2",
  "core-foundation",
  "diesel",
+ "glob",
  "gtk",
  "http",
  "libc",

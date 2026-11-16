@@ -72,6 +72,10 @@ pub enum Request {
         content: bool,
         #[serde(default, rename = "caseSensitive")]
         case_sensitive: bool,
+        #[serde(default)]
+        include: String,
+        #[serde(default)]
+        exclude: String,
     },
     OpenFile {
         path: String,
@@ -381,12 +385,15 @@ pub async fn sdk_request(
                         show_hidden,
                         content,
                         case_sensitive,
+                        include,
+                        exclude,
                     } => super::fs::search::search_with_options(
                         &folder,
                         &query,
                         show_hidden,
                         content,
                         case_sensitive,
+                        (&include, &exclude),
                         &job.cancel,
                     )
                     .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string())),

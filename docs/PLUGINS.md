@@ -466,3 +466,20 @@ existing behavior. Content search uses the same attachment ownership, cancellati
 entry/depth/time limits and 500-result/128 KiB response bounds as path search.
 Limits and skipped entries are reported in the UI. Filesystem calls themselves
 cannot be interrupted; the two-second deadline is checked between calls.
+
+Search also provides **Files to include** (an empty value includes every file)
+and **Files to exclude** (exclusions take priority). Separate patterns with commas:
+`*.ts, *.tsx` includes those extensions at any depth, `src/**` restricts paths to
+the root's `src` tree, and `**/node_modules/**, *.min.js` excludes dependency trees
+and minified JavaScript. Patterns without `/` match basenames at any depth; other
+patterns match paths relative to the search folder, using `/` on every platform.
+`*` matches within one path segment, `**` matches directories recursively, `?`
+matches one character, and `[abc]` matches a character class. Matching is case
+sensitive, independently of the content's **Match case** option. Brace expansion
+and comma-containing filenames are unsupported. Excluded directories are pruned;
+inclusion patterns only filter files so nested matches remain reachable.
+
+SDK callers pass optional `include` and `exclude` strings to `fs.searchFiles`.
+Each filter allows at most 32 comma-separated patterns and 4096 UTF-8 bytes;
+invalid patterns fail explicitly before traversal. Omitted filters preserve the
+previous search behavior.

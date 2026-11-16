@@ -203,6 +203,8 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
         showHidden: boolean;
         content?: boolean;
         caseSensitive?: boolean;
+        include?: string;
+        exclude?: string;
       }) => request<FileSearch>('searchFiles', options),
       list: (options: {
         folder: string;

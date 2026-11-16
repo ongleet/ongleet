@@ -1,6 +1,10 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
   Search: 'Recherche',
+  'Files to include': 'Fichiers à inclure',
+  'Files to exclude': 'Fichiers à exclure',
+  'Separate patterns with commas. Use * for names, ** for folders, and ? for one character.':
+    'Séparez les motifs par des virgules. Utilisez * pour les noms, ** pour les dossiers et ? pour un caractère.',
   'Open file': 'Ouvrir le fichier',
   'Searching…': 'Recherche en cours…',
   'Search file contents': 'Rechercher dans les fichiers',

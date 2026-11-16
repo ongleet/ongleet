@@ -30,6 +30,8 @@ function Content({ tab, visible }: PluginContentProps) {
   const sdk = useSdk();
   const folder = (tab.config as { folder?: string }).folder ?? '';
   const [query, setQuery] = useState('');
+  const [include, setInclude] = useState('');
+  const [exclude, setExclude] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [result, setResult] = useState<FileSearch>();
@@ -41,6 +43,7 @@ function Content({ tab, visible }: PluginContentProps) {
   useEffect(() => {
     let cancelled = false;
     setError('');
+    setSelected(undefined);
     setResult(undefined);
     setBusy(!!query && !!folder);
     if (!query || !folder) return;
@@ -54,6 +57,8 @@ function Content({ tab, visible }: PluginContentProps) {
             showHidden,
             content: true,
             caseSensitive,
+            include,
+            exclude,
           });
           if (!cancelled) setResult(found);
         } catch (error) {
@@ -67,7 +72,7 @@ function Content({ tab, visible }: PluginContentProps) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [sdk, folder, query, showHidden, caseSensitive, refresh]);
+  }, [sdk, folder, query, showHidden, caseSensitive, include, exclude, refresh]);
   return (
     <TabPanel
       id={`tab-panel-${tab.id}`}
@@ -95,6 +100,31 @@ function Content({ tab, visible }: PluginContentProps) {
           {t('Refresh')}
         </Button>
       </div>
+      <div className="search-toolbar search-filters">
+        <label>
+          {t('Files to include')}
+          <Input
+            value={include}
+            maxLength={4096}
+            placeholder="src/**, *.ts"
+            onChange={(e) => setInclude(e.target.value)}
+          />
+        </label>
+        <label>
+          {t('Files to exclude')}
+          <Input
+            value={exclude}
+            maxLength={4096}
+            placeholder="**/node_modules/**, *.min.js"
+            onChange={(e) => setExclude(e.target.value)}
+          />
+        </label>
+      </div>
+      <p className="muted">
+        {t(
+          'Separate patterns with commas. Use * for names, ** for folders, and ? for one character.',
+        )}
+      </p>
       <p className="muted">{folder || t('Configure a folder to search.')}</p>
       {error && (
         <p role="alert" className="error">

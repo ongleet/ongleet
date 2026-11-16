@@ -17,6 +17,7 @@ profiling = ["tauri/devtools"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+glob = "0.3"
 tauri = { version = "2", features = [] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
