@@ -197,8 +197,13 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       },
     },
     fs: {
-      searchFiles: (options: { folder: string; query: string; showHidden: boolean }) =>
-        request<FileSearch>('searchFiles', options),
+      searchFiles: (options: {
+        folder: string;
+        query: string;
+        showHidden: boolean;
+        content?: boolean;
+        caseSensitive?: boolean;
+      }) => request<FileSearch>('searchFiles', options),
       list: (options: {
         folder: string;
         offset: number;

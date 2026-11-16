@@ -449,3 +449,20 @@ Session/local credentials ignore `GH_TOKEN` and `GITHUB_TOKEN`. Resetting settin
 restores inheritance without deleting a separately saved token; Disconnect deletes
 the selected saved credential. Environment authentication retains its existing
 priority for the global default account.
+
+## Search
+
+Add **Search** through **Custom tab…** with the session directory as the default
+folder. Type literal text to search recursively through UTF-8 file contents.
+Results show one entry per matching line, with the relative path, line number and
+an excerpt of up to 500 characters. Select a result to inspect its excerpt; **Open
+file** launches the associated external application. **Match case**, **Show hidden
+files** and **Refresh** control subsequent searches. Searches do not apply Git ignore
+rules. Binary, non-UTF-8, inaccessible and files larger than 1 MiB are skipped.
+
+The SDK `fs.searchFiles` accepts optional `content` and `caseSensitive` booleans.
+Content results add `line` (one-based) and `text`; filename searches retain their
+existing behavior. Content search uses the same attachment ownership, cancellation,
+entry/depth/time limits and 500-result/128 KiB response bounds as path search.
+Limits and skipped entries are reported in the UI. Filesystem calls themselves
+cannot be interrupted; the two-second deadline is checked between calls.

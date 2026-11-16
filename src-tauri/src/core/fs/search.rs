@@ -1,4 +1,4 @@
-//! Bounded recursive filename/path search without following symlinks.
+//! Bounded recursive path and UTF-8 content search without following symlinks.
 use serde::Serialize;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 pub struct Match {
     path: String,
     relative_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,12 +22,25 @@ pub struct Results {
     skipped: usize,
 }
 
+#[cfg(test)]
 pub fn search(
     folder: &str,
     query: &str,
     show_hidden: bool,
     cancel: &AtomicBool,
 ) -> Result<Results, String> {
+    search_with_options(folder, query, show_hidden, false, false, cancel)
+}
+
+pub fn search_with_options(
+    folder: &str,
+    query: &str,
+    show_hidden: bool,
+    content: bool,
+    case_sensitive: bool,
+    cancel: &AtomicBool,
+) -> Result<Results, String> {
+    use std::io::Read;
     if folder.len() > 8192 || folder.contains('\0') || !Path::new(folder).is_absolute() {
         return Err("Expected an absolute folder path (up to 8192 bytes)".into());
     }
@@ -38,7 +55,11 @@ pub fn search(
         truncated: false,
         skipped: 0,
     };
-    let query = query.to_lowercase();
+    let query = if content && case_sensitive {
+        query.to_owned()
+    } else {
+        query.to_lowercase()
+    };
     let start = Instant::now();
     let mut scanned = 0;
     let mut bytes = 0;
@@ -86,22 +107,67 @@ pub fn search(
                 .split(std::path::MAIN_SEPARATOR)
                 .collect::<Vec<_>>()
                 .join("/");
-            if !relative.to_lowercase().contains(&query) {
+            if !content && !relative.to_lowercase().contains(&query) {
                 continue;
             }
             let Some(full) = path.to_str() else {
                 result.skipped += 1;
                 continue;
             };
-            bytes += full.len() + relative.len();
-            if result.matches.len() >= 500 || bytes > 128 * 1024 {
-                result.truncated = true;
+            let lines = if content {
+                let mut data = Vec::new();
+                let read = std::fs::File::open(&path)
+                    .and_then(|file| file.take(1024 * 1024 + 1).read_to_end(&mut data));
+                if read.is_err() || data.len() > 1024 * 1024 || data.contains(&0) {
+                    result.skipped += 1;
+                    continue;
+                }
+                let Ok(text) = String::from_utf8(data) else {
+                    result.skipped += 1;
+                    continue;
+                };
+                text.lines()
+                    .enumerate()
+                    .filter_map(|(index, line)| {
+                        let haystack = if case_sensitive {
+                            line.to_owned()
+                        } else {
+                            line.to_lowercase()
+                        };
+                        haystack.contains(&query).then(|| {
+                            (
+                                Some(index + 1),
+                                Some(line.chars().take(500).collect::<String>()),
+                            )
+                        })
+                    })
+                    .take(501)
+                    .collect::<Vec<_>>()
+            } else {
+                vec![(None, None)]
+            };
+            for (line, text) in lines {
+                if cancel.load(Ordering::Acquire) {
+                    return Err("Search cancelled".into());
+                }
+                bytes += full.len() + relative.len() + text.as_ref().map_or(0, String::len);
+                if result.matches.len() >= 500
+                    || bytes > 128 * 1024
+                    || start.elapsed() >= Duration::from_secs(2)
+                {
+                    result.truncated = true;
+                    break;
+                }
+                result.matches.push(Match {
+                    path: full.to_owned(),
+                    relative_path: relative.to_owned(),
+                    line,
+                    text,
+                });
+            }
+            if result.truncated {
                 break;
             }
-            result.matches.push(Match {
-                path: full.to_owned(),
-                relative_path: relative.to_owned(),
-            });
         }
     }
     result
@@ -113,6 +179,40 @@ pub fn search(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn content_search_returns_lines_and_skips_binary_and_oversized_files() {
+        let root =
+            std::env::temp_dir().join(format!("ongleet-content-search-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::write(
+            root.join("nested/source.txt"),
+            "first\nNeedle here\nneedle again\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("binary"), b"needle\0data").unwrap();
+        std::fs::write(root.join("large"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
+        std::fs::write(root.join(".hidden"), "needle").unwrap();
+        let cancel = AtomicBool::new(false);
+        let folder = root.to_str().unwrap();
+        let found = search_with_options(folder, "needle", false, true, false, &cancel).unwrap();
+        assert_eq!(found.matches.len(), 2);
+        assert_eq!(found.matches[0].relative_path, "nested/source.txt");
+        assert_eq!(found.matches[0].line, Some(2));
+        assert_eq!(found.matches[0].text.as_deref(), Some("Needle here"));
+        assert_eq!(found.skipped, 2);
+        let sensitive = search_with_options(folder, "needle", false, true, true, &cancel).unwrap();
+        assert_eq!(sensitive.matches.len(), 1);
+        assert_eq!(sensitive.matches[0].line, Some(3));
+        assert_eq!(
+            search_with_options(folder, "needle", true, true, false, &cancel)
+                .unwrap()
+                .matches
+                .len(),
+            3
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn result_limit_is_reported_without_dropping_all_matches() {
         let root =

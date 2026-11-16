@@ -68,6 +68,10 @@ pub enum Request {
         query: String,
         #[serde(rename = "showHidden")]
         show_hidden: bool,
+        #[serde(default)]
+        content: bool,
+        #[serde(default, rename = "caseSensitive")]
+        case_sensitive: bool,
     },
     OpenFile {
         path: String,
@@ -375,8 +379,17 @@ pub async fn sdk_request(
                         folder,
                         query,
                         show_hidden,
-                    } => super::fs::search::search(&folder, &query, show_hidden, &job.cancel)
-                        .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string())),
+                        content,
+                        case_sensitive,
+                    } => super::fs::search::search_with_options(
+                        &folder,
+                        &query,
+                        show_hidden,
+                        content,
+                        case_sensitive,
+                        &job.cancel,
+                    )
+                    .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string())),
                     _ => unreachable!(),
                 };
                 job.finished

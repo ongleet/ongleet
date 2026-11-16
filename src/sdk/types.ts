@@ -96,7 +96,7 @@ export type TabCapabilities = {
 };
 
 export type FileSearch = {
-  matches: { path: string; relativePath: string }[];
+  matches: { path: string; relativePath: string; line?: number; text?: string }[];
   truncated: boolean;
   skipped: number;
 };

@@ -1,0 +1,42 @@
+.search-panel {
+  padding: 12px;
+  overflow: auto;
+}
+.search-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.search-toolbar > input {
+  flex: 1;
+  min-width: 180px;
+}
+.search-body {
+  display: flex;
+  gap: 16px;
+  min-height: 0;
+}
+.search-matches {
+  flex: 1;
+  min-width: 0;
+}
+.search-matches button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.search-matches code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.search-preview {
+  flex: 1;
+  min-width: 0;
+}
+.search-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

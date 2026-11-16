@@ -1,0 +1,29 @@
+{
+  "id": "search",
+  "label": "Search",
+  "description": "Recursively search UTF-8 file contents and inspect matching lines.",
+  "sdkVersion": 1,
+  "configVersion": 1,
+  "entrypoint": "src/entrypoint.tsx",
+  "defaults": {
+    "folder": null
+  },
+  "contextDefaults": {
+    "folder": "session.directory"
+  },
+  "capabilities": ["fs", "desktop"],
+  "runtime": null,
+  "examples": [{}],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "folder": {
+        "type": ["string", "null"],
+        "description": "Absolute folder to search; defaults to the session directory.",
+        "absolutePath": true,
+        "maxBytes": 8192
+      }
+    }
+  }
+}

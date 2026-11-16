@@ -1,5 +1,13 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  Search: 'Recherche',
+  'Open file': 'Ouvrir le fichier',
+  'Searching…': 'Recherche en cours…',
+  'Search file contents': 'Rechercher dans les fichiers',
+  'Match case': 'Respecter la casse',
+  'Configure a folder to search.': 'Configurez un dossier à parcourir.',
+  '{count} matching lines': '{count} lignes correspondantes',
+
   'Load on demand': 'Charger à la demande',
   'Start when first shown or requested through the API. Keep running afterward.':
     'Démarrer au premier affichage ou appel de l’API, puis rester actif.',
