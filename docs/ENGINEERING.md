@@ -56,7 +56,9 @@ PTYs, sockets, files and cgroups.
 Rust owns PTYs. Keep controllers across renders and navigation. Preserve raw
 bytes, bounded queues and ACK backpressure until frontend consumption. Hidden
 terminals must consume output without animation frames. Idle terminals must not
-run recurring render frames or frontend status polls.
+run recurring render frames or frontend status polls. Visible output paints at most
+30 times per second; selection, hover, scroll and visibility redraws bypass the
+output delay. Parsing and ACK backpressure remain synchronous.
 
 Pinned Ghostty adapters replace private `startRenderLoop` and detach
 `SelectionManager.boundClickHandler` to preserve selections after outside clicks.

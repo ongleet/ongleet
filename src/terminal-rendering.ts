@@ -15,12 +15,29 @@ export function prepareTerminalRendering(term: Terminal, visible: () => boolean)
     throw new Error('Unsupported Ghostty rendering API');
   internals.startRenderLoop = () => {};
   let frame: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastPaint = -Infinity;
+  const outputInterval = 1000 / 30;
   let disposed = false;
   let fullRedraw = false;
   const invalidate = (forceAll = false) => {
     if (disposed) return;
     fullRedraw ||= forceAll;
-    if (frame !== undefined || !visible()) return;
+    if (!visible()) return;
+    // Interactions bypass the output delay and share the next animation frame.
+    if (forceAll && timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (frame !== undefined || timer !== undefined) return;
+    const delay = outputInterval - (performance.now() - lastPaint);
+    if (!forceAll && delay > 0) {
+      timer = setTimeout(() => {
+        timer = undefined;
+        invalidate();
+      }, delay);
+      return;
+    }
     frame = requestAnimationFrame(() => {
       frame = undefined;
       if (!disposed && visible() && term.wasmTerm) {
@@ -33,6 +50,7 @@ export function prepareTerminalRendering(term: Terminal, visible: () => boolean)
           term,
           internals.scrollbarOpacity,
         );
+        lastPaint = performance.now();
         fullRedraw = false;
       }
     });
@@ -71,12 +89,16 @@ export function prepareTerminalRendering(term: Terminal, visible: () => boolean)
       invalidate(true);
     },
     visibilityChanged() {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
       if (frame !== undefined) cancelAnimationFrame(frame);
       frame = undefined;
       invalidate(true);
     },
     dispose() {
       disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
       if (frame !== undefined) cancelAnimationFrame(frame);
       subscriptions.forEach((subscription) => subscription.dispose());
     },

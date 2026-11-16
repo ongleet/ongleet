@@ -10,6 +10,23 @@ const ghostty = await Ghostty.load(`data:application/wasm;base64,${bytes.toStrin
 const buffer = ghostty.createTerminal(80, 24);
 const frames = new Map();
 let nextFrame = 0;
+let now = 0;
+Object.defineProperty(globalThis, 'performance', { value: { now: () => now } });
+const timers = new Map();
+globalThis.setTimeout = (callback, delay) => {
+  timers.set(++nextFrame, { callback, due: now + delay });
+  return nextFrame;
+};
+globalThis.clearTimeout = (id) => timers.delete(id);
+function advance(ms) {
+  now += ms;
+  for (const [id, timer] of timers) {
+    if (timer.due <= now) {
+      timers.delete(id);
+      timer.callback();
+    }
+  }
+}
 globalThis.requestAnimationFrame = (callback) => {
   frames.set(++nextFrame, callback);
   return nextFrame;
@@ -109,8 +126,19 @@ try {
   rows = 0;
   term.write(new TextEncoder().encode('!'));
   flush();
+  assert.equal(rows, 0, 'Output waits for the refresh interval');
+  advance(20);
+  term.write(new TextEncoder().encode('?'));
+  flush();
+  assert.equal(rows, 0, 'Continuous output cannot bypass the cap');
+  advance(14);
+  flush();
+  assert.equal(timers.size, 0, 'Settled output leaves no timer');
   assert.ok(rows > 0 && rows < 24, 'Small output must retain dirty-row painting');
+  term.write(new TextEncoder().encode('!'));
+  assert.equal(timers.size, 1);
   renderer.setHoveredLinkRange(null);
+  assert.equal(timers.size, 0, 'Interactions bypass the output delay');
   rendering.dispose();
   assert.equal(frames.size, 0, 'Disposal cancels pending drawing');
   assert.equal(listeners.size, 0);
