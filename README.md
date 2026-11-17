@@ -9,7 +9,7 @@ Agents use the CLI to organize projects and sessions, configure tabs, inspect st
 and run plugin actions. GUI and CLI control the same workspace.
 
 [Get started](#get-started) · [CLI workflow](#let-your-agent-drive) ·
-[Architecture](#built-for-continuity-and-control) · [Usage guide](docs/USAGE.md)
+[Architecture](#built-for-continuity-and-control) · [User guide with screenshots](docs/USER_GUIDE.md)
 
 The interface supports English (default) and French. Choose **Application →
 Configure… → Appearance → Language**, then save the configuration. Preferences
@@ -25,6 +25,7 @@ reviews in one session. Switching tasks preserves running terminals and screens.
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Terminal**     | Run your shell, Codex or another terminal tool with Ghostty terminal emulation. Hidden terminals keep consuming output.                      |
 | **Files**        | Browse a folder tree and edit with syntax highlighting, recoverable local drafts and conflict-aware saves.                                   |
+| **Search**       | Find text recursively, filter paths and open matching files beside the results.                                                              |
 | **Diff**         | Review branch, commit and local changes in a continuous view, with file navigation, viewed markers and discussions you can send to an agent. |
 | **Note**         | Keep autosaved Markdown notes, TODOs and agent memory in a session notebook. Agents can read and update notes with revision checks.          |
 | **Pull request** | Follow an explicitly linked GitHub PR, its checks and reviews alongside your work.                                                           |
@@ -37,6 +38,10 @@ Session tags surface activity and review status in the sidebar. Reorder sessions
 and tabs, fold projects, and choose from six appearance presets shared by the app,
 editor and diff viewer. New terminals use the selected palette; existing terminal
 cells retain their launch colors.
+
+![Reviewing checkout changes in Ongleet, with project navigation and tool tabs](docs/images/diff.png)
+
+See the [illustrated user guide](docs/USER_GUIDE.md) for a walkthrough of each tool.
 
 ## Let your agent drive
 
@@ -172,7 +177,8 @@ Packages depend on the build host's system libraries; see
 
 ## Go further
 
-- [Usage guide](docs/USAGE.md): project actions, YAML, archives, CLI, shortcuts and troubleshooting.
+- [Illustrated user guide](docs/USER_GUIDE.md): first workspace, every main tool, settings and recovery.
+- [Usage reference](docs/USAGE.md): project actions, YAML, archives, CLI, shortcuts and troubleshooting.
 - [Plugin development](docs/PLUGINS.md): bundled plugins, SDK, schemas and agent interactions.
 - [Architecture](docs/STACK.md): runtime boundaries, persistence and bounded transport.
 - [Engineering](docs/ENGINEERING.md): code map, invariants and check commands.
