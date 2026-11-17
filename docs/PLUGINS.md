@@ -24,11 +24,26 @@ The bundled [SDK example](../src/plugins/sdk-example/src/entrypoint.tsx) lists a
 
 ### Session tags
 
-`session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: the only tag operations, returning the calling tab’s session tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls.
+`session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: independent session tag operations, returning the calling tab’s session tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls.
 
 Background and dot are independently optional `#RRGGBB` colors. Priority defaults to 0, accepts signed 32-bit integers, and sorts higher values first with stable ties. Adding an existing name replaces its style/priority while preserving siblings; removing an absent name succeeds. All mutations are atomic in Rust and share CLI validation/persistence.
 
 Use `storage.subscribe` to observe changes. Tags persist in `ongleet.session-tags` and survive archival/restoration; legacy `color` values load as dots. The `Codex` activity tag is an ordinary member of this list, managed through the same operations. Bulk replacement is not exposed.
+
+### Tab-owned tags
+
+`tab.setTag(key, tag)` and `tab.removeTag(key)` manage tags owned by the calling open tab;
+`tag` uses the same `SessionTag` format and validation. Keys contain 1–128 bytes without
+controls. A stable key replaces the previous tag even when its display name changes.
+Each tab allows 16 tags; names may coincide with tags from other owners. Both methods
+require `storage` and return the combined visible session tags, sorted by priority.
+
+The host stores these tags in the tab's `ongleet.tab-tags` namespace and includes them
+in sidebar snapshots alongside independent session tags. Closing through the UI or CLI
+clears the tab's tags in Rust and rejects late attachment writes. Hiding, detaching or
+reloading the frontend does not clear them. Independent session tag operations never
+modify tab-owned tags. Existing tags remain independent; ownership is never inferred
+from a display name. Diff publishes its file count with the `diff-status` key.
 
 ### Tab title
 

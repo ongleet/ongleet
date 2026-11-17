@@ -639,3 +639,87 @@ fn on_demand_setting_and_start_intent_survive_metadata_restart_without_a_runtime
     assert!(!saved.runtime_present);
     assert!(restored.terminals.is_empty());
 }
+
+#[test]
+fn owned_tags_replace_by_key_and_close_preserves_independent_tags() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let project = registry.projects[0].id;
+    let session_id = registry
+        .create_in_project(project, "Tags".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    registry.create_tab(session_id).unwrap();
+    registry.create_tab(session_id).unwrap();
+    let tabs: Vec<_> = registry
+        .sessions
+        .iter()
+        .find(|s| s.id == session_id)
+        .unwrap()
+        .tabs
+        .iter()
+        .map(|t| t.id)
+        .collect();
+    let first = tabs[tabs.len() - 2];
+    let second = tabs[tabs.len() - 1];
+    let tag = |name: &str| SessionTag {
+        name: name.into(),
+        background: None,
+        dot: None,
+        priority: 0,
+    };
+    registry.add_session_tag(session_id, tag("Shared")).unwrap();
+    registry
+        .set_tab_tag(first, "status".into(), Some(tag("Shared")))
+        .unwrap();
+    registry
+        .set_tab_tag(second, "status".into(), Some(tag("Shared")))
+        .unwrap();
+    registry
+        .set_tab_tag(first, "status".into(), Some(tag("Updated")))
+        .unwrap();
+    let visible = |registry: &SessionRegistry| {
+        registry
+            .snapshot()
+            .sessions
+            .into_iter()
+            .find(|s| s.id == session_id)
+            .unwrap()
+            .tags
+            .into_iter()
+            .map(|t| t.name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(visible(&registry), vec!["Shared", "Updated", "Shared"]);
+    assert!(registry
+        .set_tab_tag(first, "status".into(), Some(tag("")))
+        .is_err());
+    assert_eq!(visible(&registry), vec!["Shared", "Updated", "Shared"]);
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(visible(&registry), vec!["Shared", "Updated", "Shared"]);
+    registry.close_tab(first, true).unwrap();
+    assert_eq!(visible(&registry), vec!["Shared", "Shared"]);
+    assert!(registry
+        .set_tab_tag(first, "status".into(), Some(tag("Late")))
+        .is_err());
+    registry.open_tab(first).unwrap();
+    assert_eq!(visible(&registry), vec!["Shared", "Shared"]);
+    registry
+        .remove_session_tag(session_id, "Shared".into())
+        .unwrap();
+    assert_eq!(visible(&registry), vec!["Shared"]);
+    registry.set_tab_tag(second, "status".into(), None).unwrap();
+    registry.set_tab_tag(second, "status".into(), None).unwrap();
+    assert!(visible(&registry).is_empty());
+    registry
+        .set_tab_tag(second, "status".into(), Some(tag("Archived")))
+        .unwrap();
+    registry.delete_tab(second, true).unwrap();
+    assert!(visible(&registry).is_empty());
+    let archive_id = registry.archives.last().unwrap().id;
+    registry.restore_archive(archive_id).unwrap();
+    assert!(visible(&registry).is_empty());
+}

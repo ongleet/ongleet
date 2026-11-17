@@ -98,6 +98,8 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
       },
     },
     tab: {
+      setTag: (key: string, tag: SessionTag) => request<SessionTag[]>('setTabTag', { key, tag }),
+      removeTag: (key: string) => request<SessionTag[]>('setTabTag', { key, tag: null }),
       registerInteractions: (handlers: InteractionHandlers) => {
         if (interactionCleanup) throw new SdkError('busy', 'Interactions already registered');
         let active = true;

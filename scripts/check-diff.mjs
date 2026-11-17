@@ -461,29 +461,18 @@ try {
   release();
   await Promise.all([first, second, third]);
   assert.equal(applied, 100);
-  let sessionTags = [{ name: 'Keep me', dot: '#ffffff' }, { name: 'Diff #8: 7 files' }];
+  const ownedTags = new Map();
   const tagService = {
-    listTags: async () => [...sessionTags],
-    addTag: async (tag) => {
-      sessionTags = [...sessionTags.filter((t) => t.name !== tag.name), tag];
-      return sessionTags;
-    },
-    removeTag: async (name) => {
-      sessionTags = sessionTags.filter((t) => t.name !== name);
-      return sessionTags;
+    setTag: async (key, tag) => {
+      ownedTags.set(key, tag);
+      return [...ownedTags.values()];
     },
   };
   await updateDiffTag(tagService, 9, 2, () => true);
   await updateDiffTag(tagService, 9, 0, () => true);
-  assert.deepEqual(
-    sessionTags.map((t) => t.name),
-    ['Keep me', 'Diff #8: 7 files', 'Diff #9: 0 files'],
-  );
-  await updateDiffTag(tagService, 8, 1, () => false);
-  assert.ok(
-    sessionTags.some((t) => t.name === 'Diff #8: 7 files'),
-    'cancelled refresh must preserve tags',
-  );
+  assert.deepEqual([...ownedTags.values()], [{ name: 'Diff #9: 0 files', dot: '#3FB950' }]);
+  await updateDiffTag(tagService, 9, 1, () => false);
+  assert.equal(ownedTags.get('diff-status').name, 'Diff #9: 0 files');
   console.log(
     'Diff real-Git modes, fixed endpoints, paths, metadata, parser and cancellation passed.',
   );

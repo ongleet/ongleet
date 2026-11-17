@@ -107,6 +107,10 @@ pub enum Request {
     RemoveSessionTag {
         name: String,
     },
+    SetTabTag {
+        key: String,
+        tag: Option<crate::session::SessionTag>,
+    },
     SessionTags,
     Configure {
         patch: serde_json::Value,
@@ -204,6 +208,7 @@ pub async fn sdk_request(
         Request::DeleteFile { .. } => "deleteFile",
         Request::AddSessionTag { .. } => "addSessionTag",
         Request::RemoveSessionTag { .. } => "removeSessionTag",
+        Request::SetTabTag { .. } => "setTabTag",
         Request::SessionTags => "sessionTags",
         Request::Configure { .. } => "configure",
         Request::ReadData { .. } => "readData",
@@ -344,6 +349,7 @@ pub async fn sdk_request(
             | Request::ReplaceData { .. }
             | Request::AddSessionTag { .. }
             | Request::RemoveSessionTag { .. }
+            | Request::SetTabTag { .. }
     );
     // Register jobs before releasing ownership; close/detach can then cancel them.
     let job = if matches!(
@@ -515,6 +521,17 @@ pub async fn sdk_request(
                             .find(|s| s.id == session_id)
                             .ok_or("Session unavailable")?
                             .session_tags(),
+                    )
+                }
+                Request::SetTabTag { key, tag } => {
+                    let snapshot = guard.set_tab_tag(id, key, tag)?;
+                    serde_json::to_value(
+                        &snapshot
+                            .sessions
+                            .iter()
+                            .find(|s| s.id == session_id)
+                            .ok_or("Session unavailable")?
+                            .tags,
                     )
                 }
                 Request::SessionTags => {

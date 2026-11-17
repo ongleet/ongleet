@@ -175,7 +175,7 @@ impl SessionRegistry {
                 .iter()
                 .cloned()
                 .map(|mut session| {
-                    session.tags = session.session_tags();
+                    session.tags = session.visible_tags();
                     for tab in &mut session.tabs {
                         tab.runtime_present = self.terminals.contains_key(&tab.id);
                         tab.codex_activity = self.codex_activity.get(&tab.id).map(|activity| {
@@ -599,7 +599,29 @@ pub struct SessionTag {
     #[serde(default)]
     pub priority: i32,
 }
+const TAB_TAG_NAMESPACE: &str = "ongleet.tab-tags";
+#[derive(Clone, Deserialize, Serialize, PartialEq)]
+struct OwnedTag {
+    key: String,
+    tag: SessionTag,
+}
+impl PluginTab {
+    fn owned_tags(&self) -> Vec<OwnedTag> {
+        self.plugin_data
+            .get(TAB_TAG_NAMESPACE)
+            .and_then(|n| serde_json::from_value(n.value.clone()).ok())
+            .unwrap_or_default()
+    }
+}
 impl Session {
+    fn visible_tags(&self) -> Vec<SessionTag> {
+        let mut tags = self.session_tags();
+        for tab in self.tabs.iter().filter(|tab| tab.is_open) {
+            tags.extend(tab.owned_tags().into_iter().map(|entry| entry.tag));
+        }
+        tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+        tags
+    }
     pub fn session_tags(&self) -> Vec<SessionTag> {
         let mut tags: Vec<SessionTag> = self
             .plugin_data
@@ -645,32 +667,7 @@ impl SessionRegistry {
     }
 
     fn set_session_tags(&mut self, id: u64, mut tags: Vec<SessionTag>) -> Result<Snapshot, String> {
-        if tags.len() > 16 {
-            return Err("At most 16 session tags are allowed".into());
-        }
-        let mut names = std::collections::HashSet::new();
-        for tag in &mut tags {
-            tag.name = tag.name.trim().to_string();
-            if tag.name.is_empty()
-                || tag.name.chars().count() > 40
-                || tag.name.chars().any(char::is_control)
-            {
-                return Err("Tag names must contain 1–40 characters without controls".into());
-            }
-            if !names.insert(tag.name.to_lowercase()) {
-                return Err("Duplicate tag name".into());
-            }
-            for color in [&mut tag.background, &mut tag.dot].into_iter().flatten() {
-                if color.len() != 7
-                    || !color.starts_with('#')
-                    || !color[1..].bytes().all(|b| b.is_ascii_hexdigit())
-                {
-                    return Err("Tag colors must use #RRGGBB".into());
-                }
-                color.make_ascii_lowercase();
-            }
-        }
-        tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+        validate_tags(&mut tags)?;
         let session = self
             .sessions
             .iter()
@@ -690,6 +687,88 @@ impl SessionRegistry {
             revision,
             1,
             serde_json::to_value(tags).map_err(|e| e.to_string())?,
+        )?;
+        Ok(self.snapshot())
+    }
+}
+
+fn validate_tags(tags: &mut [SessionTag]) -> Result<(), String> {
+    if tags.len() > 16 {
+        return Err("At most 16 session tags are allowed".into());
+    }
+    let mut names = std::collections::HashSet::new();
+    for tag in tags.iter_mut() {
+        tag.name = tag.name.trim().to_string();
+        if tag.name.is_empty()
+            || tag.name.chars().count() > 40
+            || tag.name.chars().any(char::is_control)
+        {
+            return Err("Tag names must contain 1–40 characters without controls".into());
+        }
+        if !names.insert(tag.name.to_lowercase()) {
+            return Err("Duplicate tag name".into());
+        }
+        for color in [&mut tag.background, &mut tag.dot].into_iter().flatten() {
+            if color.len() != 7
+                || !color.starts_with('#')
+                || !color[1..].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err("Tag colors must use #RRGGBB".into());
+            }
+            color.make_ascii_lowercase();
+        }
+    }
+    tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+    Ok(())
+}
+
+impl SessionRegistry {
+    pub fn set_tab_tag(
+        &mut self,
+        id: u64,
+        key: String,
+        tag: Option<SessionTag>,
+    ) -> Result<Snapshot, String> {
+        if key.is_empty() || key.len() > 128 || key.chars().any(char::is_control) {
+            return Err("Tag keys must contain 1–128 bytes without controls".into());
+        }
+        self.open_plugin_tab(id)?;
+        let session = self
+            .sessions
+            .iter()
+            .find(|s| s.tabs.iter().any(|t| t.id == id))
+            .ok_or("Tab unavailable")?;
+        let tab = session.tabs.iter().find(|t| t.id == id).unwrap();
+        let previous = tab.owned_tags();
+        let mut entries = previous.clone();
+        if let Some(mut tag) = tag {
+            validate_tags(std::slice::from_mut(&mut tag))?;
+            if let Some(entry) = entries.iter_mut().find(|entry| entry.key == key) {
+                entry.tag = tag;
+            } else {
+                entries.push(OwnedTag { key, tag });
+            }
+        } else {
+            entries.retain(|entry| entry.key != key);
+        }
+        if entries == previous {
+            return Ok(self.snapshot());
+        }
+        if entries.len() > 16 {
+            return Err("At most 16 tags per tab are allowed".into());
+        }
+        let revision = tab
+            .plugin_data
+            .get(TAB_TAG_NAMESPACE)
+            .map_or(0, |n| n.revision);
+        let session_id = session.id;
+        self.replace_plugin_data(
+            session_id,
+            Some(id),
+            TAB_TAG_NAMESPACE,
+            revision,
+            1,
+            serde_json::to_value(entries).map_err(|e| e.to_string())?,
         )?;
         Ok(self.snapshot())
     }

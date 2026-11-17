@@ -209,6 +209,7 @@ impl SessionRegistry {
         let mut parent = self.tab_session_mut(id)?.clone();
         let mut tab = parent.tabs.iter().find(|tab| tab.id == id).unwrap().clone();
         self.capture_restart_flags(std::slice::from_mut(&mut tab));
+        tab.plugin_data.remove(super::TAB_TAG_NAMESPACE);
         let project = self.project(parent.project_id)?.clone();
         parent.tabs.clear();
         parent.selected_tab_id = None;
@@ -241,6 +242,9 @@ impl SessionRegistry {
         self.sdk_attachments.remove(&id);
         let session = self.tab_session_mut(id)?;
         let index = session.tabs.iter().position(|t| t.id == id).unwrap();
+        session.tabs[index]
+            .plugin_data
+            .remove(super::TAB_TAG_NAMESPACE);
         session.tabs[index].is_open = false;
         session.tabs[index].resume_on_start = false;
         if session.selected_tab_id == Some(id) {

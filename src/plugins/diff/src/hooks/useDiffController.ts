@@ -142,7 +142,7 @@ export function useDiffController({ tab, session, visible }: PluginContentProps)
           await sdk.storage.configure(next.config);
           if (!current()) return;
           try {
-            await updateDiffTag(sdk.session, tab.id, next.files.length, current);
+            await updateDiffTag(sdk.tab, tab.id, next.files.length, current);
           } catch (error) {
             if (current()) setTagError(String(error));
           }

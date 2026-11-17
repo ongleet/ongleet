@@ -1,28 +1,19 @@
 import type { SessionTag } from '../../../sdk';
 
 type TagService = {
-  listTags(): Promise<SessionTag[]>;
-  addTag(tag: SessionTag): Promise<SessionTag[]>;
-  removeTag(name: string): Promise<SessionTag[]>;
+  setTag(key: string, tag: SessionTag): Promise<SessionTag[]>;
 };
 
-/** Update this tab’s file-count tag while preserving unrelated session tags and ignoring stale work. */
+/** Publish this tab's status under a stable key; the host owns close cleanup. */
 export async function updateDiffTag(
   service: TagService,
   tabId: number,
   count: number,
   current: () => boolean,
 ) {
-  const prefix = `Diff #${tabId}: `;
-  const desired = {
-    name: `${prefix}${count} ${count === 1 ? 'file' : 'files'}`,
+  if (!current()) return;
+  await service.setTag('diff-status', {
+    name: `Diff #${tabId}: ${count} ${count === 1 ? 'file' : 'files'}`,
     dot: count ? '#D29922' : '#3FB950',
-  };
-  const existing = await service.listTags();
-  for (const tag of existing) {
-    if (!current()) return;
-    if (tag.name.startsWith(prefix) && tag.name !== desired.name) await service.removeTag(tag.name);
-  }
-  if (current() && !existing.some((tag) => tag.name === desired.name && tag.dot === desired.dot))
-    await service.addTag(desired);
+  });
 }

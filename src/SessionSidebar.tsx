@@ -391,9 +391,9 @@ export function SessionSidebar({
                           <span className="session-directory">{session.baseDirectory}</span>
                           {session.tags.length > 0 && (
                             <span className="session-tags">
-                              {session.tags.map((tag) => (
+                              {session.tags.map((tag, index) => (
                                 <span
-                                  key={tag.name}
+                                  key={`${index}:${tag.name}`}
                                   className="session-tag"
                                   title={tag.name}
                                   style={{
