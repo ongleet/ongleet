@@ -1,5 +1,6 @@
 {
   "id": "sdk-example",
+  "icon": "assets/icon.svg",
   "label": "SDK example",
   "configVersion": 1,
   "sdkVersion": 1,

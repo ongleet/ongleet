@@ -12,7 +12,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import type { ProcessStatus } from './terminal';
 import { allowEditorClose, fileEditors } from './plugins/files/src/editor-guards';
-import { TabHost, flushPlugins, plugins } from './plugins';
+import { TabHost, flushPlugins, plugins, PluginIcon } from './plugins';
 import type { PluginTab } from './plugins/types';
 import { SessionSidebar } from './SessionSidebar';
 import { ArchivesDialog } from './ArchivesDialog';
@@ -358,6 +358,7 @@ function SessionPane({
                   setTabDrop(null);
                 }}
               >
+                <PluginIcon kind={tab.kind} />
                 <span className="tab-name">{tabTitles[tab.id] ?? tab.name}</span>
                 {statuses[tab.id]?.state === 'exited' && (
                   <span>({(statuses[tab.id] as { code: number }).code})</span>

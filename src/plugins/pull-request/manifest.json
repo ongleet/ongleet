@@ -41,6 +41,7 @@
     "Omitted or null refreshIntervalSeconds inherits session/global defaults; explicit values from 30 to 86400 seconds remain local."
   ],
   "id": "pull-request",
+  "icon": "assets/icon.svg",
   "label": "Pull request",
   "sdkVersion": 1,
   "defaults": {},

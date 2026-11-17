@@ -1,5 +1,6 @@
 {
   "id": "note",
+  "icon": "assets/icon.svg",
   "label": "Note",
   "configVersion": 1,
   "sdkVersion": 1,

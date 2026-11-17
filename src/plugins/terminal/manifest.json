@@ -63,6 +63,7 @@
     "Configuration changes affect future launches; running processes retain their launch settings."
   ],
   "id": "terminal",
+  "icon": "assets/icon.svg",
   "label": "Terminal",
   "sdkVersion": 1,
   "defaults": {

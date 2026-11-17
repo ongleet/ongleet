@@ -9,7 +9,7 @@ import {
 } from './components/Controls';
 import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { actionEditor, plugins } from './plugins';
+import { actionEditor, plugins, PluginIcon } from './plugins';
 
 type Action = { id: string; name: string; kind: string; configVersion: number };
 
@@ -124,6 +124,7 @@ export function SessionMenu({
                       });
                     }}
                   >
+                    <PluginIcon kind={action.kind} />
                     {action.name}
                   </Button>
                 ))}

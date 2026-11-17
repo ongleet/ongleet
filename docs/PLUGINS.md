@@ -12,7 +12,9 @@ Rust discovers the same manifest without running JavaScript. No Rust provider or
 registration edit is required. Keep IDs and configuration versions stable.
 Unsupported plugins keep opaque configuration and data.
 
-A manifest declares `id`, `label`, `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (`src/entrypoint.tsx`, relative to the manifest), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`.
+A manifest declares `id`, `label`, `icon` (`assets/icon.svg`, required), `configVersion`, `sdkVersion` (currently `1`), `entrypoint` (`src/entrypoint.tsx`, relative to the manifest), `defaults`, `configSchema`, `capabilities` and discovery `examples`. Include a short `description` for the plugin and each configuration field so agents can understand their purpose through `ongleet --json tab types`. Configuration schemas support objects, arrays, scalar types, nullable type lists, unknown-field rejection, nested property schemas, `absolutePath` and `maxBytes`.
+
+Provide a distinct 24×24 SVG pictogram using `currentColor` in `assets/icon.svg`. The host shows it in tabs and the add-tab menu; the build rejects missing icons.
 
 Declare `contextDefaults: {"folder":"session.directory"}` for a folder initialized from the session directory. PTY plugins declare `runtime: "pty"`; core launch validation still applies. Configuration, runtime compatibility and plugin data have separate versions.
 

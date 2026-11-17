@@ -52,6 +52,7 @@
     "Browsing requires an accessible directory. Configuration does not create directories."
   ],
   "id": "files",
+  "icon": "assets/icon.svg",
   "label": "Files",
   "sdkVersion": 1,
   "defaults": {

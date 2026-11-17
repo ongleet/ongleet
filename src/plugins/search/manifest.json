@@ -1,5 +1,6 @@
 {
   "id": "search",
+  "icon": "assets/icon.svg",
   "label": "Search",
   "description": "Recursively search UTF-8 file contents and inspect matching lines.",
   "sdkVersion": 1,

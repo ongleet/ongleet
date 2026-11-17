@@ -1,5 +1,6 @@
 {
   "id": "diff",
+  "icon": "assets/icon.svg",
   "label": "Diff",
   "description": "Git changes with unified patches and local discussion threads.",
   "configVersion": 1,

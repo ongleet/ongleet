@@ -1349,3 +1349,15 @@ button:focus-visible {
   max-height: 100%;
   object-fit: contain;
 }
+
+.plugin-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  background: currentColor;
+  mask: center / contain no-repeat;
+  -webkit-mask: center / contain no-repeat;
+  margin-right: 6px;
+}

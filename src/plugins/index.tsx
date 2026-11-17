@@ -16,6 +16,7 @@ export type ConfigurationEditorProps = { value: string; onChange: (value: string
 export type TabPlugin = {
   id: string;
   label: string;
+  icon: string;
   configVersion: number;
   // Attach before first visibility when the plugin owns background work.
   background?: boolean;
@@ -32,18 +33,28 @@ const manifests = import.meta.glob<{
   default: {
     id: string;
     label: string;
+    icon: string;
     configVersion: number;
     sdkVersion: number;
     entrypoint: string;
   };
 }>('./*/manifest.json', { eager: true });
 const entrypoints = import.meta.glob<{
-  default: Omit<TabPlugin, 'id' | 'label' | 'configVersion'>;
+  default: Omit<TabPlugin, 'id' | 'label' | 'icon' | 'configVersion'>;
 }>('./*/src/entrypoint.tsx', { eager: true });
+const icons = import.meta.glob('./*/assets/icon.svg', {
+  eager: true,
+  query: '?url',
+  import: 'default',
+});
 export const plugins: TabPlugin[] = Object.entries(manifests).flatMap(
   ([path, { default: manifest }]) => {
     const entrypoint = entrypoints[path.replace('manifest.json', manifest.entrypoint)];
-    return manifest.sdkVersion === 1 && entrypoint ? [{ ...manifest, ...entrypoint.default }] : [];
+    const icon = icons[path.replace('manifest.json', manifest.icon)];
+    if (typeof icon !== 'string') throw new Error(`Missing icon for plugin ${manifest.id}`);
+    return manifest.sdkVersion === 1 && entrypoint
+      ? [{ ...entrypoint.default, ...manifest, icon }]
+      : [];
   },
 );
 export async function flushPlugins() {
@@ -194,4 +205,15 @@ function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps
       )}
     </SdkContext.Provider>
   );
+}
+
+export function PluginIcon({ kind }: { kind: string }) {
+  const plugin = plugins.find((plugin) => plugin.id === kind);
+  return plugin ? (
+    <span
+      className="plugin-icon"
+      aria-hidden="true"
+      style={{ maskImage: `url("${plugin.icon}")`, WebkitMaskImage: `url("${plugin.icon}")` }}
+    />
+  ) : null;
 }
