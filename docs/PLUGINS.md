@@ -49,7 +49,7 @@ from a display name. Diff publishes its file count with the `diff-status` key.
 
 ### Tab title
 
-`tab.setTitle(title: string | null)`: updates only the calling tab’s display title synchronously. Titles allow at most 256 UTF-16 code units, trimmed, and stripped of control characters. `null` or blank text restores the configured name. Overrides last for the attachment, survive hiding and metadata refreshes, and clear on detach; they do not rename the saved action/tab.
+`tab.setTitle(title: string | null)`: updates only the calling tab’s display title synchronously. Titles allow at most 256 UTF-16 code units, trimmed, and stripped of control characters. `null` or blank text restores the configured name. The host caches the last title of each open tab in browser localStorage, scoped by session and tab ID. Titles survive hiding, detachment and app restarts, including before lazy plugin attachment. A plugin can replace or explicitly clear its cached title when it attaches. Closing a tab clears its cached title; saved action/tab names remain unchanged. If browser storage is unavailable, live titles still work in memory.
 
 Terminal reads standard OSC 0/2 shell titles from the bounded byte stream, including fragmented UTF-8 and BEL/ST terminators; shells must emit these sequences to advertise their current directory or command. No shell startup files are changed; Files uses the open file’s basename.
 

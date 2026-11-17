@@ -1,3 +1,4 @@
+import { loadTabTitles, openTabTitles, saveTabTitles } from './tab-titles';
 import { useRenderDiagnostic } from './render-diagnostics';
 import { t, useLocale } from './i18n';
 import { Button, Dialog, Input, Select, Tab, TabList } from './components/Controls';
@@ -242,7 +243,14 @@ function SessionPane({
   const [sharedSettingsTab, setSharedSettingsTab] = useState<number | null>(null);
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
   const active = openTabs.find((tab) => tab.id === session.selectedTabId);
-  const [tabTitles, setTabTitles] = useState<Record<number, string>>({});
+  const [tabTitles, setTabTitles] = useState<Record<number, string>>(() =>
+    loadTabTitles(session.id, session.tabs),
+  );
+  useEffect(() => {
+    saveTabTitles(session.id, session.tabs, tabTitles);
+    const current = openTabTitles(tabTitles, session.tabs);
+    if (Object.keys(current).length !== Object.keys(tabTitles).length) setTabTitles(current);
+  }, [session.id, session.tabs, tabTitles]);
   const reportTitle = useCallback((id: number, title: string | null) => {
     setTabTitles((previous) => {
       if ((previous[id] ?? null) === title) return previous;

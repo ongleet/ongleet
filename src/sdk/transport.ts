@@ -385,7 +385,6 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
     dispose: async () => {
       interactionCleanup?.();
       disposed = true;
-      setTitle(null);
       for (const unsubscribe of [...subscriptions]) unsubscribe();
       for (const channel of channels) channel.onmessage = () => {};
       channels.clear();

@@ -218,6 +218,7 @@ mise exec -- npm run check:plugins
 mise exec -- npm run check:system-boundaries
 mise exec -- npm run check:editor-merge
 mise exec -- npm run check:wasm
+mise exec -- npm run check:tab-titles
 mise exec -- npm run check:terminal-history
 mise exec -- npm run check:terminal-reuse
 mise exec -- npm run check:terminal-selection
