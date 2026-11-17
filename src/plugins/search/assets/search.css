@@ -27,6 +27,25 @@
   flex: 1;
   min-width: 0;
 }
+.search-file-group + .search-file-group {
+  margin-top: 16px;
+}
+.search-file-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: inherit;
+  overflow-wrap: anywhere;
+}
+.search-file-heading > span {
+  flex-shrink: 0;
+  font-weight: normal;
+}
+.search-file-group > .file-list {
+  margin: 0;
+  padding-left: 12px;
+}
 .search-matches button {
   width: 100%;
   text-align: left;

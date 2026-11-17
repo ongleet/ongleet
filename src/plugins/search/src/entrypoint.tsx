@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, TabPanel } from '../../../components/Controls';
 import { Checkbox } from '../../../components/Checkbox';
 import { t } from '../../../i18n';
@@ -38,6 +38,18 @@ function Content({ tab, session, visible }: PluginContentProps) {
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [result, setResult] = useState<FileSearch>();
+  const groups = useMemo(() => {
+    const files = new Map<string, { relativePath: string; matches: FileSearch['matches'] }>();
+    for (const match of result?.matches ?? []) {
+      let file = files.get(match.path);
+      if (!file) {
+        file = { relativePath: match.relativePath, matches: [] };
+        files.set(match.path, file);
+      }
+      file.matches.push(match);
+    }
+    return Array.from(files, ([path, file]) => ({ path, ...file }));
+  }, [result]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -189,20 +201,28 @@ function Content({ tab, session, visible }: PluginContentProps) {
       </p>
       <div className="search-body" aria-busy={busy}>
         <ul className="file-list search-matches">
-          {result?.matches.map((match) => (
-            <li key={`${match.path}:${match.line}`}>
-              <Button
-                type="button"
-                title={match.path}
-                aria-pressed={selected === match}
-                disabled={opening}
-                onClick={() => void openMatch(match)}
-              >
-                <strong>
-                  {match.relativePath}:{match.line}
-                </strong>
-                <code>{match.text}</code>
-              </Button>
+          {groups.map((file) => (
+            <li key={file.path} className="search-file-group">
+              <h3 className="search-file-heading" title={file.path}>
+                {file.relativePath}
+                <span className="muted">{file.matches.length}</span>
+              </h3>
+              <ul className="file-list" aria-label={file.relativePath}>
+                {file.matches.map((match) => (
+                  <li key={match.line}>
+                    <Button
+                      type="button"
+                      title={`${match.path}:${match.line}`}
+                      aria-pressed={selected?.path === match.path && selected.line === match.line}
+                      disabled={opening}
+                      onClick={() => void openMatch(match)}
+                    >
+                      <strong>{match.line}</strong>
+                      <code>{match.text}</code>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
