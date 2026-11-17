@@ -270,9 +270,9 @@ At the user's request, only tabs that were running when the app last closed auto
 
 ### Persistent terminal history
 
-Every terminal tab automatically saves a plain-text snapshot of its current Ghostty buffer, including available scrollback. No wrapper or shell configuration is required. After Quit, reboot or a crash, the saved text appears above a `Previous terminal history; new process below` separator. Eligible tabs then launch a fresh process; stopped tabs display their saved history without launching. Live WebView reloads retain the original history prefix and replay the current process without duplicating that prefix.
+Every terminal tab automatically saves a plain-text snapshot of its current Ghostty buffer, including available scrollback. No wrapper or shell configuration is required. After Quit, reboot or a crash, the saved text appears above a `Previous terminal history; new process below` separator. Idle restarts containing only the same standalone path prompt are compacted, so empty shell launches do not accumulate duplicate prompts and separators. Commands and program output remain intact. Eligible tabs then launch a fresh process; stopped tabs display their saved history without launching. Live WebView reloads retain the original history prefix and replay the current process without duplicating that prefix.
 
-Snapshots retain up to 2,000 lines and about 60,000 UTF-16 code units (at most 240 KiB UTF-8). They are updated at most once per second while output arrives, after observed EOF, and just before the GUI Quit action. A crash, abrupt shutdown or CLI Quit can lose recent output since the last snapshot.
+Snapshots retain up to 2,000 lines and about 60,000 UTF-16 code units (at most 240 KiB UTF-8). They are updated at most once per five seconds while output arrives, after observed EOF, and just before the GUI Quit action. A crash, abrupt shutdown or CLI Quit can lose recent output since the last snapshot.
 
 This is a snapshot of retained terminal text, not a complete command log: cleared/discarded output is unavailable, and full-screen programs save their active screen. Colors, terminal modes, selection and process state are not saved. New programs may clear the restored display using their normal terminal controls.
 

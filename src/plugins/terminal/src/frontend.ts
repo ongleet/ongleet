@@ -15,7 +15,11 @@ import {
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url';
 import { consumeOutput, initializeTerminal, SCROLLBACK_LINES } from '../../../byte-transport';
 import { prepareTerminalRendering } from '../../../terminal-rendering';
-import { TerminalHistory } from '../../../terminal-history';
+import {
+  TerminalHistory,
+  TERMINAL_HISTORY_SEPARATOR,
+  compactTerminalHistory,
+} from '../../../terminal-history';
 import { createEngineLoader } from '../../../engine-loader';
 import { attachTerminalMouse } from '../../../terminal-mouse';
 import { TerminalLinks } from '../../../terminal-links';
@@ -356,13 +360,16 @@ export class TerminalFrontend {
         if (this.disposed || this.term !== term) return undefined;
         if (history) {
           // Render saved text as text: never replay control sequences from disk.
-          const safe = history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, '');
-          term.write(
-            new TextEncoder().encode(
-              safe.replace(/\n/g, '\r\n') +
-                '\r\n--- Previous terminal history; new process below ---\r\n',
-            ),
+          const safe = compactTerminalHistory(
+            history.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, ''),
           );
+          if (safe) {
+            term.write(
+              new TextEncoder().encode(
+                safe.replace(/\n/g, '\r\n') + `\r\n${TERMINAL_HISTORY_SEPARATOR}\r\n`,
+              ),
+            );
+          }
         }
         if (!connection) return undefined;
         this.replaying = connection.replay;
@@ -410,7 +417,7 @@ export class TerminalFrontend {
       lines.push(line);
       budget -= line.length + 1;
     }
-    return lines.reverse().join('\n').trimEnd();
+    return compactTerminalHistory(lines.reverse().join('\n').trimEnd());
   }
 
   private send(text: string) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
-import { TerminalHistory } from '../src/terminal-history.ts';
+import { TerminalHistory, compactTerminalHistory } from '../src/terminal-history.ts';
 
 mock.timers.enable({ apis: ['setTimeout'] });
 const settle = async () => {
@@ -116,3 +116,30 @@ try {
   history.dispose();
   mock.timers.reset();
 }
+
+// Realistic restart snapshots: empty shell launches must not grow history, but
+// commands and repeated program output belong to the user and must survive.
+const separator = '--- Previous terminal history; new process below ---';
+const prompt = '~/Code/baserow-swarm/worktrees/experiment-route-feature-bundles-66d2b636ea8b$';
+assert.equal(compactTerminalHistory(Array(5).fill(prompt).join(`\n${separator}\n`)), '');
+assert.equal(compactTerminalHistory(`\n${separator}\n${prompt}\n${separator}\n${prompt}`), '');
+assert.equal(compactTerminalHistory(`${separator}\n${prompt}\n${separator}\n${prompt}`), '');
+assert.equal(compactTerminalHistory('~/project$ echo $'), '~/project$ echo $');
+let saved = `${prompt} echo hello\nhello\n${prompt}`;
+const original = saved;
+for (let restart = 0; restart < 10; restart++) {
+  saved = compactTerminalHistory(`${saved}\n${separator}\n${prompt}`);
+  assert.equal(saved, original, 'Idle restarts must not append another prompt or separator');
+}
+for (const output of [
+  `hello\n${separator}\nhello`,
+  `${prompt} echo hello\nhello\n${prompt}\n${separator}\n${prompt} echo hello\nhello\n${prompt}`,
+  `~/first$\n${separator}\n~/second$`,
+  `~/first$ pwd\n/first\n${separator}\n/first`,
+  `line one\nline one`,
+]) {
+  assert.equal(compactTerminalHistory(output), output, 'Meaningful output must remain verbatim');
+}
+assert.equal(compactTerminalHistory('user@host:~/project$'), '');
+assert.equal(compactTerminalHistory('/home/user/project#'), '');
+console.log('PASS: idle restart compaction preserves commands, output and distinct prompts');

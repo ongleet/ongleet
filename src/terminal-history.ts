@@ -1,3 +1,36 @@
+export const TERMINAL_HISTORY_SEPARATOR = '--- Previous terminal history; new process below ---';
+
+// Only recognize standalone path prompts. Arbitrary repeated program output must
+// remain intact, even when it happens to be identical across process restarts.
+function pathPrompt(text: string): string | undefined {
+  const line = text.trim();
+  return /^(?:[^\s:@]+@[^\s:]+:)?(?:~(?:\/[^\n$#%>❯]*)?|\/[^\n$#%>❯]*)[$#%>❯]$/.test(line)
+    ? line
+    : undefined;
+}
+
+export function compactTerminalHistory(text: string): string {
+  const sections = text.split(new RegExp(`(?:^|\n)${TERMINAL_HISTORY_SEPARATOR}\n`));
+  const kept: string[] = [];
+  let previousPrompt: string | undefined;
+  let onlyPrompt = true;
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (sections.length > 1 && !trimmed) continue;
+    const prompt = pathPrompt(trimmed);
+    if (prompt && !trimmed.includes('\n')) {
+      if (prompt === previousPrompt) continue;
+    } else {
+      onlyPrompt = false;
+    }
+    kept.push(section);
+    previousPrompt = pathPrompt(trimmed.split('\n').at(-1) ?? '');
+  }
+  // A shell which has only displayed its initial prompt has no work to restore.
+  if (onlyPrompt && kept.length === 1) return '';
+  return kept.join(`\n${TERMINAL_HISTORY_SEPARATOR}\n`);
+}
+
 // Snapshot only after output, at most once per five seconds. Explicit lifecycle
 // flushes bypass the timer. A generation distinguishes output arriving in flight.
 export class TerminalHistory {
