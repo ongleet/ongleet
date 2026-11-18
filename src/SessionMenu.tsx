@@ -24,7 +24,9 @@ export function SessionMenu({
   sharedSettings,
   configureShared,
   archiveTab,
+  menuRef,
 }: {
+  menuRef?: React.RefObject<HTMLDetailsElement | null>;
   sharedSettings: { id: number; label: string }[];
   configureShared: (tabId: number) => void;
   activeTabName?: string;
@@ -68,7 +70,10 @@ export function SessionMenu({
       <Disclosure
         className="titlebar-menu session-actions-menu"
         name="titlebar-menu"
-        ref={menu}
+        ref={(node) => {
+          menu.current = node;
+          if (menuRef) menuRef.current = node;
+        }}
         onToggle={(event) => {
           if (event.currentTarget.open) void load();
         }}

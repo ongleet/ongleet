@@ -241,6 +241,7 @@ function SessionPane({
   markRestoring: (delta: number) => void;
 }) {
   const [sharedSettingsTab, setSharedSettingsTab] = useState<number | null>(null);
+  const sessionMenu = useRef<HTMLDetailsElement>(null);
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
   const active = openTabs.find((tab) => tab.id === session.selectedTabId);
   const [tabTitles, setTabTitles] = useState<Record<number, string>>(() =>
@@ -299,7 +300,22 @@ function SessionPane({
   }
   return (
     <section className="session-pane" hidden={!visible} aria-label={session.name}>
-      <div className="tab-bar">
+      <div
+        className="tab-bar"
+        onClick={(event) => {
+          if (
+            !disabled &&
+            (event.target === event.currentTarget ||
+              event.target === event.currentTarget.querySelector('.tab-list'))
+          ) {
+            const menu = sessionMenu.current;
+            if (menu) {
+              menu.open = true;
+              menu.querySelector('summary')?.focus();
+            }
+          }
+        }}
+      >
         <TabList
           aria-label={t('{value0} tabs', { value0: session.name })}
           className="tab-list"
@@ -386,6 +402,7 @@ function SessionPane({
           ))}
         </TabList>
         <SessionMenu
+          menuRef={sessionMenu}
           sessionId={session.id}
           disabled={disabled}
           mutate={mutate}
