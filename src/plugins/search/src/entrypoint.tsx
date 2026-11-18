@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Button, Input, TabPanel } from '../../../components/Controls';
 import { Checkbox } from '../../../components/Checkbox';
 import { t } from '../../../i18n';
@@ -31,6 +32,32 @@ function ConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
 
 function Content({ tab, session, visible }: PluginContentProps) {
   const sdk = useSdk();
+  const layout = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; ratio: number; width: number } | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const [split, setSplit] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ongleet.search.splitRatio');
+      const ratio = saved === null ? NaN : Number(saved);
+      if (Number.isFinite(ratio) && ratio >= 0.15 && ratio <= 0.85) return ratio;
+    } catch {
+      // Resizing remains available when local storage is unavailable.
+    }
+    return 1 / 3;
+  });
+  const adjustSplit = (ratio: number) => setSplit(Math.max(0.15, Math.min(0.85, ratio)));
+  const stopResizing = () => {
+    drag.current = null;
+    setResizing(false);
+  };
+  useEffect(() => {
+    if (resizing) return;
+    try {
+      localStorage.setItem('ongleet.search.splitRatio', String(split));
+    } catch {
+      // A storage failure must not interrupt the search panel.
+    }
+  }, [split, resizing]);
   const folder = (tab.config as { folder?: string }).folder ?? '';
   const [query, setQuery] = useState('');
   const [include, setInclude] = useState('');
@@ -199,7 +226,12 @@ function Content({ tab, session, visible }: PluginContentProps) {
           ? t(' · {value0} entries could not be searched', { value0: result.skipped })
           : ''}
       </p>
-      <div className="search-body" aria-busy={busy}>
+      <div
+        ref={layout}
+        className="search-body"
+        aria-busy={busy}
+        style={{ gridTemplateColumns: `minmax(0, ${split}fr) 16px minmax(0, ${1 - split}fr)` }}
+      >
         <ul className="file-list search-matches">
           {groups.map((file) => (
             <li key={file.path} className="search-file-group">
@@ -226,6 +258,58 @@ function Content({ tab, session, visible }: PluginContentProps) {
             </li>
           ))}
         </ul>
+        <div
+          className="search-resizer"
+          role="separator"
+          tabIndex={0}
+          aria-label={t('Resize {value0} sidebar', { value0: t('Search').toLowerCase() })}
+          aria-orientation="vertical"
+          aria-valuemin={15}
+          aria-valuemax={85}
+          aria-valuenow={Math.round(split * 100)}
+          title={t('Drag to resize · Arrow keys to adjust · Double-click to reset')}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            const width = (layout.current?.clientWidth ?? 0) - 16;
+            if (width <= 0) return;
+            event.preventDefault();
+            event.currentTarget.focus();
+            drag.current = { x: event.clientX, ratio: split, width };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setResizing(true);
+          }}
+          onPointerMove={(event) => {
+            if (drag.current)
+              adjustSplit(
+                drag.current.ratio + (event.clientX - drag.current.x) / drag.current.width,
+              );
+          }}
+          onPointerUp={(event) => {
+            stopResizing();
+            if (event.currentTarget.hasPointerCapture(event.pointerId))
+              event.currentTarget.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={stopResizing}
+          onLostPointerCapture={stopResizing}
+          onDoubleClick={() => setSplit(1 / 3)}
+          onKeyDown={(event) => {
+            const next =
+              event.key === 'ArrowLeft'
+                ? split - 0.02
+                : event.key === 'ArrowRight'
+                  ? split + 0.02
+                  : event.key === 'Home'
+                    ? 0.15
+                    : event.key === 'End'
+                      ? 0.85
+                      : null;
+            if (next !== null) {
+              event.preventDefault();
+              adjustSplit(next);
+            }
+          }}
+        />
+        {resizing && createPortal(<div className="search-resize-overlay" />, document.body)}
         <section className="search-preview" aria-busy={opening}>
           {editing ? (
             <TextEditor
