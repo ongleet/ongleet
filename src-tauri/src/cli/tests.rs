@@ -578,3 +578,20 @@ fn session_descriptions_support_multiline_context_and_explicit_clearing() {
         );
     }
 }
+
+#[test]
+fn layout_parser_accepts_two_groups_and_rejects_unknown_direction() {
+    assert!(
+        matches!(parse(args(&["session", "layout", "3", "--direction", "below", "--secondary", "[7,9]", "--ratio", "0.6"])).unwrap(), Invocation::Request(Command::SessionLayout { id: 3, direction: Some(direction), secondary, ratio, .. }) if direction == "below" && secondary == vec![7,9] && ratio == 0.6)
+    );
+    assert!(parse(args(&[
+        "session",
+        "layout",
+        "3",
+        "--direction",
+        "grid",
+        "--secondary",
+        "[7]"
+    ]))
+    .is_err());
+}

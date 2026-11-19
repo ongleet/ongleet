@@ -251,6 +251,22 @@ async fn run_external_action(
 }
 
 #[tauri::command]
+fn set_tab_layout(
+    state: State<AppRegistry>,
+    id: u64,
+    direction: Option<String>,
+    secondary: Vec<u64>,
+    selected: Option<u64>,
+    ratio: f64,
+) -> Result<Snapshot, String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .set_tab_layout(id, direction, secondary, selected, ratio)
+}
+
+#[tauri::command]
 fn select_tab(state: State<AppRegistry>, id: u64) -> Result<Snapshot, String> {
     state.0.lock().map_err(|e| e.to_string())?.select_tab(id)
 }
@@ -748,6 +764,7 @@ fn run(services: system::SystemServices) -> Result<(), String> {
             run_external_action,
             actions,
             select_tab,
+            set_tab_layout,
             rename_tab,
             configure_tab,
             configure_plugin_tab,

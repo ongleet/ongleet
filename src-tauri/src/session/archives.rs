@@ -212,7 +212,7 @@ impl SessionRegistry {
                 tab.display_order = parent.tabs.len();
                 // Preserve the saved opening and restart state; no PTY is created here.
                 if tab.is_open {
-                    parent.selected_tab_id = Some(tab.id);
+                    parent.activate_layout_tab(tab.id, true);
                 }
                 parent.tabs.push(tab);
             }

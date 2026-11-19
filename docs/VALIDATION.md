@@ -523,3 +523,31 @@ idle notifications held the second, and a work/idle cycle sent the second. The
 other recipient remained independent. This used fake activity and write adapters;
 it does not validate native WebKitGTK controls, live Codex hook timing, or native
 restart/closure behavior. Those acceptance checks remain open.
+
+## Two tab groups (2026-11-19)
+
+The isolated Xvfb/WebKitGTK lifecycle run with `--split` passed twelve checks:
+`/tmp/terminal-lifecycle-validation-8mtyfm_0/report.json`. Split-specific evidence
+covers context-menu division, two visible terminal panels, retained panel identity,
+orientation changes, moving the last group tab, explicit joining, keyboard divider
+resizing, right-edge drag-event creation, bottom-edge preview and cancelled drag.
+These are browser-dispatched drag events, not physical pointer dragging. The run
+also checks Quit, cancellation, native close, single-instance activation, history
+and restart. Cleanup reported no surviving processes.
+
+Rust tests cover selection independence, SQLite layout restoration, invalid
+layout rejection and new tabs following the active group without durable storage.
+The full host run passed 193 tests with two ignored and one excluded pre-existing
+archive fixture failure: `restores_legacy_codex_archive_with_new_wrapper_and_original_association`
+reports `duplicate column name: description`. Frontend build, formatting, i18n,
+terminal reuse and rendering checks passed. Physical Wayland dragging, pointer
+resizing and editor draft preservation during group moves remain unverified.
+
+Reproduce with native-validation assets and a bundled GUI, then run:
+
+```bash
+mise exec -- xvfb-run -a python3 scripts/check-lifecycle.py --split --driver /usr/bin/WebKitWebDriver --application "$PWD/src-tauri/target/debug/ongleet-gui"
+```
+
+Run the bundled GUI build after Cargo tests: tests can replace the GUI executable
+with a development binary that expects a Vite server.

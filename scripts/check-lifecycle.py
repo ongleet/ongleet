@@ -383,6 +383,11 @@ def run(args):
                 mark("New PTY launches after replacing/unlinking the running application executable")
             before = client.screen(tab)
             stream_pid = next(int(line.split("=",1)[1].split()[0]) for line in before.splitlines() if line.startswith("PID="))
+            if args.split:
+                split_spec = importlib.util.spec_from_file_location("split_checks", Path(__file__).with_name("split-native.py"))
+                split_checks = importlib.util.module_from_spec(split_spec)
+                split_spec.loader.exec_module(split_checks)
+                split_checks.check(client, session, tab, wait_for, mark)
             if plugin_checks:
                 saved_plugins = plugin_checks.run(client, directory, session, tab, stream_pid, wait_for, pid_alive, mark, cli if args.cli else None)
             assert os.stat(path).st_mode & 0o777 == 0o600
@@ -490,6 +495,7 @@ def run(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--split", action="store_true", help="Check two terminal tab groups and context menu interactions")
     parser.add_argument("--plugins", action="store_true", help="Exercise mixed plugin tabs with file browsing/editing and an isolated gh stand-in")
     parser.add_argument("--cli", help="Path to CLI executable for native shared-state integration checks")
     parser.add_argument("--actions-editor", action="store_true", help="Exercise the project Actions form and YAML editor (with --projects)")

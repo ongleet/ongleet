@@ -2,6 +2,7 @@ use super::{invalid, RpcError};
 
 // Keep usage and effects together so every command has useful scoped help.
 const COMMANDS: &[(&str, &str, &str)] = &[
+    ("session", "layout ID --direction right|below|none --secondary JSON [--selected ID] [--ratio NUMBER]", "Set two tab groups in this session. Secondary is an array of open tab IDs. Ratio is 0.2 to 0.8; empty groups merge automatically. None joins all tabs."),
     ("tab", "capabilities ID", "Discover declared state/actions and attachment availability. Never opens or selects tabs."),
     ("tab", "state ID [--args JSON]", "Read compact plugin state with validated arguments. Hidden open tabs remain callable."),
     ("tab", "invoke ID ACTION [--args JSON]", "Invoke a declared action. Five-second timeout; an action may have executed after timeout. Never retry automatically."),

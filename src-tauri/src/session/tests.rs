@@ -1315,3 +1315,77 @@ fn plugin_namespaces_conflict_bound_owners_and_survive_archive_restart() {
         serde_json::json!({"opaque":[1,2,3]})
     );
 }
+
+#[test]
+fn split_layout_preserves_selections_and_collapses_empty_groups() {
+    let directory = Directory::new();
+    let data = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let id = registry
+        .create("Split".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let a = registry.sessions[0].selected_tab_id.unwrap();
+    registry.create_tab(id).unwrap();
+    let b = registry.sessions[0].selected_tab_id.unwrap();
+    registry
+        .set_tab_layout(id, Some("right".into()), vec![b], Some(a), 0.6)
+        .unwrap();
+    registry.select_tab(a).unwrap();
+    assert_eq!(registry.sessions[0].layout().selected, Some(b));
+    registry.select_tab(b).unwrap();
+    assert_eq!(registry.sessions[0].layout().selected, Some(a));
+    assert!(registry
+        .set_tab_layout(id, Some("grid".into()), vec![b], Some(a), 0.5)
+        .is_err());
+    assert!(registry
+        .set_tab_layout(id, Some("right".into()), vec![u64::MAX], Some(a), 0.5)
+        .is_err());
+    assert!(registry
+        .set_tab_layout(id, Some("right".into()), vec![b], Some(a), f64::NAN)
+        .is_err());
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(registry.sessions[0].layout().secondary, vec![b]);
+    assert_eq!(registry.sessions[0].layout().ratio, Some(0.6));
+    registry.close_tab(b, true).unwrap();
+    assert!(registry.sessions[0].layout().direction.is_none());
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(a));
+}
+
+#[test]
+fn split_layout_new_tabs_follow_active_group_without_durable_storage() {
+    let directory = Directory::new();
+    let mut registry = SessionRegistry::default();
+    let id = registry
+        .create("Split".into(), directory.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    let a = registry.sessions[0].selected_tab_id.unwrap();
+    registry.create_tab(id).unwrap();
+    let b = registry.sessions[0].selected_tab_id.unwrap();
+    registry
+        .set_tab_layout(id, Some("below".into()), vec![b], Some(a), 0.5)
+        .unwrap();
+    registry.create_tab(id).unwrap();
+    let c = registry.sessions[0].selected_tab_id.unwrap();
+    assert_eq!(registry.sessions[0].layout().secondary, vec![b, c]);
+    assert_eq!(registry.sessions[0].layout().selected, Some(a));
+    registry.select_tab(a).unwrap();
+    assert_eq!(registry.sessions[0].layout().selected, Some(c));
+    registry
+        .set_tab_layout(id, None, vec![], None, 0.5)
+        .unwrap();
+    assert!(registry.sessions[0].layout().direction.is_none());
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(a));
+    assert_eq!(
+        registry.sessions[0]
+            .tabs
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>(),
+        vec![a, b, c]
+    );
+}

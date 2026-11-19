@@ -104,7 +104,7 @@ impl SessionRegistry {
             display_order: session.tabs.len(),
             config,
         });
-        session.selected_tab_id = Some(self.next_tab_id);
+        session.activate_layout_tab(self.next_tab_id, true);
         self.persist()
     }
 
@@ -113,7 +113,7 @@ impl SessionRegistry {
         if !session.tabs.iter().find(|t| t.id == id).unwrap().is_open {
             return Err("Tab is not open".into());
         }
-        session.selected_tab_id = Some(id);
+        session.activate_layout_tab(id, false);
         self.persist()
     }
 
@@ -196,11 +196,12 @@ impl SessionRegistry {
         let session = self.tab_session_mut(id)?;
         let tab = session.tabs.iter_mut().find(|t| t.id == id).unwrap();
         crate::plugins::validate(&tab.kind, tab.config_version, &tab.config)?;
+        let newly_opened = !tab.is_open;
         if !tab.is_open {
             tab.is_open = true;
             tab.resume_on_start = crate::plugins::has_runtime(&tab.kind);
         }
-        session.selected_tab_id = Some(id);
+        session.activate_layout_tab(id, newly_opened);
         self.persist()
     }
 

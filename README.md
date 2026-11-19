@@ -21,6 +21,18 @@ terminal output, user content, and backend diagnostics keep their original langu
 Organize work as **projects → sessions → tabs**. Keep agents, shells, files and
 reviews in one session. Switching tasks preserves running terminals and screens.
 
+Right-click a tab and choose **Split Right** or **Split Down**, or drag it to the
+right or bottom edge of the content area. Each session supports two tab groups,
+with a draggable divider and a saved layout. Move tabs between groups using drag
+and drop or the tab context menu. Empty groups merge automatically. The context
+menu also changes orientation or joins both groups without closing their tabs.
+Splitting requires at least two open tabs.
+
+The CLI can update the same layout with `ongleet session layout SESSION_ID
+--direction right --secondary '[TAB_ID]' --ratio 0.5`; use `below` for stacked
+groups, or `--direction none --secondary '[]'` to join them. `--selected TAB_ID`
+sets the inactive group's selection; `tab select` activates the target's group.
+
 | Tab              | What it brings to your workflow                                                                                                              |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Terminal**     | Run your shell, Codex or another terminal tool with Ghostty terminal emulation. Hidden terminals keep consuming output.                      |

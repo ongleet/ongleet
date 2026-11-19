@@ -1,5 +1,11 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Split Right': 'Diviser à droite',
+  'Split Down': 'Diviser en dessous',
+  'Move to Other Group': 'Déplacer vers l’autre groupe',
+  'Change Split Orientation': 'Changer l’orientation',
+  'Join Groups': 'Réunir les groupes',
+  'Resize groups': 'Redimensionner les groupes',
   'Agent tab {id}': 'Onglet agent {id}',
   '{agent} (unavailable)': '{agent} (indisponible)',
   'Agent tab {id} (unavailable)': 'Onglet agent {id} (indisponible)',

@@ -145,6 +145,13 @@ pub enum Command {
         #[serde(default)]
         enter: bool,
     },
+    SessionLayout {
+        id: u64,
+        direction: Option<String>,
+        secondary: Vec<u64>,
+        selected: Option<u64>,
+        ratio: f64,
+    },
     TabSelect {
         id: u64,
     },

@@ -39,7 +39,7 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
         tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status,"codexActivity":tab.codex_activity}));
     }
     Ok(
-        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"description":session.description,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"tags":session.session_tags(),"runningTerminals":running,"tabs":tabs}),
+        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"description":session.description,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"layout":session.layout(),"pullRequest":session.pull_request,"tags":session.session_tags(),"runningTerminals":running,"tabs":tabs}),
     )
 }
 
@@ -467,6 +467,19 @@ pub fn handle(
                 })?
                 .map_err(failed)?;
             return Ok((Some(json!({"id": id})), Effect::None));
+        }
+        Command::SessionLayout {
+            id,
+            direction,
+            secondary,
+            selected,
+            ratio,
+        } => {
+            registry
+                .set_tab_layout(id, direction, secondary, selected, ratio)
+                .map_err(failed)?;
+            changed = true;
+            json!({"id": id})
         }
         Command::TabSelect { id } => {
             registry.select_tab(id).map_err(failed)?;

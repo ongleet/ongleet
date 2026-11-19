@@ -32,6 +32,17 @@ export type Project = {
   collapsed: boolean;
 };
 export type Session = {
+  pluginData?: Record<
+    string,
+    {
+      value: {
+        direction: 'right' | 'below' | null;
+        secondary: number[];
+        selected: number | null;
+        ratio?: number;
+      };
+    }
+  >;
   description: string;
   tags: import('./sdk').SessionTag[];
   pullRequest: { repository: string; number: number } | null;
@@ -259,7 +270,51 @@ function SessionPane({
   const [sharedSettingsTab, setSharedSettingsTab] = useState<number | null>(null);
   const sessionMenu = useRef<HTMLDetailsElement>(null);
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
+  const layout = session.pluginData?.['ongleet.layout']?.value;
+  const split = !!layout?.direction;
+  const secondary = layout?.secondary ?? [];
+  const activeGroup = secondary.includes(session.selectedTabId ?? -1) ? 1 : 0;
+  const [context, setContext] = useState<{ id: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (context)
+      document.querySelector<HTMLButtonElement>('.tab-context-menu button:not(:disabled)')?.focus();
+  }, [context]);
+  const [preview, setPreview] = useState<'right' | 'below' | null>(null);
+  const [resizeRatio, setResizeRatio] = useState<number | null>(null);
+  const ratio = resizeRatio ?? layout?.ratio ?? 0.5;
   const active = openTabs.find((tab) => tab.id === session.selectedTabId);
+  function saveLayout(
+    direction: 'right' | 'below' | null,
+    ids = secondary,
+    selected = layout?.selected ?? null,
+    value = ratio,
+  ) {
+    return mutate('set_tab_layout', {
+      id: session.id,
+      direction,
+      secondary: ids,
+      selected,
+      ratio: value,
+    });
+  }
+  async function divide(id: number, direction: 'right' | 'below') {
+    setContext(null);
+    if (split || openTabs.length < 2) return;
+    if (!(await saveLayout(direction, [id], openTabs.find((t) => t.id !== id)?.id ?? null))) return;
+    await mutate('select_tab', { id });
+  }
+  async function moveTo(id: number, group: number, position?: number) {
+    if (!split) return;
+    if (
+      !(await saveLayout(
+        layout!.direction,
+        group ? [...secondary.filter((n) => n !== id), id] : secondary.filter((n) => n !== id),
+      ))
+    )
+      return;
+    if (position !== undefined) await mutate('reorder_tab', { id, position });
+    await mutate('select_tab', { id });
+  }
   const [tabTitles, setTabTitles] = useState<Record<number, string>>(() =>
     loadTabTitles(session.id, session.tabs),
   );
@@ -287,14 +342,17 @@ function SessionPane({
     tabDrop,
     sharedSettingsTab,
   });
-  function navigate(event: React.KeyboardEvent, index: number) {
-    const length = openTabs.length;
+  function navigate(event: React.KeyboardEvent, index: number, groupTabs: PluginTab[]) {
+    const length = groupTabs.length;
     if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
       event.preventDefault();
       const position = index + (event.key === 'ArrowLeft' ? -1 : 1);
-      const id = openTabs[index].id;
+      const id = groupTabs[index].id;
       if (position >= 0 && position < length)
-        void mutate('reorder_tab', { id, position }).then((moved) => {
+        void mutate('reorder_tab', {
+          id,
+          position: openTabs.findIndex((t) => t.id === groupTabs[position].id),
+        }).then((moved) => {
           if (moved) document.getElementById(`tab-${id}`)?.focus();
         });
       return;
@@ -311,161 +369,402 @@ function SessionPane({
               : null;
     if (target === null) return;
     event.preventDefault();
-    const id = openTabs[target].id;
+    const id = groupTabs[target].id;
     void mutate('select_tab', { id });
   }
   return (
-    <section className="session-pane" hidden={!visible} aria-label={session.name}>
-      <div
-        className="tab-bar"
-        onClick={(event) => {
-          if (
-            !disabled &&
-            (event.target === event.currentTarget ||
-              event.target === event.currentTarget.querySelector('.tab-list'))
-          ) {
-            const menu = sessionMenu.current;
-            if (menu) {
-              menu.open = true;
-              menu.querySelector('summary')?.focus();
-            }
-          }
-        }}
-      >
-        <TabList
-          aria-label={t('{value0} tabs', { value0: session.name })}
-          className="tab-list"
-          onDragLeave={(event) => {
-            if (
-              !(event.relatedTarget instanceof Node) ||
-              !event.currentTarget.contains(event.relatedTarget)
-            )
-              setTabDrop(null);
-          }}
-        >
-          {openTabs.map((tab, index) => (
+    <section
+      className={`session-pane split-session ${split ? 'split-' + layout!.direction : ''}`}
+      hidden={!visible}
+      aria-label={session.name}
+      style={{ '--split-ratio': `${ratio * 100}%` } as React.CSSProperties}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          setContext(null);
+          setPreview(null);
+        }
+      }}
+    >
+      {(split ? [0, 1] : [0]).map((group) => {
+        const groupTabs = openTabs.filter((tab) => Number(secondary.includes(tab.id)) === group);
+        const groupActive =
+          group === activeGroup ? active : openTabs.find((t) => t.id === layout?.selected);
+        return (
+          <div
+            key={group}
+            className={`group-header group-${group}`}
+            onClickCapture={(event) => {
+              if (
+                !(event.target as HTMLElement).closest('[role="tab"], .tab-close') &&
+                group !== activeGroup &&
+                groupActive
+              )
+                void mutate('select_tab', { id: groupActive.id });
+            }}
+          >
             <div
-              key={tab.id}
-              role="presentation"
-              className={`tab-item${tab.id === active?.id ? ' selected' : ''}${dragTabId === tab.id ? ' dragging' : ''}${tabDrop?.id === tab.id ? (tabDrop.after ? ' drop-after' : ' drop-before') : ''}`}
-              onDragOver={(event) => {
-                if (disabled || dragTabId === null) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                const rect = event.currentTarget.getBoundingClientRect();
-                const after = event.clientX >= rect.left + rect.width / 2;
-                setTabDrop((previous) =>
-                  previous?.id === tab.id && previous.after === after
-                    ? previous
-                    : { id: tab.id, after },
-                );
-              }}
-              onDrop={(event) => {
-                if (disabled || dragTabId === null) return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                const gap = index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
-                const from = openTabs.findIndex((item) => item.id === dragTabId);
-                const position = gap - (from < gap ? 1 : 0);
-                if (from >= 0 && from !== position)
-                  void mutate('reorder_tab', { id: dragTabId, position });
-                setDragTabId(null);
-                setTabDrop(null);
+              className="tab-bar"
+              onClick={(event) => {
+                if (
+                  !disabled &&
+                  (event.target === event.currentTarget ||
+                    event.target === event.currentTarget.querySelector('.tab-list'))
+                ) {
+                  const menu = event.currentTarget.querySelector<HTMLDetailsElement>('details');
+                  if (menu) {
+                    menu.open = true;
+                    menu.querySelector('summary')?.focus();
+                  }
+                }
               }}
             >
-              <Tab
-                id={`tab-${tab.id}`}
-                aria-selected={tab.id === active?.id}
-                aria-controls={`tab-panel-${tab.id}`}
-                tabIndex={tab.id === active?.id ? 0 : -1}
-                disabled={disabled}
-                draggable={!disabled}
-                onKeyDown={(event) => navigate(event, index)}
-                onClick={() => void mutate('select_tab', { id: tab.id })}
-                title={t('{value0} — {value1} · Drag to reorder · Alt+← / Alt+→', {
-                  value0: tabTitles[tab.id] ?? tab.name,
-                  value1:
-                    tab.kind === 'terminal' ? (statuses[tab.id]?.state ?? 'stopped') : tab.kind,
-                })}
-                onDragStart={(event) => {
-                  setDragTabId(tab.id);
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', String(tab.id));
-                  event.dataTransfer.setDragImage(event.currentTarget.parentElement!, 25, 16);
+              <TabList
+                onDragOver={(e) => {
+                  if (dragTabId !== null) e.preventDefault();
                 }}
-                onDragEnd={() => {
-                  setDragTabId(null);
-                  setTabDrop(null);
+                onDrop={(e) => {
+                  if (dragTabId !== null) {
+                    e.preventDefault();
+                    void moveTo(dragTabId, group);
+                    setDragTabId(null);
+                  }
+                }}
+
+                aria-label={t('{value0} tabs', { value0: session.name })}
+                className="tab-list"
+                onDragLeave={(event) => {
+                  if (
+                    !(event.relatedTarget instanceof Node) ||
+                    !event.currentTarget.contains(event.relatedTarget)
+                  )
+                    setTabDrop(null);
                 }}
               >
-                <PluginIcon kind={tab.kind} />
-                <span className="tab-name">{tabTitles[tab.id] ?? tab.name}</span>
-                {statuses[tab.id]?.state === 'exited' && (
-                  <span>({(statuses[tab.id] as { code: number }).code})</span>
-                )}
-              </Tab>
-              <Button
-                className="tab-icon tab-close"
+                {groupTabs.map((tab, index) => (
+                  <div
+                    key={tab.id}
+                    role="presentation"
+                    className={`tab-item${tab.id === groupActive?.id ? ' selected' : ''}${dragTabId === tab.id ? ' dragging' : ''}${tabDrop?.id === tab.id ? (tabDrop.after ? ' drop-after' : ' drop-before') : ''}`}
+                    onDragOver={(event) => {
+                      if (disabled || dragTabId === null) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const after = event.clientX >= rect.left + rect.width / 2;
+                      setTabDrop((previous) =>
+                        previous?.id === tab.id && previous.after === after
+                          ? previous
+                          : { id: tab.id, after },
+                      );
+                    }}
+                    onDrop={(event) => {
+                      if (disabled || dragTabId === null) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (Number(secondary.includes(dragTabId)) !== group) {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const gap =
+                          openTabs.findIndex((t) => t.id === tab.id) +
+                          (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
+                        const from = openTabs.findIndex((t) => t.id === dragTabId);
+                        void moveTo(dragTabId, group, gap - Number(from < gap));
+                        setDragTabId(null);
+                        return;
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const gap = index + (event.clientX >= rect.left + rect.width / 2 ? 1 : 0);
+                      const from = groupTabs.findIndex((item) => item.id === dragTabId);
+                      const position = gap - (from < gap ? 1 : 0);
+                      if (from >= 0 && from !== position)
+                        void mutate('reorder_tab', {
+                          id: dragTabId,
+                          position: openTabs.findIndex((t) => t.id === groupTabs[position]?.id),
+                        });
+                      setDragTabId(null);
+                      setTabDrop(null);
+                    }}
+                  >
+                    <Tab
+                      id={`tab-${tab.id}`}
+                      aria-selected={tab.id === groupActive?.id}
+                      aria-controls={`tab-panel-${tab.id}`}
+                      tabIndex={tab.id === groupActive?.id ? 0 : -1}
+                      disabled={disabled}
+                      draggable={!disabled}
+                      onKeyDown={(event) => navigate(event, index, groupTabs)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContext({ id: tab.id, x: e.clientX, y: e.clientY });
+                      }}
+                      onClick={() => void mutate('select_tab', { id: tab.id })}
+                      title={t('{value0} — {value1} · Drag to reorder · Alt+← / Alt+→', {
+                        value0: tabTitles[tab.id] ?? tab.name,
+                        value1:
+                          tab.kind === 'terminal'
+                            ? (statuses[tab.id]?.state ?? 'stopped')
+                            : tab.kind,
+                      })}
+                      onDragStart={(event) => {
+                        setDragTabId(tab.id);
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', String(tab.id));
+                        event.dataTransfer.setDragImage(event.currentTarget.parentElement!, 25, 16);
+                      }}
+                      onDragEnd={() => {
+                        setDragTabId(null);
+                        setTabDrop(null);
+                        setPreview(null);
+                      }}
+                    >
+                      <PluginIcon kind={tab.kind} />
+                      <span className="tab-name">{tabTitles[tab.id] ?? tab.name}</span>
+                      {statuses[tab.id]?.state === 'exited' && (
+                        <span>({(statuses[tab.id] as { code: number }).code})</span>
+                      )}
+                    </Tab>
+                    <Button
+                      className="tab-icon tab-close"
+                      disabled={disabled}
+                      tabIndex={tab.id === groupActive?.id ? 0 : -1}
+                      aria-label={t('Close {value0}', { value0: tabTitles[tab.id] ?? tab.name })}
+                      title={t('Close and archive tab for 30 days')}
+                      onClick={() => closeTab(tab)}
+                    >
+                      ×
+                    </Button>
+                  </div>
+                ))}
+              </TabList>
+              <SessionMenu
+                menuRef={sessionMenu}
+                sessionId={session.id}
                 disabled={disabled}
-                tabIndex={tab.id === active?.id ? 0 : -1}
-                aria-label={t('Close {value0}', { value0: tabTitles[tab.id] ?? tab.name })}
-                title={t('Close and archive tab for 30 days')}
-                onClick={() => closeTab(tab)}
-              >
-                ×
-              </Button>
+                mutate={mutate}
+                configure={configureSession}
+                sharedSettings={openTabs
+                  .filter(
+                    (tab, index) =>
+                      plugins.find((plugin) => plugin.id === tab.kind)?.SessionConfiguration &&
+                      openTabs.findIndex((other) => other.kind === tab.kind) === index,
+                  )
+                  .map((tab) => ({
+                    id: tab.id,
+                    label: plugins.find((plugin) => plugin.id === tab.kind)!.label,
+                  }))}
+                configureShared={setSharedSettingsTab}
+                archives={archives}
+                activeTabName={groupActive?.name}
+                configureTab={() => {
+                  if (groupActive) configureTab(groupActive);
+                }}
+                archiveTab={() => {
+                  if (groupActive) closeTab(groupActive);
+                }}
+              />
             </div>
-          ))}
-        </TabList>
-        <SessionMenu
-          menuRef={sessionMenu}
-          sessionId={session.id}
-          disabled={disabled}
-          mutate={mutate}
-          configure={configureSession}
-          sharedSettings={openTabs
-            .filter(
-              (tab, index) =>
-                plugins.find((plugin) => plugin.id === tab.kind)?.SessionConfiguration &&
-                openTabs.findIndex((other) => other.kind === tab.kind) === index,
-            )
-            .map((tab) => ({
-              id: tab.id,
-              label: plugins.find((plugin) => plugin.id === tab.kind)!.label,
-            }))}
-          configureShared={setSharedSettingsTab}
-          archives={archives}
-          activeTabName={active?.name}
-          configureTab={() => {
-            if (active) configureTab(active);
+          </div>
+        );
+      })}
+      {split && (
+        <div
+          className="split-separator"
+          role="separator"
+          tabIndex={0}
+          aria-label={t('Resize groups')}
+          aria-orientation={layout!.direction === 'right' ? 'vertical' : 'horizontal'}
+          aria-valuemin={20}
+          aria-valuemax={80}
+          aria-valuenow={Math.round(ratio * 100)}
+          onKeyDown={(e) => {
+            if (
+              ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Home', 'End'].includes(e.key)
+            ) {
+              e.preventDefault();
+              void saveLayout(
+                layout!.direction,
+                secondary,
+                layout?.selected,
+                e.key === 'Home'
+                  ? 0.2
+                  : e.key === 'End'
+                    ? 0.8
+                    : Math.max(
+                        0.2,
+                        Math.min(
+                          0.8,
+                          ratio + (['ArrowLeft', 'ArrowUp'].includes(e.key) ? -0.05 : 0.05),
+                        ),
+                      ),
+              );
+            }
           }}
-          archiveTab={() => {
-            if (active) closeTab(active);
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
           }}
+          onPointerMove={(e) => {
+            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+            const r = e.currentTarget.parentElement!.getBoundingClientRect();
+            setResizeRatio(
+              Math.max(
+                0.2,
+                Math.min(
+                  0.8,
+                  layout!.direction === 'right'
+                    ? (e.clientX - r.left) / r.width
+                    : (e.clientY - r.top) / r.height,
+                ),
+              ),
+            );
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            void saveLayout(layout!.direction).finally(() => setResizeRatio(null));
+          }}
+          onPointerCancel={() => setResizeRatio(null)}
         />
-      </div>
+      )}
+      {context && (
+        <div className="tab-context-backdrop" onPointerDown={() => setContext(null)}>
+          <div
+            className="tab-context-menu"
+            role="menu"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setContext(null);
+                document.getElementById(`tab-${context.id}`)?.focus();
+              }
+              if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
+                e.preventDefault();
+                const items = [
+                  ...e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+                ];
+                const i = items.indexOf(document.activeElement as HTMLButtonElement);
+                items[
+                  e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? items.length - 1
+                      : (i + (e.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length
+                ]?.focus();
+              }
+            }}
+            style={{
+              left: Math.min(context.x, window.innerWidth - 240),
+              top: Math.min(context.y, window.innerHeight - 180),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Button
+              role="menuitem"
+              disabled={split || openTabs.length < 2}
+              onClick={() => void divide(context.id, 'right')}
+            >
+              {t('Split Right')}
+            </Button>
+            <Button
+              role="menuitem"
+              disabled={split || openTabs.length < 2}
+              onClick={() => void divide(context.id, 'below')}
+            >
+              {t('Split Down')}
+            </Button>
+            {split && (
+              <>
+                <Button
+                  role="menuitem"
+                  onClick={() => {
+                    void moveTo(context.id, 1 - Number(secondary.includes(context.id)));
+                    setContext(null);
+                  }}
+                >
+                  {t('Move to Other Group')}
+                </Button>
+                <Button
+                  role="menuitem"
+                  onClick={() => {
+                    void saveLayout(layout!.direction === 'right' ? 'below' : 'right');
+                    setContext(null);
+                  }}
+                >
+                  {t('Change Split Orientation')}
+                </Button>
+                <Button
+                  role="menuitem"
+                  onClick={() => {
+                    void saveLayout(null, []);
+                    setContext(null);
+                  }}
+                >
+                  {t('Join Groups')}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {!active && (
         <div className="empty-state">
           <p>{t('No open tabs. Open the ⋮ menu to create a tab.')}</p>
         </div>
       )}
       {openTabs.map((tab) => (
-        <TabHost
-          openConfiguration={() => configureTab(tab)}
-          sessionConfigurationOpen={visible && sharedSettingsTab === tab.id}
-          openSessionConfiguration={() => setSharedSettingsTab(tab.id)}
-          dismissSessionConfiguration={() => setSharedSettingsTab(null)}
-          configurationOpen={configurationTab?.id === tab.id}
-          dismissConfiguration={dismissConfiguration}
-          reportTitle={reportTitle}
+        <div
           key={tab.id}
-          session={session}
-          tab={tab}
-          visible={visible && tab.id === active?.id}
-          reportStatus={reportStatus}
-          markRestoring={markRestoring}
-        />
+          className={`group-content group-${Number(secondary.includes(tab.id))}`}
+          hidden={
+            !visible ||
+            (tab.id !== session.selectedTabId && (!split || tab.id !== layout?.selected))
+          }
+          onPointerDownCapture={() => {
+            if (tab.id !== session.selectedTabId) void mutate('select_tab', { id: tab.id });
+          }}
+          onDragOver={(e) => {
+            if (dragTabId === null) return;
+            e.preventDefault();
+            const r = e.currentTarget.getBoundingClientRect();
+            const x = (r.right - e.clientX) / r.width,
+              y = (r.bottom - e.clientY) / r.height;
+            setPreview(
+              !split && openTabs.length > 1
+                ? x <= 0.25 && (y > 0.25 || x <= y)
+                  ? 'right'
+                  : y <= 0.25
+                    ? 'below'
+                    : null
+                : null,
+            );
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setPreview(null);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragTabId !== null) {
+              if (preview) void divide(dragTabId, preview);
+              else void moveTo(dragTabId, Number(secondary.includes(tab.id)));
+            }
+            setPreview(null);
+            setDragTabId(null);
+          }}
+        >
+          <TabHost
+            openConfiguration={() => configureTab(tab)}
+            sessionConfigurationOpen={visible && sharedSettingsTab === tab.id}
+            openSessionConfiguration={() => setSharedSettingsTab(tab.id)}
+            dismissSessionConfiguration={() => setSharedSettingsTab(null)}
+            configurationOpen={configurationTab?.id === tab.id}
+            dismissConfiguration={dismissConfiguration}
+            reportTitle={reportTitle}
+            key={tab.id}
+            session={session}
+            tab={tab}
+            visible={visible && (tab.id === active?.id || (split && tab.id === layout?.selected))}
+            reportStatus={reportStatus}
+            markRestoring={markRestoring}
+          />
+        </div>
       ))}
+      {preview && <div className={`split-preview preview-${preview}`} />}
     </section>
   );
 }

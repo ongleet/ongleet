@@ -99,7 +99,8 @@ fn parse_with_context(
                 | "invoke"
         ) | (
             "session",
-            "rename"
+            "layout"
+                | "rename"
                 | "directory"
                 | "move"
                 | "reorder"
@@ -357,6 +358,26 @@ fn parse_with_context(
             }
             Command::TabInput { id, text, enter }
         }
+        ("session", "layout") => Command::SessionLayout {
+            id,
+            direction: match take("--direction")?.as_str() {
+                "none" => None,
+                "right" => Some("right".into()),
+                "below" => Some("below".into()),
+                _ => return Err(invalid("Direction must be none, right or below")),
+            },
+            secondary: serde_json::from_str(&take("--secondary")?)
+                .map_err(|e| invalid(format!("Invalid tab ID array: {e}")))?,
+            selected: options
+                .remove("--selected")
+                .map(|v| positive(&v))
+                .transpose()?,
+            ratio: options
+                .remove("--ratio")
+                .map(|v| v.parse::<f64>().map_err(|_| invalid("Invalid ratio")))
+                .transpose()?
+                .unwrap_or(0.5),
+        },
         ("tab", "select") => Command::TabSelect { id },
         ("tab", "rename") => Command::TabRename {
             id,

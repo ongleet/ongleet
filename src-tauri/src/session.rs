@@ -13,6 +13,7 @@ pub struct Namespace {
 }
 
 mod history;
+mod layout;
 mod projects;
 mod tabs;
 #[path = "core/pty/lifecycle.rs"]
@@ -142,6 +143,9 @@ impl SessionRegistry {
     }
 
     fn persist(&mut self) -> Result<Snapshot, String> {
+        for session in &mut self.sessions {
+            session.normalize_layout();
+        }
         let metadata = Metadata {
             snapshot: self.snapshot(),
             archives: self.archives.clone(),
