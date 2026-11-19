@@ -492,3 +492,18 @@ index contents. Reports: `/tmp/ongleet-diff-native-8_ilsb9n/report.json` and
 These results resolve the earlier invalid-reference and Appearance-selector
 failures. They do not establish live desktop performance, physical input
 acceptance, or a pass of every optional native scenario.
+
+## Codex counted activity summary (2026-11-19)
+
+An isolated Xvfb/WebKitGTK run of `scripts/check-codex-activity.py` passed
+with real wrapper processes, hook commands and the private control socket.
+It covers simultaneous question/work states, two working then two idle tabs,
+restart rejection of stale hooks, reload, closing one tab, stopped counts and
+removing the summary after the last tab closes. The Codex executable is a local
+fixture; this does not certify live Codex hook delivery or physical Wayland hover.
+Rendered counters and the mixed-state screenshot were also checked.
+Artifacts: `/tmp/ong-codex-activity-1bt7qwlg`.
+
+Frontend build, i18n and all 15 session/project/tag Rust tests passed. The broader
+GUI Rust suite had 138 passing tests, two ignored and one existing archive
+fixture failure (`duplicate column name: description`).

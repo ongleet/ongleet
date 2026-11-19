@@ -26,7 +26,9 @@ The bundled [SDK example](../src/plugins/sdk-example/src/entrypoint.tsx) lists a
 
 ### Session tags
 
-`session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: independent session tag operations, returning the calling tab’s session tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls.
+`session.listTags()`, `session.addTag(tag)`, `session.removeTag(name)`: independent session tag operations, returning the calling session’s visible tags in descending priority order. `SessionTag` has `{name: string, background?: string, dot?: string, priority?: number, indicators?: {label: string, color: string, count: number, members: string[]}[]}`. Requires `storage`. Up to 16 tags; unique case-insensitive trimmed names of 1–40 characters without controls.
+
+Indicators display counted color dots after the name; their labels and member names appear on hover. Up to 16 indicators per tag, positive counts, labels of 1–80 characters without controls, and up to 64 member names of at most 1024 bytes each. Indicator colors use `#RRGGBB`. The reserved `Codex` display is calculated from open tabs and cannot be overridden by manual tags.
 
 Background and dot are independently optional `#RRGGBB` colors. Priority defaults to 0, accepts signed 32-bit integers, and sorts higher values first with stable ties. Adding an existing name replaces its style/priority while preserving siblings; removing an absent name succeeds. All mutations are atomic in Rust and share CLI validation/persistence.
 

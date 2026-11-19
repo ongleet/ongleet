@@ -501,6 +501,7 @@ fn session_tags_persist_and_invalid_replacements_preserve_existing_tags() {
         .selected_id
         .unwrap();
     let tag = |name: &str, color: &str| SessionTag {
+        indicators: Vec::new(),
         name: name.into(),
         dot: Some(color.into()),
         background: None,
@@ -555,6 +556,7 @@ fn individual_tag_updates_preserve_siblings_and_persist() {
         .selected_id
         .unwrap();
     let tag = |name: &str, color: &str| SessionTag {
+        indicators: Vec::new(),
         name: name.into(),
         dot: Some(color.into()),
         background: None,
@@ -599,6 +601,7 @@ fn tag_styles_priority_and_name_uniqueness_share_one_persisted_list() {
         .selected_id
         .unwrap();
     let tag = |name: &str, background: Option<&str>, dot: Option<&str>, priority| SessionTag {
+        indicators: Vec::new(),
         name: name.into(),
         background: background.map(Into::into),
         dot: dot.map(Into::into),
@@ -690,6 +693,7 @@ fn owned_tags_replace_by_key_and_close_preserves_independent_tags() {
     let first = tabs[tabs.len() - 2];
     let second = tabs[tabs.len() - 1];
     let tag = |name: &str| SessionTag {
+        indicators: Vec::new(),
         name: name.into(),
         background: None,
         dot: None,
@@ -788,4 +792,93 @@ fn session_description_persists_preserves_omitted_values_and_can_be_cleared() {
         SessionRegistry::open(&data.0).unwrap().sessions[0].description,
         ""
     );
+}
+
+#[test]
+fn codex_summary_keeps_each_open_tabs_state_and_ignores_shared_tag_writes() {
+    use crate::codex::Activity;
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    let session = registry
+        .create_in_project(registry.projects[0].id, "Summary".into(), root.path())
+        .unwrap()
+        .selected_id
+        .unwrap();
+    registry.create_tab(session).unwrap();
+    registry.create_tab(session).unwrap();
+    let tabs: Vec<_> = registry
+        .sessions
+        .iter_mut()
+        .find(|s| s.id == session)
+        .unwrap()
+        .tabs
+        .iter_mut()
+        .map(|t| {
+            t.resume_on_start = true;
+            t.id
+        })
+        .collect();
+    let first = tabs[tabs.len() - 2];
+    let second = tabs[tabs.len() - 1];
+    let summary = |registry: &SessionRegistry| {
+        registry
+            .snapshot()
+            .sessions
+            .into_iter()
+            .find(|s| s.id == session)
+            .unwrap()
+            .tags
+            .into_iter()
+            .find(|t| t.name == "Codex")
+    };
+    registry.codex_activity.insert(first, Activity::Working);
+    registry.codex_activity.insert(second, Activity::Question);
+    registry
+        .add_session_tag(
+            session,
+            SessionTag {
+                name: "Codex".into(),
+                dot: Some("#ffffff".into()),
+                background: None,
+                priority: 0,
+                indicators: vec![],
+            },
+        )
+        .unwrap();
+    let tag = summary(&registry).unwrap();
+    assert_eq!(
+        tag.indicators
+            .iter()
+            .map(|i| (i.label.as_str(), i.count, i.color.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("Question", 1, "#f59e0b"), ("Working", 1, "#60a5fa")]
+    );
+    assert_eq!(tag.indicators[0].members.len(), 1);
+    registry.codex_activity.insert(second, Activity::Working);
+    assert_eq!(summary(&registry).unwrap().indicators[0].count, 2);
+    registry.codex_activity.insert(first, Activity::Idle);
+    registry.codex_activity.insert(second, Activity::Idle);
+    let tag = summary(&registry).unwrap();
+    assert_eq!(
+        (
+            tag.indicators[0].label.as_str(),
+            tag.indicators[0].count,
+            tag.indicators[0].color.as_str()
+        ),
+        ("Idle", 2, "#22c55e")
+    );
+    registry
+        .sessions
+        .iter_mut()
+        .find(|s| s.id == session)
+        .unwrap()
+        .tabs
+        .iter_mut()
+        .find(|t| t.id == first)
+        .unwrap()
+        .is_open = false;
+    assert_eq!(summary(&registry).unwrap().indicators[0].count, 1);
+    registry.codex_activity.remove(&second);
+    assert!(summary(&registry).is_none());
 }

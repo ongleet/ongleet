@@ -397,7 +397,13 @@ export function SessionSidebar({
                                 <span
                                   key={`${index}:${tag.name}`}
                                   className="session-tag"
-                                  title={tag.name}
+                                  title={[
+                                    tag.name,
+                                    ...(tag.indicators ?? []).map(
+                                      (indicator) =>
+                                        `${t(indicator.label)} (${indicator.count}): ${indicator.members.join(', ')}`,
+                                    ),
+                                  ].join('\n')}
                                   style={{
                                     backgroundColor: tag.background,
                                     color: tag.background
@@ -412,6 +418,19 @@ export function SessionSidebar({
                                     />
                                   )}
                                   {tag.name}
+                                  {tag.indicators?.map((indicator) => (
+                                    <span
+                                      className="session-tag-indicator"
+                                      key={indicator.label}
+                                      aria-label={`${t(indicator.label)}: ${indicator.count}`}
+                                    >
+                                      <span
+                                        className="session-tag-dot"
+                                        style={{ backgroundColor: indicator.color }}
+                                      />
+                                      {indicator.count}
+                                    </span>
+                                  ))}
                                 </span>
                               ))}
                             </span>

@@ -92,8 +92,19 @@ def activity(tab, expected):
     native.wait_for(observed, f'tab {tab}: {expected}')
 
 def badge(expected):
-    colors = {'Working':'rgb(96, 165, 250)', 'Question':'rgb(245, 158, 11)', 'Approval':'rgb(249, 115, 22)', 'Idle':'rgb(34, 197, 94)', 'Stopped':'rgb(148, 163, 184)'}
-    native.wait_for(lambda: client.js("return document.querySelector('.session-tag[title=Codex] .session-tag-dot')?.style.backgroundColor === arguments[0]", colors[expected]), f'sidebar Codex dot {expected}')
+    labels = {'Working':'Working', 'Question':'Question', 'Approval':'Awaiting approval', 'Idle':'Idle', 'Stopped':'Stopped'}
+    colors = {'Working':'rgb(96, 165, 250)', 'Question':'rgb(245, 158, 11)', 'Approval':'rgb(245, 158, 11)', 'Idle':'rgb(34, 197, 94)', 'Stopped':'rgb(148, 163, 184)'}
+    native.wait_for(lambda: client.js("return [...document.querySelectorAll('.session-tag-indicator')].some(e => e.getAttribute('aria-label')?.startsWith(arguments[0] + ': ') && e.querySelector('.session-tag-dot')?.style.backgroundColor === arguments[1])", labels[expected], colors[expected]), f'sidebar Codex indicator {expected}')
+
+def counts(expected):
+    def observed():
+        tags = cli('session', 'tags', session)['tags']
+        tag = next((tag for tag in tags if tag['name'] == 'Codex'), None)
+        actual = {i['label']: i['count'] for i in tag['indicators']} if tag else {}
+        rendered = client.js("return [...document.querySelectorAll('.session-tag-indicator')].map(e => e.getAttribute('aria-label'))")
+        return actual == expected and sorted(rendered) == sorted(f'{label}: {count}' for label, count in expected.items())
+    native.wait_for(observed, f'Codex counts {expected}')
+
 
 with (directory / 'driver.log').open('w') as log:
     driver = subprocess.Popen([args.driver, '--host=127.0.0.1', f'--port={port}'],
@@ -135,6 +146,8 @@ with (directory / 'driver.log').open('w') as log:
         send(second, 'UserPromptSubmit')
         activity(second, 'working')
         badge('Question')
+        counts({'Question': 1, 'Working': 1})
+        (directory / 'mixed-states.png').write_bytes(__import__('base64').b64decode(client.request('GET', '/screenshot')))
         send(first, 'PostToolUse', tool_name='Bash', tool_use_id='unrelated')
         send(second, 'PermissionRequest', tool_name='Bash', tool_use_id='approval')
         activity(second, 'approval')
@@ -146,12 +159,14 @@ with (directory / 'driver.log').open('w') as log:
         send(second, 'PostToolUse', tool_name='Bash', tool_use_id='approval')
         activity(second, 'working')
         badge('Working')
+        counts({'Working': 2})
         mark('Real wrapper hooks and socket update Working/Question/Approval; concurrent tabs preserve waits')
         send(first, 'Stop')
         send(second, 'Interrupt')
         activity(first, 'idle')
         activity(second, 'idle')
         badge('Idle')
+        counts({'Idle': 2})
         before = json.loads((directory / f'started-{first}.json').read_text())
         send(first, 'Exit')
         native.wait_for(lambda: json.loads((directory / f'started-{first}.json').read_text())['launch'] != before['launch'], 'automatic wrapper restart')
@@ -174,6 +189,9 @@ with (directory / 'driver.log').open('w') as log:
         send(second, 'SessionEnd')
         activity(second, 'stopped')
         badge('Stopped')
+        counts({'Stopped': 1})
+        cli('tab', 'close', second, '--confirm')
+        counts({})
         mark('Closed tabs leave the aggregate; SessionEnd displays Stopped')
         (directory / 'screenshot.png').write_bytes(__import__('base64').b64decode(client.request('GET', '/screenshot')))
     except Exception:

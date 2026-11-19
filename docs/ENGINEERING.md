@@ -298,3 +298,9 @@ provide timestamped correlation. Comment text, paths and prop/state values are
 never printed. Batches flush after 500 ms when the event loop permits; at most
 128 events are retained per batch and overflow is dropped. Console diagnostics
 add overhead and cannot alone establish that input caused a concurrent render.
+
+Codex sidebar summaries are derived from open tabs' runtime activity, never written
+by individual hooks as a shared tag. The reserved `Codex` display replaces legacy
+tags of that name. Counted indicators show questions/approvals in orange, work
+(including tool calls) in blue, idle in green and stopped in gray; hover details
+list member tabs. Empty groups and summaries without participating tabs are hidden.

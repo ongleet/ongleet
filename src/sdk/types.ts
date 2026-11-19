@@ -49,7 +49,13 @@ export type SortOrder =
   | 'sizeAscending'
   | 'sizeDescending';
 
-export type SessionTag = { name: string; background?: string; dot?: string; priority?: number };
+export type SessionTag = {
+  name: string;
+  background?: string;
+  dot?: string;
+  priority?: number;
+  indicators?: { label: string; color: string; count: number; members: string[] }[];
+};
 
 export type HttpRequest = {
   url: string;

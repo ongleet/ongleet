@@ -189,6 +189,13 @@ impl SessionRegistry {
                         });
                     }
                     session
+                        .tags
+                        .retain(|tag| !tag.name.eq_ignore_ascii_case("Codex"));
+                    if let Some(tag) = codex_summary(&session.tabs) {
+                        session.tags.push(tag);
+                        session.tags.sort_by(|a, b| b.priority.cmp(&a.priority));
+                    }
+                    session
                 })
                 .collect(),
             selected_id: self.selected_id,
@@ -610,6 +617,8 @@ const TAG_NAMESPACE: &str = "ongleet.session-tags";
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionTag {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub indicators: Vec<TagIndicator>,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<String>,
@@ -618,6 +627,48 @@ pub struct SessionTag {
     #[serde(default)]
     pub priority: i32,
 }
+/// A counted status group; member names provide accessible hover details.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct TagIndicator {
+    pub label: String,
+    pub color: String,
+    pub count: usize,
+    pub members: Vec<String>,
+}
+
+fn codex_summary(tabs: &[PluginTab]) -> Option<SessionTag> {
+    use crate::codex::Activity;
+    let indicators: Vec<_> = [
+        (Activity::Question, "Question", "#f59e0b"),
+        (Activity::Approval, "Awaiting approval", "#f59e0b"),
+        (Activity::Working, "Working", "#60a5fa"),
+        (Activity::Idle, "Idle", "#22c55e"),
+        (Activity::Stopped, "Stopped", "#94a3b8"),
+    ]
+    .into_iter()
+    .filter_map(|(state, label, color)| {
+        let members: Vec<_> = tabs
+            .iter()
+            .filter(|tab| tab.is_open && tab.codex_activity == Some(state))
+            .map(|tab| tab.name.clone())
+            .collect();
+        (!members.is_empty()).then(|| TagIndicator {
+            label: label.into(),
+            color: color.into(),
+            count: members.len(),
+            members,
+        })
+    })
+    .collect();
+    (!indicators.is_empty()).then(|| SessionTag {
+        name: "Codex".into(),
+        background: None,
+        dot: None,
+        priority: 100,
+        indicators,
+    })
+}
+
 const TAB_TAG_NAMESPACE: &str = "ongleet.tab-tags";
 #[derive(Clone, Deserialize, Serialize, PartialEq)]
 struct OwnedTag {
@@ -727,6 +778,26 @@ fn validate_tags(tags: &mut [SessionTag]) -> Result<(), String> {
         if !names.insert(tag.name.to_lowercase()) {
             return Err("Duplicate tag name".into());
         }
+        if tag.indicators.len() > 16 {
+            return Err("At most 16 tag indicators are allowed".into());
+        }
+        for indicator in &tag.indicators {
+            if indicator.label.is_empty()
+                || indicator.label.chars().count() > 80
+                || indicator.label.chars().any(char::is_control)
+                || indicator.count == 0
+                || indicator.members.len() > 64
+                || indicator.members.iter().any(|member| member.len() > 1024)
+            {
+                return Err("Invalid tag indicator".into());
+            }
+            if indicator.color.len() != 7
+                || !indicator.color.starts_with('#')
+                || !indicator.color[1..].bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                return Err("Tag indicator colors must use #RRGGBB".into());
+            }
+        }
         for color in [&mut tag.background, &mut tag.dot].into_iter().flatten() {
             if color.len() != 7
                 || !color.starts_with('#')
@@ -820,59 +891,6 @@ impl SessionRegistry {
         if let Some(activity) = crate::codex::activity_for_launch(data, session_id, tab_id, launch)?
         {
             self.codex_activity.insert(tab_id, activity);
-            self.refresh_codex_tag(session_id)?;
-        }
-        Ok(())
-    }
-}
-
-impl SessionRegistry {
-    fn refresh_codex_tag(&mut self, session_id: u64) -> Result<(), String> {
-        use crate::codex::Activity;
-        let session = self
-            .sessions
-            .iter()
-            .find(|s| s.id == session_id)
-            .ok_or("Session is unavailable")?;
-        let states: Vec<_> = session
-            .tabs
-            .iter()
-            .filter(|t| t.is_open)
-            .filter_map(|t| self.codex_activity.get(&t.id))
-            .copied()
-            .collect();
-        let state = [
-            Activity::Question,
-            Activity::Approval,
-            Activity::Working,
-            Activity::Idle,
-            Activity::Stopped,
-        ]
-        .into_iter()
-        .find(|state| states.contains(state));
-        if let Some(state) = state {
-            let dot = match state {
-                Activity::Working => "#60a5fa",
-                Activity::Question => "#f59e0b",
-                Activity::Approval => "#f97316",
-                Activity::Idle => "#22c55e",
-                Activity::Stopped => "#94a3b8",
-            };
-            let existing = session
-                .session_tags()
-                .into_iter()
-                .find(|tag| tag.name.eq_ignore_ascii_case("Codex"));
-            self.add_session_tag(
-                session_id,
-                SessionTag {
-                    name: "Codex".into(),
-                    dot: Some(dot.into()),
-                    background: existing.as_ref().and_then(|t| t.background.clone()),
-                    priority: existing.map_or(100, |t| t.priority),
-                },
-            )?;
-        } else {
-            self.remove_session_tag(session_id, "Codex".into())?;
         }
         Ok(())
     }

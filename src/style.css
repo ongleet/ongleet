@@ -1361,3 +1361,9 @@ button:focus-visible {
   -webkit-mask: center / contain no-repeat;
   margin-right: 6px;
 }
+
+.session-tag-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}

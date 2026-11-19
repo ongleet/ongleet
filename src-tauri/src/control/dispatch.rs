@@ -223,6 +223,7 @@ pub fn handle(
                 .add_session_tag(
                     id,
                     crate::session::SessionTag {
+                        indicators: Vec::new(),
                         name,
                         background,
                         dot,
@@ -242,7 +243,7 @@ pub fn handle(
             serde_json::to_value(session(&next, id)?).map_err(|e| failed(e.to_string()))?
         }
         Command::SessionTags { id } => {
-            json!({"tags": session(&snapshot, id)?.session_tags()})
+            json!({"tags": session(&snapshot, id)?.tags})
         }
         Command::SessionPullRequest { id, target, number } => {
             session(&snapshot, id)?;

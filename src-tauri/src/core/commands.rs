@@ -504,23 +504,23 @@ pub async fn sdk_request(
                 Request::AddSessionTag { tag } => {
                     let snapshot = guard.add_session_tag(session_id, tag)?;
                     serde_json::to_value(
-                        snapshot
+                        &snapshot
                             .sessions
                             .iter()
                             .find(|s| s.id == session_id)
                             .ok_or("Session unavailable")?
-                            .session_tags(),
+                            .tags,
                     )
                 }
                 Request::RemoveSessionTag { name } => {
                     let snapshot = guard.remove_session_tag(session_id, name)?;
                     serde_json::to_value(
-                        snapshot
+                        &snapshot
                             .sessions
                             .iter()
                             .find(|s| s.id == session_id)
                             .ok_or("Session unavailable")?
-                            .session_tags(),
+                            .tags,
                     )
                 }
                 Request::SetTabTag { key, tag } => {
@@ -541,7 +541,7 @@ pub async fn sdk_request(
                         .iter()
                         .find(|s| s.id == session_id)
                         .ok_or("Session unavailable")?;
-                    serde_json::to_value(session.session_tags())
+                    serde_json::to_value(&session.tags)
                 }
                 Request::Configure { patch } => {
                     guard.patch_plugin_config(id, patch)?;

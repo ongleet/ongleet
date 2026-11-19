@@ -431,6 +431,10 @@ export const fr: Record<string, string> = {
   'Starting…': 'Démarrage…',
   Running: 'En cours',
   Stopped: 'Arrêté',
+  Question: 'Question',
+  'Awaiting approval': 'Autorisation attendue',
+  Working: 'En cours',
+  Idle: 'Au repos',
   'Ctrl+Shift+C / V: copy / paste': 'Ctrl+Shift+C / V : copier / coller',
   'Arrow keys on tab bar: navigate tabs':
     'Flèches sur la barre d’onglets : naviguer entre les onglets',
