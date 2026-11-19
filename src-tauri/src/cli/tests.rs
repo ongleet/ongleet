@@ -380,7 +380,7 @@ fn configuration_commands_preserve_file_content_and_require_explicit_targets() {
     assert!(parse(args(&["project", "configure", "9", "--file", path_arg])).is_err());
     assert!(
         matches!(parse(args(&["session", "configure", "12", "--name", "New name", "--project", "3"])).unwrap(),
-        Invocation::Request(Command::SessionConfigure { id: 12, name: Some(name), directory: None, project_id: Some(3) }) if name == "New name")
+        Invocation::Request(Command::SessionConfigure { id: 12, name: Some(name), directory: None, project_id: Some(3), description: None }) if name == "New name")
     );
     assert!(
         matches!(parse(args(&["session", "pull-request", "12", "--target", "none"])).unwrap(),
@@ -564,5 +564,17 @@ fn interaction_commands_keep_explicit_ids_actions_and_json_arguments() {
         vec!["tab", "state", "0"],
     ] {
         assert!(parse(args.into_iter().map(String::from).collect()).is_err());
+    }
+}
+
+#[test]
+fn session_descriptions_support_multiline_context_and_explicit_clearing() {
+    for text in ["Investigate UI\nContexte 日本語", ""] {
+        let parsed = parse(args(&["session", "configure", "12", "--description", text])).unwrap();
+        assert!(
+            matches!(parsed, Invocation::Request(Command::SessionConfigure {
+            id: 12, description: Some(value), name: None, directory: None, project_id: None
+        }) if value == text)
+        );
     }
 }

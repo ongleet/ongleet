@@ -381,7 +381,9 @@ export function SessionSidebar({
                           className="session-choice"
                           aria-current={selectedId === session.id ? 'page' : undefined}
                           disabled={disabled}
-                          title={session.baseDirectory}
+                          title={[session.description, session.baseDirectory]
+                            .filter(Boolean)
+                            .join('\n\n')}
                           onClick={() => {
                             setMenuId(null);
                             select(session.id);

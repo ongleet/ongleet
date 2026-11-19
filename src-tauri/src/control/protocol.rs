@@ -64,6 +64,7 @@ pub enum Command {
     },
     SessionConfigure {
         id: u64,
+        description: Option<String>,
         name: Option<String>,
         directory: Option<String>,
         project_id: Option<u64>,

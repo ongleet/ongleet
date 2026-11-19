@@ -26,6 +26,7 @@ fn version_two_rename_preserves_metadata_and_reopens() {
     assert!(project.collapsed);
     let session = &metadata.snapshot.sessions[0];
     assert_eq!(session.id, 7);
+    assert!(session.description.is_empty());
     assert_eq!(session.project_id, project.id);
     assert_eq!(session.base_directory, "/missing/preserved");
     assert_eq!(session.selected_tab_id, Some(12));
@@ -43,7 +44,7 @@ fn version_two_rename_preserves_metadata_and_reopens() {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        8
+        9
     );
     assert_eq!(
         Connection::open(directory.join("workspaces.sqlite3"))
@@ -228,7 +229,7 @@ fn both_schema_four_variants_upgrade_without_rewrapping_or_changing_metadata() {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
                 .unwrap(),
-            8
+            9
         );
         store.save(&metadata).unwrap();
         drop(store);
@@ -281,7 +282,7 @@ fn schema_six_pr_namespace_migration_and_schema_one_archives_preserve_opaque_dat
         std::env::temp_dir().join(format!("metadata-sdk-migration-{}", std::process::id()));
     std::fs::create_dir(&directory).unwrap();
     let store = MetadataStore::open(&directory).unwrap();
-    Connection::open(directory.join("workspaces.sqlite3")).unwrap().execute_batch("ALTER TABLE sessions DROP COLUMN plugin_data_json; ALTER TABLE tab_definitions DROP COLUMN plugin_data_json; INSERT INTO sessions VALUES (11,'Legacy','/missing',0,NULL,1,'{\"repository\":\"example/repo\",\"number\":42}'); UPDATE app_state SET session_sequence=11; PRAGMA user_version=6;").unwrap();
+    Connection::open(directory.join("workspaces.sqlite3")).unwrap().execute_batch("ALTER TABLE sessions DROP COLUMN description; ALTER TABLE sessions DROP COLUMN plugin_data_json; ALTER TABLE tab_definitions DROP COLUMN plugin_data_json; INSERT INTO sessions VALUES (11,'Legacy','/missing',0,NULL,1,'{\"repository\":\"example/repo\",\"number\":42}'); UPDATE app_state SET session_sequence=11; PRAGMA user_version=6;").unwrap();
     drop(store);
     let store = MetadataStore::open(&directory).unwrap();
     let metadata = store.load().unwrap();
@@ -366,7 +367,7 @@ fn invalid_persisted_ids_and_json_are_rejected_without_resetting_database() {
     )
     .unwrap();
     assert!(store.load().is_err());
-    db.execute_batch("UPDATE app_state SET session_sequence=0; INSERT INTO sessions VALUES (1,'Invalid','/missing',0,NULL,1,NULL,'invalid-json');").unwrap();
+    db.execute_batch("UPDATE app_state SET session_sequence=0; INSERT INTO sessions (id,name,base_directory,display_order,selected_tab_id,project_id,pull_request_json,plugin_data_json) VALUES (1,'Invalid','/missing',0,NULL,1,NULL,'invalid-json');").unwrap();
     assert!(store.load().is_err());
     assert_eq!(
         db.query_row("SELECT plugin_data_json FROM sessions", [], |row| row
@@ -443,7 +444,8 @@ fn branding_preserves_archives_namespaces_and_literal_arguments_atomically() {
     db.execute("INSERT INTO tab_definitions (id,session_id,name,kind,config_json,display_order) VALUES (12,7,'Codex','terminal',?1,0)", [config]).unwrap();
     db.execute("INSERT INTO archives VALUES (4,?1)", [archive.to_string()])
         .unwrap();
-    db.execute_batch("PRAGMA user_version=7;").unwrap();
+    db.execute_batch("ALTER TABLE sessions DROP COLUMN description; PRAGMA user_version=7;")
+        .unwrap();
     drop(MetadataStore::open(&directory).unwrap());
     let tags: String = db
         .query_row(
@@ -494,7 +496,8 @@ fn branding_preserves_archives_namespaces_and_literal_arguments_atomically() {
     );
     // A namespace conflict rolls back earlier row updates and the schema version.
     db.execute("UPDATE sessions SET plugin_data_json=?1 WHERE id=7", [r#"{"devcenter.session-tags":{"version":1,"value":[]},"ongleet.session-tags":{"version":1,"value":[1]}}"#]).unwrap();
-    db.execute_batch("PRAGMA user_version=7;").unwrap();
+    db.execute_batch("ALTER TABLE sessions DROP COLUMN description; PRAGMA user_version=7;")
+        .unwrap();
     assert!(MetadataStore::open(&directory)
         .err()
         .unwrap()

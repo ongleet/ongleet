@@ -397,13 +397,17 @@ fn create_session(
     name: String,
     directory: String,
     project_id: Option<u64>,
+    description: Option<String>,
 ) -> Result<Snapshot, String> {
     let directory_config = services.paths.config_directory()?;
-    state
-        .0
-        .lock()
-        .map_err(|e| e.to_string())?
-        .create_from_first_action(project_id, name, directory, &directory_config)
+    let mut registry = state.0.lock().map_err(|e| e.to_string())?;
+    registry.create_from_first_action(
+        project_id,
+        name,
+        directory,
+        &directory_config,
+        description.unwrap_or_default(),
+    )
 }
 
 #[tauri::command]
@@ -413,13 +417,11 @@ fn update_session(
     name: String,
     directory: String,
     project_id: Option<u64>,
+    description: Option<String>,
 ) -> Result<Snapshot, String> {
     let mut registry = state.0.lock().map_err(|e| e.to_string())?;
-    if let Some(group) = project_id {
-        registry.update_in_project(id, group, name, directory)
-    } else {
-        registry.update(id, name, directory)
-    }
+    let project_id = project_id.unwrap_or(registry.session_project(id)?);
+    registry.update_details(id, project_id, name, directory, description)
 }
 
 #[tauri::command]

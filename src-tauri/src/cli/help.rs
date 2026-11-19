@@ -27,7 +27,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("session", "tag-remove ID --name NAME", "Remove one tag by case-insensitive name. Missing tags are a successful no-op. Preserves other tags."),
     ("session", "tags ID", "List session tags in descending priority order."),
     ("session", "config ID", "Read complete saved session metadata, including project, directory, linked pull request and tab definitions. Use tab list for observed runtime status."),
-    ("session", "configure ID [--name NAME] [--directory PATH] [--project ID]", "Update one or more session properties in one metadata transaction. At least one option is required. Directories must exist; running terminals and saved tab configurations stay unchanged."),
+    ("session", "configure ID [--name NAME] [--description TEXT] [--directory PATH] [--project ID]", "Update one or more session properties in one metadata transaction. At least one option is required. Directories must exist; running terminals and saved tab configurations stay unchanged."),
     ("session", "pull-request ID --target URL|OWNER/REPO|none [--number NUMBER]", "Associate a GitHub pull request with the session, or clear it with --target none. OWNER/REPO requires --number. Stores the association without contacting GitHub or opening a tab."),
     ("session", "list", "List sessions and open tabs, including IDs, selection and observed process status."),
     ("session", "create [--project ID] --name NAME [--directory PATH]", "Create and select a session; launch its project's first terminal action. Directory defaults to the group's root. Requires valid actions YAML and an existing directory. A starting status is not proof of a successful launch: poll session list."),

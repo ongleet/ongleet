@@ -23,6 +23,8 @@ pub use projects::Project;
 #[serde(rename_all = "camelCase")]
 pub struct Session {
     #[serde(default)]
+    pub description: String,
+    #[serde(default)]
     pub tags: Vec<SessionTag>,
     #[serde(default)]
     pub plugin_data: PluginData,
@@ -199,6 +201,7 @@ impl SessionRegistry {
         name: String,
         directory: String,
         config_directory: &std::path::Path,
+        description: String,
     ) -> Result<Snapshot, String> {
         let group = project_id
             .or_else(|| self.projects.first().map(|g| g.id))
@@ -210,7 +213,7 @@ impl SessionRegistry {
             .find(|action| crate::plugins::has_runtime(&action.kind))
             .ok_or("Project needs a terminal action to initialize a session")?;
         crate::plugins::validate(&action.kind, action.config_version, &action.config)?;
-        self.insert_session(group, name, directory, Some(action))
+        self.insert_session(group, name, directory, Some(action), description)
     }
 
     // Legacy stopped fixtures for restoration and explicit-start integration tests.
@@ -231,7 +234,7 @@ impl SessionRegistry {
         name: String,
         directory: String,
     ) -> Result<Snapshot, String> {
-        self.insert_session(project_id, name, directory, None)
+        self.insert_session(project_id, name, directory, None, String::new())
     }
 
     fn insert_session(
@@ -240,6 +243,7 @@ impl SessionRegistry {
         name: String,
         directory: String,
         initial_action: Option<crate::actions::Action>,
+        description: String,
     ) -> Result<Snapshot, String> {
         let name = valid_name(name)?;
         let root = self.project(project_id)?.root_directory.clone();
@@ -251,6 +255,7 @@ impl SessionRegistry {
         validate_directory(&directory)?;
         self.next_id += 1;
         self.sessions.push(Session {
+            description,
             tags: vec![],
             plugin_data: Default::default(),
             pull_request: None,
@@ -288,6 +293,17 @@ impl SessionRegistry {
         name: String,
         directory: String,
     ) -> Result<Snapshot, String> {
+        self.update_details(id, project_id, name, directory, None)
+    }
+
+    pub fn update_details(
+        &mut self,
+        id: u64,
+        project_id: u64,
+        name: String,
+        directory: String,
+        description: Option<String>,
+    ) -> Result<Snapshot, String> {
         self.project(project_id)?;
         let name = valid_name(name)?;
         let session = self
@@ -297,6 +313,9 @@ impl SessionRegistry {
             .ok_or("Session is unavailable")?;
         if session.base_directory != directory {
             validate_directory(&directory)?;
+        }
+        if let Some(description) = description {
+            session.description = description;
         }
         session.name = name;
         session.base_directory = directory;

@@ -105,6 +105,7 @@ impl MetadataStore {
                         .map(serde_json::from_str)
                         .transpose()?;
                     Ok(Session {
+                        description: row.description,
                         tags: vec![],
                         id: read_id(row.id)?,
                         name: row.name,
@@ -216,6 +217,7 @@ impl MetadataStore {
                 for session in &metadata.snapshot.sessions {
                     diesel::insert_into(sessions::table)
                         .values(SessionRow {
+                            description: session.description.clone(),
                             id: sql_id(session.id)?,
                             name: session.name.clone(),
                             base_directory: session.base_directory.clone(),
@@ -322,7 +324,7 @@ fn migrate(connection: &mut SqliteConnection) -> StorageResult<()> {
         connection,
         "SELECT user_version AS value FROM pragma_user_version",
     )?;
-    if version > 8 {
+    if version > 9 {
         return Err(format!(
             "Unsupported session database schema version {version}; the database was not reset"
         )
@@ -445,6 +447,12 @@ fn migrate(connection: &mut SqliteConnection) -> StorageResult<()> {
         })?;
     }
 
+    if version < 9 {
+        connection.immediate_transaction::<_, StorageError, _>(|connection| {
+            connection.batch_execute(include_str!("../migrations/009_session_description.sql"))?;
+            Ok(())
+        })?;
+    }
     Ok(())
 }
 

@@ -242,17 +242,25 @@ fn parse_with_context(
         ("session", "tags") => Command::SessionTags { id },
         ("session", "config") => Command::SessionConfig { id },
         ("session", "configure") => {
+            let description = options.remove("--description");
             let name = options.remove("--name");
             let directory = options.remove("--directory").map(absolute).transpose()?;
             let project_id = options
                 .remove("--project")
                 .map(|v| positive(&v))
                 .transpose()?;
-            if name.is_none() && directory.is_none() && project_id.is_none() {
-                return Err(invalid("Supply --name, --directory or --project"));
+            if description.is_none()
+                && name.is_none()
+                && directory.is_none()
+                && project_id.is_none()
+            {
+                return Err(invalid(
+                    "Supply --description, --name, --directory or --project",
+                ));
             }
             Command::SessionConfigure {
                 id,
+                description,
                 name,
                 directory,
                 project_id,

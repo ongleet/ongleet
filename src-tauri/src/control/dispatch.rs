@@ -39,7 +39,7 @@ fn summary(registry: &mut SessionRegistry, session: &Session) -> Result<Value, R
         tabs.push(json!({"id":tab.id,"name":tab.name,"kind":tab.kind,"status":status,"codexActivity":tab.codex_activity}));
     }
     Ok(
-        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"tags":session.session_tags(),"runningTerminals":running,"tabs":tabs}),
+        json!({"id":session.id,"projectId":session.project_id,"name":session.name,"description":session.description,"baseDirectory":session.base_directory,"displayOrder":session.display_order,"selectedTabId":session.selected_tab_id,"pullRequest":session.pull_request,"tags":session.session_tags(),"runningTerminals":running,"tabs":tabs}),
     )
 }
 
@@ -179,14 +179,19 @@ pub fn handle(
         }
         Command::SessionConfigure {
             id,
+            description,
             name,
             directory,
             project_id,
         } => {
-            if name.is_none() && directory.is_none() && project_id.is_none() {
+            if description.is_none()
+                && name.is_none()
+                && directory.is_none()
+                && project_id.is_none()
+            {
                 return Err(RpcError::new(
                     "invalid_argument",
-                    "Supply a name, directory or project",
+                    "Supply a description, name, directory or project",
                 ));
             }
             let old = session(&snapshot, id)?;
@@ -195,11 +200,12 @@ pub fn handle(
                 return Err(RpcError::new("not_found", "Project ID is unavailable"));
             }
             let next = registry
-                .update_in_project(
+                .update_details(
                     id,
                     project_id,
                     name.unwrap_or(old.name),
                     directory.unwrap_or(old.base_directory),
+                    description,
                 )
                 .map_err(failed)?;
             changed = true;
@@ -281,7 +287,13 @@ pub fn handle(
                 .config_directory()
                 .map_err(failed)?;
             let next = registry
-                .create_from_first_action(Some(project_id), name, directory, &directory_config)
+                .create_from_first_action(
+                    Some(project_id),
+                    name,
+                    directory,
+                    &directory_config,
+                    String::new(),
+                )
                 .map_err(failed)?;
             changed = true;
             summary(&mut registry, &session(&next, next.selected_id.unwrap())?)?

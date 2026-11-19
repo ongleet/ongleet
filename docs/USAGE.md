@@ -456,7 +456,7 @@ ongleet session pull-request 12 --target none
 
 Use IDs from `project list` and `session list`. Configuration commands require explicit IDs and do not follow GUI selection. `project config` returns metadata and verbatim actions YAML (including common `env`); `project configure` replaces the complete document after validation, using the same atomic save as the GUI.
 
-The file limit is 64 KiB; the encoded socket request limit is 128 KiB. Use `project rename` and `project directory` to change the name or root. `session configure` updates the supplied name, directory and/or project together, preserving omitted properties, tab definitions and running processes. Directory changes apply to future launches. `session config` includes the linked pull request; association changes neither contact GitHub nor open a PR tab.
+The file limit is 64 KiB; the encoded socket request limit is 128 KiB. Use `project rename` and `project directory` to change the name or root. `session configure` updates the supplied description (`--description TEXT`), name, directory and/or project together, preserving omitted properties, tab definitions and running processes. Directory changes apply to future launches. `session config` includes the linked pull request; association changes neither contact GitHub nor open a PR tab.
 
 Existing `tab actions` / `tab create` calls reload saved project actions.
 

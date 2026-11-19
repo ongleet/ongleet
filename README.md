@@ -34,6 +34,10 @@ Select code in Files or Diff, add a question, and **send it to an agent tab** wi
 its path, line range and surrounding context. Files can send unsaved buffer text,
 so you can discuss a change before saving it.
 
+Session descriptions record context for people and agents; edit them in session settings
+or with `ongleet session configure ID --description "Context"`. Read them with
+`ongleet session list --json` or `ongleet session config ID --json`.
+
 Session tags surface activity and review status in the sidebar. Reorder sessions
 and tabs, fold projects, and choose from six appearance presets shared by the app,
 editor and diff viewer. New terminals use the selected palette; existing terminal

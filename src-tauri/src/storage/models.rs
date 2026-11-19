@@ -16,6 +16,7 @@ pub(super) struct ProjectRow {
 #[diesel(table_name = sessions)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub(super) struct SessionRow {
+    pub description: String,
     pub id: i64,
     pub name: String,
     pub base_directory: String,

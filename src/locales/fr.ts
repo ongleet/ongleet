@@ -1,5 +1,6 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  Description: 'Description',
   'Load diff': 'Charger le diff',
   'This diff exceeds 64 KiB. Load it to display the changes.':
     'Ce diff dépasse 64 Kio. Chargez-le pour afficher les modifications.',

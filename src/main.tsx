@@ -1,7 +1,7 @@
 import { loadTabTitles, openTabTitles, saveTabTitles } from './tab-titles';
 import { useRenderDiagnostic } from './render-diagnostics';
 import { t, useLocale } from './i18n';
-import { Button, Dialog, Input, Select, Tab, TabList } from './components/Controls';
+import { Button, Dialog, Input, Select, Textarea, Tab, TabList } from './components/Controls';
 import { reconcileCommentSessions } from './diff-comment-cleanup';
 import { appearance, applyAppearance } from './appearance';
 import { applyApplicationAppearance, type ApplicationAppearance } from './application-settings';
@@ -32,6 +32,7 @@ export type Project = {
   collapsed: boolean;
 };
 export type Session = {
+  description: string;
   tags: import('./sdk').SessionTag[];
   pullRequest: { repository: string; number: number } | null;
   projectId: number;
@@ -92,12 +93,18 @@ function SessionEditor({
   initialProjectId: number;
   session?: Session;
   initialDirectory: string;
-  save: (name: string, directory: string, projectId: number) => Promise<boolean>;
+  save: (
+    name: string,
+    directory: string,
+    projectId: number,
+    description: string,
+  ) => Promise<boolean>;
   dismiss: () => void;
   externalError: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(session?.name ?? '');
+  const [description, setDescription] = useState(session?.description ?? '');
   const [projectId, setProjectId] = useState(session?.projectId ?? initialProjectId);
   const [directory, setDirectory] = useState(session?.baseDirectory ?? initialDirectory);
   const [busy, setBusy] = useState(false);
@@ -136,7 +143,7 @@ function SessionEditor({
         onSubmit={(event) => {
           event.preventDefault();
           setBusy(true);
-          void save(name, directory, projectId)
+          void save(name, directory, projectId, description)
             .then((saved) => {
               if (saved) dismiss();
             })
@@ -171,6 +178,15 @@ function SessionEditor({
             value={name}
             onChange={(event) => setName(event.target.value)}
             disabled={busy}
+          />
+        </label>
+        <label>
+          {t('Description')}
+          <Textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            disabled={busy}
+            rows={4}
           />
         </label>
         <label>
@@ -889,9 +905,10 @@ function App() {
           }
           dismiss={() => setEditor(null)}
           externalError={error}
-          save={(name, directory, projectId) =>
+          save={(name, directory, projectId, description) =>
             mutate(editor === 'new' ? 'create_session' : 'update_session', {
               ...(editor === 'new' ? {} : { id: editor.id }),
+              description,
               name,
               directory,
               projectId,

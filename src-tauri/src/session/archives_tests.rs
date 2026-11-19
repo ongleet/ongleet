@@ -47,11 +47,25 @@ fn note_text_survives_session_archive_and_restart_until_purged() {
             serde_json::json!({"text":"# Memory\n- [ ] Continue tomorrow"}),
         )
         .unwrap();
+    let project = registry.sessions[0].project_id;
+    registry
+        .update_details(
+            session,
+            project,
+            "Notes".into(),
+            fixture.0.to_string_lossy().into_owned(),
+            Some("Continue the investigation".into()),
+        )
+        .unwrap();
     registry.close(session, false).unwrap();
     let archive = registry.archives.last().unwrap().id;
     drop(registry);
     let mut registry = fixture.open();
     registry.restore_archive(archive).unwrap();
+    assert_eq!(
+        registry.sessions[0].description,
+        "Continue the investigation"
+    );
     let restored = registry.sessions[0]
         .tabs
         .iter()

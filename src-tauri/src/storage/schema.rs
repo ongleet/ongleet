@@ -11,6 +11,7 @@ diesel::table! {
 
 diesel::table! {
     sessions (id) {
+        description -> Text,
         id -> BigInt,
         name -> Text,
         base_directory -> Text,

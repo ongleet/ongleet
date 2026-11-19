@@ -250,7 +250,13 @@ fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically(
     }});
     fs::write(&path, serde_json::to_vec(&serde_json::json!({"actions":[action, {"id":"second","name":"Second action","kind":"terminal","config":{"executable":"/bin/false"}}]})).unwrap()).unwrap();
     let snapshot = registry
-        .create_from_first_action(Some(group), "Project".into(), root.path(), &config.0)
+        .create_from_first_action(
+            Some(group),
+            "Project".into(),
+            root.path(),
+            &config.0,
+            String::new(),
+        )
         .unwrap();
     let session = &snapshot.sessions[0];
     assert_eq!(session.tabs.len(), 1);
@@ -268,7 +274,13 @@ fn new_session_uses_first_configured_action_and_rejects_invalid_yaml_atomically(
     fs::write(&path, "actions: []").unwrap();
     let expected = serde_json::to_value(registry.snapshot()).unwrap();
     assert!(registry
-        .create_from_first_action(Some(group), "Rejected".into(), root.path(), &config.0)
+        .create_from_first_action(
+            Some(group),
+            "Rejected".into(),
+            root.path(),
+            &config.0,
+            String::new()
+        )
         .is_err());
     assert_eq!(serde_json::to_value(registry.snapshot()).unwrap(), expected);
     registry.shutdown(true).unwrap();
@@ -297,7 +309,13 @@ fn common_environment_is_loaded_for_new_launches_and_action_overrides_win() {
     }}]});
     crate::actions::save_project_yaml(&config.0, group, &document.to_string()).unwrap();
     let session = registry
-        .create_from_first_action(Some(group), "Probe session".into(), root.path(), &config.0)
+        .create_from_first_action(
+            Some(group),
+            "Probe session".into(),
+            root.path(),
+            &config.0,
+            String::new(),
+        )
         .unwrap()
         .selected_id
         .unwrap();
@@ -374,6 +392,7 @@ fn external_actions_resolve_context_without_tabs_and_default_skips_commands() {
             "A ; $(literal) {{braces}}".into(),
             root.path(),
             &config.0,
+            String::new(),
         )
         .unwrap();
     let id = snapshot.selected_id.unwrap();
@@ -398,7 +417,13 @@ fn external_actions_resolve_context_without_tabs_and_default_skips_commands() {
     only_external["actions"].as_array_mut().unwrap().pop();
     crate::actions::save_project_yaml(&config.0, group, &only_external.to_string()).unwrap();
     assert!(registry
-        .create_from_first_action(Some(group), "No default".into(), root.path(), &config.0)
+        .create_from_first_action(
+            Some(group),
+            "No default".into(),
+            root.path(),
+            &config.0,
+            String::new()
+        )
         .is_err());
     assert_eq!(registry.sessions.len(), 1);
 }
@@ -722,4 +747,45 @@ fn owned_tags_replace_by_key_and_close_preserves_independent_tags() {
     let archive_id = registry.archives.last().unwrap().id;
     registry.restore_archive(archive_id).unwrap();
     assert!(visible(&registry).is_empty());
+}
+
+#[test]
+fn session_description_persists_preserves_omitted_values_and_can_be_cleared() {
+    let data = Directory::new();
+    let root = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry.create("Context".into(), root.path()).unwrap();
+    let id = registry.sessions[0].id;
+    let project = registry.sessions[0].project_id;
+    let description = "Investigate rendering\nContexte 日本語";
+    registry
+        .update_details(
+            id,
+            project,
+            "Context".into(),
+            root.path(),
+            Some(description.into()),
+        )
+        .unwrap();
+    registry.update(id, "Renamed".into(), root.path()).unwrap();
+    assert!(registry
+        .update_details(id, project, "".into(), root.path(), Some("Lost".into()))
+        .is_err());
+    drop(registry);
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(registry.sessions[0].description, description);
+    registry
+        .update_details(
+            id,
+            project,
+            "Renamed".into(),
+            root.path(),
+            Some(String::new()),
+        )
+        .unwrap();
+    drop(registry);
+    assert_eq!(
+        SessionRegistry::open(&data.0).unwrap().sessions[0].description,
+        ""
+    );
 }
