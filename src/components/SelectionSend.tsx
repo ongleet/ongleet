@@ -1,3 +1,4 @@
+import { AgentDeliveryStatus } from './AgentDeliveryStatus';
 import { AgentPicker } from './AgentPicker';
 import { preferredAgent, rememberAgent } from './agent-recipient';
 import { t } from '../i18n';
@@ -32,7 +33,7 @@ export function SelectionSend({
   const [busy, setBusy] = useState(false);
   const [loadingTargets, setLoadingTargets] = useState(false);
   const writing = useRef(false);
-  const [status, setStatus] = useState('');
+  const [sentTarget, setSentTarget] = useState<number>();
   const [error, setError] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
   const mounted = useRef(true);
@@ -56,7 +57,7 @@ export function SelectionSend({
   }, [visible]);
   async function open() {
     setError('');
-    setStatus('');
+    setSentTarget(undefined);
     const request = ++attempt.current;
     try {
       const snapshot = capture();
@@ -83,7 +84,7 @@ export function SelectionSend({
     writing.current = true;
     setBusy(true);
     setError('');
-    setStatus('');
+    setSentTarget(undefined);
     let sending = false;
     try {
       const prepared = beforeSend ? await beforeSend(selection) : selection;
@@ -93,7 +94,7 @@ export function SelectionSend({
       await sendToTab(sdk.tabs, sessionId, tabId, target, message);
       rememberAgent(sessionId, target);
       if (mounted.current) {
-        setStatus('Write acknowledged; agent processing is unknown.');
+        setSentTarget(target);
         setSelection(undefined);
       }
     } catch (error) {
@@ -120,7 +121,9 @@ export function SelectionSend({
       >
         {label ?? t('Send selection…')}
       </Button>
-      {status && <span role="status">{status}</span>}
+      {sentTarget !== undefined && (
+        <AgentDeliveryStatus key={sentTarget} sessionId={sessionId} targetId={sentTarget} />
+      )}
       {error && !selection && <span role="alert">{error}</span>}
       {selection &&
         createPortal(

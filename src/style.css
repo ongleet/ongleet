@@ -1378,3 +1378,27 @@ button:focus-visible {
   min-width: 0;
   max-width: 100%;
 }
+
+.agent-delivery-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.agent-activity-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.agent-delivery-status[data-activity='working'] .agent-activity-dot {
+  background: var(--diffRenamed);
+}
+.agent-delivery-status[data-activity='question'] .agent-activity-dot,
+.agent-delivery-status[data-activity='approval'] .agent-activity-dot {
+  background: var(--diffModified);
+}
+.agent-delivery-status[data-activity='idle'] .agent-activity-dot {
+  background: var(--diffAdded);
+}

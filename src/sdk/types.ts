@@ -106,3 +106,5 @@ export type FileSearch = {
   truncated: boolean;
   skipped: number;
 };
+
+export type AgentActivity = 'working' | 'question' | 'approval' | 'idle' | 'stopped';

@@ -1,5 +1,18 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Agent working': 'L’agent travaille',
+  'Agent awaiting your reply': 'L’agent attend votre réponse',
+  'Agent awaiting approval': 'L’agent attend une autorisation',
+  'Agent idle': 'L’agent est au repos',
+  'Agent stopped': 'L’agent est arrêté',
+  'Agent activity unavailable': 'Activité de l’agent non disponible',
+  'Agent unavailable': 'Agent indisponible',
+  'Current agent activity; this does not confirm completion of this message.':
+    'Activité actuelle de l’agent ; cela ne confirme pas le traitement de ce message.',
+  'Message sent to {agent}': 'Message envoyé à {agent}',
+  'Message sent': 'Message envoyé',
+  'Checking agent activity…': 'Vérification de l’activité de l’agent…',
+
   Agent: 'Agent',
   'Receive agent messages': 'Recevoir les envois à un agent',
   'Finding agents…': 'Recherche des agents…',

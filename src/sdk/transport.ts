@@ -88,6 +88,7 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
             name: string;
             isOpen: boolean;
             agentReceiver: boolean;
+            codexActivity: import('./types').AgentActivity | null;
           }[];
         }>(0, 'list', args),
       capabilities: (tabId: number) =>

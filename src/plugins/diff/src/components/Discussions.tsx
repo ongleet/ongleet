@@ -1,3 +1,4 @@
+import { AgentDeliveryStatus } from '../../../../components/AgentDeliveryStatus';
 import { AgentPicker } from '../../../../components/AgentPicker';
 import { preferredAgent, rememberAgent } from '../../../../components/agent-recipient';
 import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
@@ -81,6 +82,7 @@ export function Discussion({
 }) {
   const [recipients, setRecipients] = useState<{ id: number; name: string }[]>([]);
   const [target, setTarget] = useState<number>();
+  const [sentTarget, setSentTarget] = useState<number>();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -115,11 +117,13 @@ export function Discussion({
     if (target === undefined || writing.current) return;
     writing.current = true;
     setBusy(true);
-    setStatus('Sending…');
+    setSentTarget(undefined);
+    setStatus(t('Sending…'));
     try {
       await send(commentId, target);
       rememberAgent(sessionId, target, threadKey);
-      setStatus('Write acknowledged; agent processing is unknown.');
+      setStatus('');
+      setSentTarget(target);
     } catch (error) {
       setStatus(
         t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
@@ -237,6 +241,9 @@ export function Discussion({
       <Button type="button" className="diff-delete-thread" onClick={remove}>
         {t('Delete thread')}
       </Button>
+      {sentTarget !== undefined && (
+        <AgentDeliveryStatus key={sentTarget} sessionId={sessionId} targetId={sentTarget} />
+      )}
       {status && (
         <p className="diff-discussion-status" role="status">
           {status}

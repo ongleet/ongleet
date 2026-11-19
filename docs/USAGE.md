@@ -557,3 +557,10 @@ in local WebView preferences, including across application restarts. Each Diff
 discussion also remembers its own recipient. With several agents, a missing
 remembered recipient requires another choice. The recipient remains visible and
 can be changed before sending. Failed or ambiguous sends are never retried automatically.
+
+After an acknowledged send, Files, Notes and Diff display the recipient's live
+activity: working, awaiting a reply or approval, idle, stopped or unavailable.
+Codex supplies these states through its existing hooks. Agents without activity
+reporting show “Agent activity unavailable”. Updates follow metadata events,
+without polling or reading terminal output. “Idle” describes the agent's current
+state; it does not certify completion of the particular message sent.

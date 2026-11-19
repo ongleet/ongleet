@@ -175,7 +175,7 @@ pub fn execute(
                 &args,
                 &json!({"type":"object","additionalProperties":false,"properties":{"sessionId":{"type":"integer","minimum":1}}}),
             )?;
-            let tabs: Vec<_> = snapshot.sessions.iter().filter(|s| args["sessionId"].as_u64().is_none_or(|id| s.id == id)).flat_map(|s| s.tabs.iter().map(move |t| json!({"id":t.id,"sessionId":s.id,"kind":t.kind,"name":t.name,"isOpen":t.is_open,"agentReceiver":t.config["agentReceiver"] == true}))).collect();
+            let tabs: Vec<_> = snapshot.sessions.iter().filter(|s| args["sessionId"].as_u64().is_none_or(|id| s.id == id)).flat_map(|s| s.tabs.iter().map(move |t| json!({"id":t.id,"sessionId":s.id,"kind":t.kind,"name":t.name,"isOpen":t.is_open,"agentReceiver":t.config["agentReceiver"] == true,"codexActivity":t.codex_activity}))).collect();
             return Ok(json!({"tabs": tabs}));
         }
         let session = snapshot

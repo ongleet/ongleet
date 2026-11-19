@@ -507,3 +507,8 @@ previous search behavior.
 `agentReceiver: true` configuration. Agent send controls require this opt-in as
 well as an available `send-text` action. Direct SDK/CLI interaction actions retain
 their existing behavior.
+
+`tabs.list` also exposes nullable `codexActivity` (`working`, `question`,
+`approval`, `idle`, `stopped`) from the runtime snapshot. It is observational
+agent activity, not request completion. `storage.subscribe` metadata events
+allow consumers to refresh it without polling.
