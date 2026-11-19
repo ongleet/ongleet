@@ -638,7 +638,7 @@ function App() {
         ))
       )
         return;
-      await flushPlugins();
+      await flushPlugins(true);
       await invoke('quit', { confirmed });
     } catch (error) {
       report(error);

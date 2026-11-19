@@ -1,6 +1,13 @@
+import { agentQueues } from '../../../../components/agent-queue-service';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { PluginSdk } from '../../../../sdk';
-import { CommentStore, commentTargets, deliverComment, type Location } from '../comments';
+import {
+  CommentStore,
+  commentTargets,
+  commentMessage,
+  deliverComment,
+  type Location,
+} from '../comments';
 import { DiscussionIndex } from '../discussion-index';
 import { Discussion } from '../components/Discussions';
 
@@ -31,9 +38,23 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
     [sdk, sessionId, tabId],
   );
 
+  // The public interaction still acknowledges a direct write, rather than queue acceptance.
   const sendComment = useCallback(
     (threadId: string, commentId: string, targetTabId: number) =>
       deliverComment(sdk.tabs, sessionId, tabId, comments.get(threadId), commentId, targetTabId),
+    [sdk, sessionId, tabId, comments],
+  );
+
+  const queueComment = useCallback(
+    async (threadId: string, commentId: string, targetTabId: number) => {
+      const thread = comments.get(threadId);
+      agentQueues().enqueue(sessionId, targetTabId, {
+        sourceId: tabId,
+        text: commentMessage(tabId, thread, commentId),
+        label: `Diff: ${thread.location.path}`,
+        threadKey: `${tabId}.${threadId}`,
+      });
+    },
     [sdk, sessionId, tabId, comments],
   );
 
@@ -45,7 +66,7 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
         sessionId={sessionId}
         tabId={tabId}
         targets={targets}
-        send={(commentId, target) => sendComment(thread.id, commentId, target)}
+        send={(commentId, target) => queueComment(thread.id, commentId, target)}
         reply={(text) => {
           changeComments(() => comments.reply(thread.id, text, 'User'));
         }}
@@ -59,7 +80,7 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
         }}
       />
     ),
-    [targets, sendComment, changeComments, comments, sessionId, tabId],
+    [targets, queueComment, changeComments, comments, sessionId, tabId],
   );
 
   return {

@@ -1,5 +1,38 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Agent tab {id}': 'Onglet agent {id}',
+  '{agent} (unavailable)': '{agent} (indisponible)',
+  'Agent tab {id} (unavailable)': 'Onglet agent {id} (indisponible)',
+  'Editing pauses the queue; resume when ready.':
+    'La modification met la file en pause ; reprenez-la quand vous êtes prêt.',
+  Edit: 'Modifier',
+  'Queue paused': 'File en pause',
+  'Saved queue paused; resume explicitly': 'File enregistrée en pause ; reprenez-la explicitement',
+  'Queue paused: agent activity unavailable': 'File en pause : activité de l’agent non disponible',
+  'Queue paused: delivery uncertain; no retry was made':
+    'File en pause : livraison incertaine, aucun renvoi effectué',
+  'Queue paused: messages could not be saved':
+    'File en pause : impossible d’enregistrer les messages',
+  'Queued message': 'Message en attente',
+  'Send now': 'Envoyer maintenant',
+  'Remove from queue': 'Retirer de la file',
+  'Delivery uncertain; check the agent before removing this message.':
+    'Livraison incertaine ; vérifiez l’agent avant de retirer ce message.',
+  'Waiting for agent activity before sending the next message':
+    'En attente d’une activité de l’agent avant l’envoi du message suivant',
+  'Queue ({count})': 'File ({count})',
+  'Resume queue': 'Reprendre la file',
+  'Pause queue': 'Mettre la file en pause',
+  'Add to queue': 'Mettre en attente',
+  'Saved agent queues are unavailable.': 'Les files d’agents enregistrées ne sont pas disponibles.',
+  'Queued message must fit within 8 KiB including Enter.':
+    'Le message doit tenir dans 8 Kio, touche Entrée comprise.',
+  'Agent queue is full.': 'La file d’attente est pleine.',
+  'This message cannot be edited.': 'Ce message ne peut pas être modifié.',
+  'This message cannot be removed.': 'Ce message ne peut pas être retiré.',
+  'Remove the uncertain message before resuming.':
+    'Retirez le message à livraison incertaine avant de reprendre.',
+
   'Agent working': 'L’agent travaille',
   'Agent awaiting your reply': 'L’agent attend votre réponse',
   'Agent awaiting approval': 'L’agent attend une autorisation',

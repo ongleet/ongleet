@@ -1,12 +1,13 @@
-import { AgentDeliveryStatus } from './AgentDeliveryStatus';
+import { AgentQueuePanel, useAgentQueue } from './AgentQueuePanel';
+import { agentQueues } from './agent-queue-service';
 import { AgentPicker } from './AgentPicker';
-import { preferredAgent, rememberAgent } from './agent-recipient';
+import { preferredAgent } from './agent-recipient';
 import { t } from '../i18n';
 import { Button, Dialog, Textarea } from './Controls';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../sdk';
-import { availableSendTargets, selectionMessage, sendToTab, type SelectedCode } from './tab-send';
+import { availableSendTargets, selectionMessage, type SelectedCode } from './tab-send';
 import './selection-send.css';
 export function SelectionSend({
   sessionId,
@@ -30,6 +31,13 @@ export function SelectionSend({
   const [question, setQuestion] = useState('');
   const [targets, setTargets] = useState<{ id: number; name: string }[]>([]);
   const [target, setTarget] = useState<number>();
+  const queue = useAgentQueue(sessionId, target);
+  const queueing =
+    !queue ||
+    queue.activity !== 'idle' ||
+    queue.phase !== 'ready' ||
+    !!queue.paused ||
+    queue.items.length > 0;
   const [busy, setBusy] = useState(false);
   const [loadingTargets, setLoadingTargets] = useState(false);
   const writing = useRef(false);
@@ -85,27 +93,21 @@ export function SelectionSend({
     setBusy(true);
     setError('');
     setSentTarget(undefined);
-    let sending = false;
     try {
       const prepared = beforeSend ? await beforeSend(selection) : selection;
       if (!mounted.current) return;
       const message = selectionMessage(prepared, question);
-      sending = true;
-      await sendToTab(sdk.tabs, sessionId, tabId, target, message);
-      rememberAgent(sessionId, target);
+      agentQueues().enqueue(sessionId, target, {
+        sourceId: tabId,
+        text: message,
+        label: `${prepared.source}: ${prepared.path} · ${prepared.location}`,
+      });
       if (mounted.current) {
         setSentTarget(target);
         setSelection(undefined);
       }
     } catch (error) {
-      if (mounted.current)
-        setError(
-          sending
-            ? t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
-                value0: String(error),
-              })
-            : String(error),
-        );
+      if (mounted.current) setError(error instanceof Error ? t(error.message) : String(error));
     } finally {
       writing.current = false;
       if (mounted.current) setBusy(false);
@@ -122,7 +124,7 @@ export function SelectionSend({
         {label ?? t('Send selection…')}
       </Button>
       {sentTarget !== undefined && (
-        <AgentDeliveryStatus key={sentTarget} sessionId={sessionId} targetId={sentTarget} />
+        <AgentQueuePanel key={sentTarget} sessionId={sessionId} targetId={sentTarget} />
       )}
       {error && !selection && <span role="alert">{error}</span>}
       {selection &&
@@ -161,6 +163,7 @@ export function SelectionSend({
                 />
               </label>
               <AgentPicker
+                sessionId={sessionId}
                 targets={targets}
                 target={target}
                 onChange={setTarget}
@@ -182,9 +185,11 @@ export function SelectionSend({
                 <Button type="submit" disabled={busy || target === undefined}>
                   {busy
                     ? t('Sending…')
-                    : targets.length === 1
-                      ? t('Send to {value0}', { value0: targets[0].name })
-                      : t('Send')}
+                    : queueing
+                      ? t('Add to queue')
+                      : targets.length === 1
+                        ? t('Send to {value0}', { value0: targets[0].name })
+                        : t('Send')}
                 </Button>
               </div>
             </form>

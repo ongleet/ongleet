@@ -1402,3 +1402,44 @@ button:focus-visible {
 .agent-delivery-status[data-activity='idle'] .agent-activity-dot {
   background: var(--diffAdded);
 }
+
+.agent-recipient,
+.agent-queue-panel {
+  min-width: 0;
+}
+.agent-queue-panel {
+  font-size: 12px;
+}
+.agent-queue-panel p {
+  margin: 6px 0;
+}
+.agent-queue-panel ol {
+  padding-left: 22px;
+  max-height: 320px;
+  overflow: auto;
+}
+.agent-queue-message {
+  padding: 8px 0;
+}
+.agent-queue-message > span,
+.agent-queue-message > strong {
+  display: block;
+}
+.agent-queue-message pre {
+  max-height: 120px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+}
+.agent-queue-message textarea {
+  width: 100%;
+  min-height: 100px;
+}
+.agent-queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.selection-send > .agent-queue-panel {
+  max-width: min(600px, 60vw);
+}

@@ -175,3 +175,46 @@ assert.equal(discoveries, 2);
 finishDiscovery({ tabs: [] });
 assert.deepEqual(await refreshedDiscovery, []);
 console.log('Concurrent agent discovery shares requests without retaining stale recipients.');
+
+// The last metadata read guards automatic sends after capabilities discovery.
+let idleChecks = 0;
+let guardedWrites = 0;
+const guarded = {
+  ...tabs,
+  list: async () => {
+    idleChecks++;
+    return {
+      tabs: [
+        {
+          id: 1,
+          sessionId: 3,
+          isOpen: true,
+          agentReceiver: true,
+          name: 'Codex',
+          codexActivity: idleChecks % 2 ? 'idle' : 'working',
+        },
+      ],
+    };
+  },
+  invoke: async () => {
+    guardedWrites++;
+    return { acknowledged: true };
+  },
+};
+assert.equal(await sendToTab(guarded, 3, 2, 1, 'defer until free', true), 'working');
+assert.equal(guardedWrites, 0);
+guarded.list = async () => ({
+  tabs: [
+    {
+      id: 1,
+      sessionId: 3,
+      isOpen: true,
+      agentReceiver: true,
+      name: 'Codex',
+      codexActivity: 'idle',
+    },
+  ],
+});
+assert.equal(await sendToTab(guarded, 3, 2, 1, 'ready', true), undefined);
+assert.equal(guardedWrites, 1);
+console.log('Automatic sends recheck activity immediately before the write.');

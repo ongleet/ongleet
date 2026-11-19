@@ -155,6 +155,27 @@ inside React renders. `LineDiscussionIndex` looks up widgets by side/line and me
 both sides in source order on context rows. Thread IDs key widgets so removing one
 thread does not discard another thread's reply draft on the same line.
 
+## Agent message queues
+
+`src/components/agent-queue.ts` owns the bounded per-session/recipient FIFO and
+work/idle gate. The shared service binds queue observers and writes to host-owned
+SDK attachments declaring `tabs`; composer unmounting does not own pending work.
+It forwards captured user messages only, with no agent creation or task planning.
+
+Persist a `sending` marker before the bounded `send-text` interaction. Interrupted
+writes restore as uncertain; no automatic retries or restart resumption. Each
+successful write requires a subsequent observed work/idle cycle before another
+automatic write. Recheck idle after capability discovery and immediately before
+invoking the target. Unknown/stopped/unavailable activity pauses delivery. Pending
+text is a capture, not a live source reference. A same-session sender can take over
+observation after source closure; an in-flight write is never replayed on handoff.
+Quit pauses queues and settles current writes before plugin history flush; ordinary
+archive/close flushes do not pause unrelated queues. UI subscriptions are scoped to
+the recipient; selector updates depend on pending recipient membership and names.
+
+Run `npm run check:selection-send` for payload, activity and FIFO behavior.
+These checks do not establish native WebKitGTK interactions or live-agent timing.
+
 ## UI localization
 
 Use `t` from `src/i18n.ts` for UI copy. English source messages are catalog keys;

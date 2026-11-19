@@ -1,4 +1,4 @@
-import { SdkError, type PluginSdk } from '../sdk';
+import { SdkError, type PluginSdk, type AgentActivity } from '../sdk';
 async function findSendTargets(tabs: PluginSdk['tabs'], sessionId: number, tabId: number) {
   const list = await tabs.list({ sessionId });
   const candidates = await Promise.all(
@@ -45,7 +45,8 @@ export async function sendToTab(
   sourceTabId: number,
   targetTabId: number,
   text: string,
-) {
+  onlyWhenIdle = false,
+): Promise<AgentActivity | 'unknown' | undefined> {
   if (new TextEncoder().encode(text).length > 8191)
     throw new SdkError(
       'invalid_arguments',
@@ -53,6 +54,14 @@ export async function sendToTab(
     );
   if (!(await availableSendTargets(tabs, sessionId, sourceTabId)).some((t) => t.id === targetTabId))
     throw new SdkError('unavailable', 'Recipient unavailable');
+  if (onlyWhenIdle) {
+    const latest = (await tabs.list({ sessionId })).tabs.find(
+      (tab) =>
+        tab.id === targetTabId && tab.sessionId === sessionId && tab.isOpen && tab.agentReceiver,
+    );
+    if (!latest) throw new SdkError('unavailable', 'Recipient unavailable');
+    if (latest.codexActivity !== 'idle') return latest.codexActivity ?? 'unknown';
+  }
   const result = (await tabs.invoke(targetTabId, 'send-text', { text, enter: true })) as {
     acknowledged?: boolean;
   };

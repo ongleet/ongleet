@@ -507,3 +507,19 @@ Artifacts: `/tmp/ong-codex-activity-1bt7qwlg`.
 Frontend build, i18n and all 15 session/project/tag Rust tests passed. The broader
 GUI Rust suite had 138 passing tests, two ignored and one existing archive
 fixture failure (`duplicate column name: description`).
+
+## Agent queue validation (2026-11-19)
+
+`npm run check:selection-send` covers captured payload bounds, the last idle
+preflight, FIFO ordering, one work/idle cycle per acknowledged write, independent
+agents/sessions, editing/removal, explicit sends, uncertain writes, persisted
+restart pauses, storage failures/limits and sender handoff. Diff and Notes model
+checks also pass.
+
+An isolated Chromium fixture exercised the shared selector and panel: Files and
+Notes displayed the same two-message queue, editing paused delivery and propagated
+the changed payload to both views, resuming sent the edited first message, repeated
+idle notifications held the second, and a work/idle cycle sent the second. The
+other recipient remained independent. This used fake activity and write adapters;
+it does not validate native WebKitGTK controls, live Codex hook timing, or native
+restart/closure behavior. Those acceptance checks remain open.

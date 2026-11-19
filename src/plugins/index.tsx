@@ -1,3 +1,4 @@
+import { agentQueues, attachAgentQueues } from '../components/agent-queue-service';
 import { t } from '../i18n';
 import { Button, Dialog, Select, TabPanel } from '../components/Controls';
 import { listen } from '@tauri-apps/api/event';
@@ -17,6 +18,7 @@ export type TabPlugin = {
   id: string;
   label: string;
   icon: string;
+  capabilities?: string[];
   configVersion: number;
   // Attach before first visibility when the plugin owns background work.
   background?: boolean;
@@ -57,7 +59,8 @@ export const plugins: TabPlugin[] = Object.entries(manifests).flatMap(
       : [];
   },
 );
-export async function flushPlugins() {
+export async function flushPlugins(quitting = false) {
+  if (quitting) await agentQueues().shutdown();
   await Promise.all(plugins.map((plugin) => plugin.beforeQuit?.()));
 }
 type HostProps = PluginContentProps & { reportTitle: (id: number, title: string | null) => void };
@@ -157,6 +160,10 @@ function AttachedPlugin({ plugin, props }: { plugin: TabPlugin; props: HostProps
       void instance.dispose().catch(console.error);
     };
   }, [props.tab.id]);
+  useEffect(() => {
+    if (sdk && plugin.capabilities?.includes('tabs'))
+      return attachAgentQueues(sdk, props.session.id, props.tab.id);
+  }, [sdk, props.session.id, props.tab.id, plugin]);
   if (!sdk) return error ? <p role="alert">{error}</p> : null;
   return (
     <SdkContext.Provider value={sdk}>

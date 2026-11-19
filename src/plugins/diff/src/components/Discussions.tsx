@@ -1,6 +1,6 @@
-import { AgentDeliveryStatus } from '../../../../components/AgentDeliveryStatus';
+import { useAgentQueue } from '../../../../components/AgentQueuePanel';
 import { AgentPicker } from '../../../../components/AgentPicker';
-import { preferredAgent, rememberAgent } from '../../../../components/agent-recipient';
+import { preferredAgent } from '../../../../components/agent-recipient';
 import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
 import { t, getLocale } from '../../../../i18n';
 import { Button, Textarea } from '../../../../components/Controls';
@@ -82,7 +82,13 @@ export function Discussion({
 }) {
   const [recipients, setRecipients] = useState<{ id: number; name: string }[]>([]);
   const [target, setTarget] = useState<number>();
-  const [sentTarget, setSentTarget] = useState<number>();
+  const queue = useAgentQueue(sessionId, target);
+  const queueing =
+    !queue ||
+    queue.activity !== 'idle' ||
+    queue.phase !== 'ready' ||
+    !!queue.paused ||
+    queue.items.length > 0;
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -117,19 +123,12 @@ export function Discussion({
     if (target === undefined || writing.current) return;
     writing.current = true;
     setBusy(true);
-    setSentTarget(undefined);
     setStatus(t('Sending…'));
     try {
       await send(commentId, target);
-      rememberAgent(sessionId, target, threadKey);
       setStatus('');
-      setSentTarget(target);
     } catch (error) {
-      setStatus(
-        t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
-          value0: String(error),
-        }),
-      );
+      setStatus(error instanceof Error ? t(error.message) : String(error));
     } finally {
       writing.current = false;
       setBusy(false);
@@ -171,6 +170,7 @@ export function Discussion({
         </>
       )}
       <AgentPicker
+        sessionId={sessionId}
         onFocus={() => {
           void targets()
             .then((list) => {
@@ -232,7 +232,7 @@ export function Discussion({
               disabled={busy || loading || target === undefined}
               onClick={() => void deliver(comment.id)}
             >
-              {t('Send to agent')}
+              {queueing ? t('Add to queue') : t('Send to agent')}
             </Button>
           </article>
         ))}
@@ -241,9 +241,6 @@ export function Discussion({
       <Button type="button" className="diff-delete-thread" onClick={remove}>
         {t('Delete thread')}
       </Button>
-      {sentTarget !== undefined && (
-        <AgentDeliveryStatus key={sentTarget} sessionId={sessionId} targetId={sentTarget} />
-      )}
       {status && (
         <p className="diff-discussion-status" role="status">
           {status}

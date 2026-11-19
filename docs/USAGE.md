@@ -564,3 +564,36 @@ Codex supplies these states through its existing hooks. Agents without activity
 reporting show “Agent activity unavailable”. Updates follow metadata events,
 without polling or reading terminal output. “Idle” describes the agent's current
 state; it does not certify completion of the particular message sent.
+
+### Agent message queues
+
+Files, Notes and Diff discussions share one FIFO per recipient agent in a session.
+When the agent is known to be idle, **Send** submits the message; otherwise the
+button reads **Add to queue**. The queue saves the prepared text and context at
+that moment. Later source edits do not rewrite queued messages.
+
+After each acknowledged send, automatic delivery waits to observe work (including
+a question or approval wait) and then a return to idle before sending the next
+message. Repeated idle reports cannot release a second message. Agent activity is
+checked again just before an automatic write. This is observed activity, not a
+request-specific completion guarantee; a missed work/idle transition leaves the
+next message waiting. No timer guesses that the agent has finished.
+
+Expand **Queue (N)** under the agent selector to inspect messages, edit, remove,
+pause/resume or explicitly **Send now**, which bypasses the activity wait. Editing
+pauses the queue; resume when ready. A message already being sent cannot be edited
+or removed. Different agents have independent queues. Closing a source tab leaves
+its captured messages intact; another attached sender in the same session can
+continue the queue. Missing or stopped agents and unknown activity pause delivery.
+Agents without activity hooks can use the explicit **Send now** action.
+
+Queues are stored in local WebView preferences, limited to 20 messages per agent,
+64 messages overall, and 8 KiB per message including Enter. They run only while
+Ongleet is open and a sending tab is attached. After reload/restart, saved messages
+remain paused until **Resume queue**. An interrupted or ambiguous write is marked
+uncertain and blocks the queue: check the agent, remove that record, then resume.
+There is no automatic retry. Unavailable agents with pending messages remain in
+the recipient selector so their queues can still be inspected or cleared.
+
+The GUI queue does not change the direct CLI/SDK `send-text` and Diff
+`send-comment` interactions: those still acknowledge immediate writes.
