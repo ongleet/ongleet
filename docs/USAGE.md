@@ -543,3 +543,17 @@ to apply changes; the global YAML also accepts these settings. Ongleet Original 
 retain their launch palette because Ghostty 0.4.0 lacks live recoloring; cursor,
 selection and canvas background update immediately. See [appearance details and
 validation](APPEARANCE.md).
+
+### Agent recipients
+
+Enable **Receive agent messages** in a terminal's configuration to offer it as an
+agent recipient. Ordinary terminals are excluded even when they accept `send-text`.
+The bundled Codex action enables this setting; existing tabs and custom actions
+can enable it explicitly.
+
+Files, Notes and Diff use the same agent selector. A single available agent is
+selected automatically. Acknowledged sends remember the recipient for the session
+in local WebView preferences, including across application restarts. Each Diff
+discussion also remembers its own recipient. With several agents, a missing
+remembered recipient requires another choice. The recipient remains visible and
+can be changed before sending. Failed or ambiguous sends are never retried automatically.

@@ -4,12 +4,17 @@ import ts from 'typescript';
 const moduleUrl = (source) =>
   `data:text/javascript;base64,${Buffer.from(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64')}`;
 const types = moduleUrl(await readFile('src/sdk/types.ts', 'utf8'));
+const sendModule = moduleUrl(
+  (await readFile('src/components/tab-send.ts', 'utf8')).replaceAll(
+    "'../sdk'",
+    JSON.stringify(types),
+  ),
+);
 const { CommentStore, commentMessage, commentTargets, deliverComment } = await import(
   moduleUrl(
-    (await readFile('src/plugins/diff/src/comments.ts', 'utf8')).replaceAll(
-      "'../../../sdk'",
-      JSON.stringify(types),
-    ),
+    (await readFile('src/plugins/diff/src/comments.ts', 'utf8'))
+      .replaceAll("'../../../components/tab-send'", JSON.stringify(sendModule))
+      .replaceAll("'../../../sdk'", JSON.stringify(types)),
   )
 );
 const records = new Map();
@@ -122,11 +127,11 @@ const tabs = {
   list: async () => ({
     tabs: [
       { id: 6, sessionId: 5, isOpen: true, name: 'Diff' },
-      { id: 7, sessionId: 5, isOpen: true, name: 'Agent shell' },
+      { id: 7, sessionId: 5, isOpen: true, name: 'Agent shell', agentReceiver: true },
       { id: 8, sessionId: 9, isOpen: true, name: 'Other session' },
       { id: 9, sessionId: 5, isOpen: false, name: 'Closed' },
       { id: 10, sessionId: 5, isOpen: true, name: 'Files' },
-      { id: 11, sessionId: 5, isOpen: true, name: 'Unavailable' },
+      { id: 11, sessionId: 5, isOpen: true, name: 'Unavailable', agentReceiver: true },
     ],
   }),
   capabilities: async (id) => ({

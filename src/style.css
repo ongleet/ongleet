@@ -1367,3 +1367,14 @@ button:focus-visible {
   align-items: center;
   gap: 3px;
 }
+
+.agent-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.agent-picker select {
+  min-width: 0;
+  max-width: 100%;
+}

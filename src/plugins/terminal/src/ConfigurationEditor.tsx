@@ -119,24 +119,38 @@ export function launchConfig(text: string): unknown {
 export function terminalDraft(config: unknown): string {
   return JSON.stringify({
     ...JSON.parse(launchDraft(config)),
+    agentReceiver: (config as { agentReceiver?: boolean }).agentReceiver === true,
     loadOnDemand: (config as { loadOnDemand?: boolean }).loadOnDemand === true,
   });
 }
 export function terminalConfig(text: string): unknown {
   return {
     ...(launchConfig(text) as object),
+    agentReceiver: JSON.parse(text).agentReceiver === true,
     loadOnDemand: JSON.parse(text).loadOnDemand === true,
   };
 }
 
 export function TerminalConfigurationEditor({ value, onChange }: ConfigurationEditorProps) {
-  const action = JSON.parse(value) as LaunchDraft & { loadOnDemand?: boolean };
+  const action = JSON.parse(value) as LaunchDraft & {
+    loadOnDemand?: boolean;
+    agentReceiver?: boolean;
+  };
   return (
     <>
       <LaunchConfigurationEditor
         action={action}
         patch={(changes) => onChange(JSON.stringify({ ...action, ...changes }))}
       />
+      <label>
+        <Checkbox
+          checked={action.agentReceiver === true}
+          onChange={(event) =>
+            onChange(JSON.stringify({ ...action, agentReceiver: event.target.checked }))
+          }
+        />
+        {t('Receive agent messages')}
+      </label>
       <label>
         <Checkbox
           checked={action.loadOnDemand === true}

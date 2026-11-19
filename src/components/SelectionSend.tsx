@@ -1,5 +1,7 @@
+import { AgentPicker } from './AgentPicker';
+import { preferredAgent, rememberAgent } from './agent-recipient';
 import { t } from '../i18n';
-import { Button, Dialog, Select, Textarea } from './Controls';
+import { Button, Dialog, Textarea } from './Controls';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { useSdk } from '../sdk';
@@ -68,7 +70,7 @@ export function SelectionSend({
       if (!mounted.current || request !== attempt.current) return;
       setLoadingTargets(false);
       setTargets(recipients);
-      setTarget(recipients.length === 1 ? recipients[0].id : undefined);
+      setTarget(preferredAgent(recipients, sessionId));
     } catch (error) {
       if (mounted.current && request === attempt.current) {
         setLoadingTargets(false);
@@ -89,6 +91,7 @@ export function SelectionSend({
       const message = selectionMessage(prepared, question);
       sending = true;
       await sendToTab(sdk.tabs, sessionId, tabId, target, message);
+      rememberAgent(sessionId, target);
       if (mounted.current) {
         setStatus('Write acknowledged; agent processing is unknown.');
         setSelection(undefined);
@@ -154,30 +157,13 @@ export function SelectionSend({
                   disabled={busy}
                 />
               </label>
-              {targets.length > 1 && (
-                <label>
-                  {t('Send to')}
-                  <Select
-                    value={target ?? ''}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setTarget(event.target.value ? Number(event.target.value) : undefined)
-                    }
-                  >
-                    <option value="">{t('Choose a tab')}</option>
-                    {targets.map((tab) => (
-                      <option key={tab.id} value={tab.id}>
-                        {tab.name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-              )}
-              {loadingTargets ? (
-                <p>{t('Finding receiving tabs…')}</p>
-              ) : (
-                !targets.length && <p>{t('No available receiving tabs in this session.')}</p>
-              )}
+              <AgentPicker
+                targets={targets}
+                target={target}
+                onChange={setTarget}
+                disabled={busy}
+                loading={loadingTargets}
+              />
               {error && <p role="alert">{error}</p>}
               <div className="dialog-actions">
                 <Button

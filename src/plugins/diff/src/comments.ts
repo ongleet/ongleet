@@ -1,3 +1,4 @@
+import { availableSendTargets } from '../../../components/tab-send';
 import type { PluginSdk } from '../../../sdk';
 import { SdkError } from '../../../sdk';
 
@@ -344,15 +345,7 @@ export function commentMessage(tabId: number, thread: Thread, commentId: string)
 
 /** Find other open tabs in this session that currently accept text. */
 export async function commentTargets(tabs: PluginSdk['tabs'], sessionId: number, tabId: number) {
-  const list = await tabs.list({ sessionId });
-  const candidates = await Promise.all(
-    list.tabs
-      .filter((t) => t.sessionId === sessionId && t.isOpen && t.id !== tabId)
-      .map(async (t) => ({ ...t, capabilities: await tabs.capabilities(t.id).catch(() => null) })),
-  );
-  return candidates.filter(
-    (t) => t.capabilities?.available && t.capabilities.availableActions.includes('send-text'),
-  );
+  return availableSendTargets(tabs, sessionId, tabId);
 }
 
 /** Revalidate the recipient and require write acknowledgement without automatic retries. */

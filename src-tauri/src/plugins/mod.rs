@@ -151,6 +151,18 @@ mod settings_tests {
     use serde_json::json;
 
     #[test]
+    fn terminal_agent_receiver_requires_explicit_boolean_opt_in() {
+        let default: crate::core::pty::TabConfig = serde_json::from_value(json!({})).unwrap();
+        assert!(!default.agent_receiver);
+        validate("terminal", 1, &json!({"agentReceiver": true})).unwrap();
+        assert!(validate("terminal", 1, &json!({"agentReceiver": "true"})).is_err());
+        let config: crate::core::pty::TabConfig =
+            serde_json::from_value(json!({"agentReceiver": true})).unwrap();
+        assert!(config.agent_receiver);
+        assert_eq!(serde_json::to_value(config).unwrap()["agentReceiver"], true);
+    }
+
+    #[test]
     fn terminal_on_demand_is_optional_boolean_configuration() {
         validate("terminal", 1, &json!({})).unwrap();
         validate("terminal", 1, &json!({"loadOnDemand": true})).unwrap();

@@ -1,18 +1,43 @@
 import { SdkError, type PluginSdk } from '../sdk';
-export async function availableSendTargets(
-  tabs: PluginSdk['tabs'],
-  sessionId: number,
-  tabId: number,
-) {
+async function findSendTargets(tabs: PluginSdk['tabs'], sessionId: number, tabId: number) {
   const list = await tabs.list({ sessionId });
   const candidates = await Promise.all(
     list.tabs
-      .filter((t) => t.sessionId === sessionId && t.isOpen && t.id !== tabId)
+      .filter(
+        (t) => t.sessionId === sessionId && t.isOpen && t.agentReceiver === true && t.id !== tabId,
+      )
       .map(async (t) => ({ ...t, capabilities: await tabs.capabilities(t.id).catch(() => null) })),
   );
   return candidates.filter(
     (t) => t.capabilities?.available && t.capabilities.availableActions.includes('send-text'),
   );
+}
+// Threads in the same Diff share concurrent discovery, while each send revalidates.
+const pendingTargets = new WeakMap<
+  PluginSdk['tabs'],
+  Map<string, ReturnType<typeof findSendTargets>>
+>();
+export async function availableSendTargets(
+  tabs: PluginSdk['tabs'],
+  sessionId: number,
+  tabId: number,
+) {
+  let pending = pendingTargets.get(tabs);
+  if (!pending) {
+    pending = new Map();
+    pendingTargets.set(tabs, pending);
+  }
+  const key = `${sessionId}.${tabId}`;
+  let request = pending.get(key);
+  if (!request) {
+    request = findSendTargets(tabs, sessionId, tabId);
+    pending.set(key, request);
+  }
+  try {
+    return await request;
+  } finally {
+    if (pending.get(key) === request) pending.delete(key);
+  }
 }
 export async function sendToTab(
   tabs: PluginSdk['tabs'],

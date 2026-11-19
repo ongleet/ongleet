@@ -1,5 +1,12 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  Agent: 'Agent',
+  'Receive agent messages': 'Recevoir les envois à un agent',
+  'Finding agents…': 'Recherche des agents…',
+  'Choose an agent': 'Choisir un agent',
+  'No agent configured in this session': 'Aucun agent configuré dans cette session',
+  'Send to agent': 'Envoyer à l’agent',
+
   Description: 'Description',
   'Load diff': 'Charger le diff',
   'This diff exceeds 64 KiB. Load it to display the changes.':

@@ -81,7 +81,14 @@ export function createSdk(id: number, setTitle: (title: string | null) => void) 
     tabs: {
       list: (args: { sessionId?: number } = {}) =>
         interaction<{
-          tabs: { id: number; sessionId: number; kind: string; name: string; isOpen: boolean }[];
+          tabs: {
+            id: number;
+            sessionId: number;
+            kind: string;
+            name: string;
+            isOpen: boolean;
+            agentReceiver: boolean;
+          }[];
         }>(0, 'list', args),
       capabilities: (tabId: number) =>
         interaction<import('./types').TabCapabilities>(tabId, 'capabilities'),

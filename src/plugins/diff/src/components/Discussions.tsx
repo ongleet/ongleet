@@ -1,7 +1,9 @@
+import { AgentPicker } from '../../../../components/AgentPicker';
+import { preferredAgent, rememberAgent } from '../../../../components/agent-recipient';
 import { diffDiagnostic, useDiffRenderDiagnostic } from '../render-diagnostics';
 import { t, getLocale } from '../../../../i18n';
-import { Button, Disclosure, DisclosureTrigger, Textarea } from '../../../../components/Controls';
-import { useRef, useState } from 'react';
+import { Button, Textarea } from '../../../../components/Controls';
+import { useEffect, useRef, useState } from 'react';
 import type { Location, Thread } from '../comments';
 
 /** Keep unsent comment text local until submission so typing does not rerender the comparison. */
@@ -60,6 +62,8 @@ export function Composer({
 /** Render a thread with reply, edit, deletion and explicit recipient actions. */
 export function Discussion({
   thread,
+  sessionId,
+  tabId,
   reply,
   edit,
   remove,
@@ -67,6 +71,8 @@ export function Discussion({
   send,
 }: {
   thread: Thread;
+  sessionId: number;
+  tabId: number;
   reply: (text: string) => void;
   edit: (commentId: string, text: string) => void;
   remove: () => void;
@@ -74,6 +80,57 @@ export function Discussion({
   send: (commentId: string, target: number) => Promise<unknown>;
 }) {
   const [recipients, setRecipients] = useState<{ id: number; name: string }[]>([]);
+  const [target, setTarget] = useState<number>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
+  const threadKey = `${tabId}.${thread.id}`;
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    const refresh = () => {
+      void targets()
+        .then((list) => {
+          if (!active) return;
+          setRecipients(list);
+          setTarget(preferredAgent(list, sessionId, threadKey));
+        })
+        .catch((error) => {
+          if (active) setStatus(String(error));
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    };
+    refresh();
+    window.addEventListener('ongleet-agent-recipient', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('ongleet-agent-recipient', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [targets, sessionId, threadKey]);
+  async function deliver(commentId: string) {
+    if (target === undefined || writing.current) return;
+    writing.current = true;
+    setBusy(true);
+    setStatus('Sending…');
+    try {
+      await send(commentId, target);
+      rememberAgent(sessionId, target, threadKey);
+      setStatus('Write acknowledged; agent processing is unknown.');
+    } catch (error) {
+      setStatus(
+        t('Send failed; delivery may be ambiguous. No retry was made. {value0}', {
+          value0: String(error),
+        }),
+      );
+    } finally {
+      writing.current = false;
+      setBusy(false);
+    }
+  }
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   useDiffRenderDiagnostic('Discussion', {
@@ -109,6 +166,25 @@ export function Discussion({
           <pre>{thread.original.context.join('\n')}</pre>
         </>
       )}
+      <AgentPicker
+        onFocus={() => {
+          void targets()
+            .then((list) => {
+              setRecipients(list);
+              setTarget((current) =>
+                list.some((agent) => agent.id === current)
+                  ? current
+                  : preferredAgent(list, sessionId, threadKey),
+              );
+            })
+            .catch((error) => setStatus(String(error)));
+        }}
+        targets={recipients}
+        target={target}
+        onChange={setTarget}
+        disabled={busy}
+        loading={loading}
+      />
       <div className="diff-messages">
         {thread.comments.map((comment) => (
           <article
@@ -147,41 +223,13 @@ export function Discussion({
                 </Button>
               </>
             )}
-            <Disclosure
-              className="diff-message-send"
-              onToggle={(e) => {
-                if (e.currentTarget.open)
-                  void targets()
-                    .then(setRecipients)
-                    .catch((error) => setStatus(String(error)));
-              }}
+            <Button
+              type="button"
+              disabled={busy || loading || target === undefined}
+              onClick={() => void deliver(comment.id)}
             >
-              <DisclosureTrigger>{t('Send to…')}</DisclosureTrigger>
-              <div className="diff-message-recipients">
-                {recipients.map((target) => (
-                  <Button
-                    type="button"
-                    key={target.id}
-                    onClick={() => {
-                      setStatus('Sending…');
-                      void send(comment.id, target.id)
-                        .then(() => setStatus('Write acknowledged; agent processing is unknown.'))
-                        .catch((error) =>
-                          setStatus(
-                            t(
-                              'Send failed; delivery may be ambiguous. No retry was made. {value0}',
-                              { value0: String(error) },
-                            ),
-                          ),
-                        );
-                    }}
-                  >
-                    {target.name}
-                  </Button>
-                ))}
-                {!recipients.length && <span>{t('No available recipients.')}</span>}
-              </div>
-            </Disclosure>
+              {t('Send to agent')}
+            </Button>
           </article>
         ))}
       </div>

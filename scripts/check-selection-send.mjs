@@ -67,12 +67,13 @@ let available = true,
 const tabs = {
   list: async () => ({
     tabs: [
-      { id: 1, sessionId: 3, isOpen: true, name: 'Agent' },
+      { id: 1, sessionId: 3, isOpen: true, name: 'Agent', agentReceiver: true },
       { id: 2, sessionId: 3, isOpen: true, name: 'Files' },
       { id: 4, sessionId: 5, isOpen: true, name: 'Other session' },
       { id: 5, sessionId: 3, isOpen: false, name: 'Closed' },
+      { id: 8, sessionId: 3, isOpen: true, name: 'Ordinary shell' },
       { id: 6, sessionId: 3, isOpen: true, name: 'Diff' },
-      { id: 7, sessionId: 3, isOpen: true, name: 'Disconnected' },
+      { id: 7, sessionId: 3, isOpen: true, name: 'Disconnected', agentReceiver: true },
     ],
   }),
   capabilities: async (id) => {
@@ -104,3 +105,73 @@ assert.equal(calls.length, 2);
 console.log(
   'Selection payload context, unsaved provenance, UTF-8 bounds, target scope and sends without retries passed.',
 );
+
+await assert.rejects(sendToTab(tabs, 3, 2, 8, 'Never execute in a shell'), /Recipient unavailable/);
+const preferences = new Map();
+globalThis.localStorage = {
+  getItem: (key) => preferences.get(key) ?? null,
+  setItem: (key, value) => preferences.set(key, value),
+};
+const { preferredAgent, rememberAgent } = await import(
+  url(await readFile('src/components/agent-recipient.ts', 'utf8'))
+);
+const agents = [
+  { id: 10, name: 'Codex' },
+  { id: 20, name: 'Other agent' },
+];
+assert.equal(preferredAgent(agents, 3), undefined);
+assert.equal(preferredAgent([agents[0]], 3), 10);
+rememberAgent(3, 20, '2.thread-a');
+assert.equal(preferredAgent(agents, 3), 20);
+assert.equal(preferredAgent(agents, 4), undefined);
+rememberAgent(3, 10);
+assert.equal(preferredAgent(agents, 3), 10);
+assert.equal(preferredAgent(agents, 3, '2.thread-a'), 20);
+assert.equal(preferredAgent(agents, 3, '2.thread-b'), 10);
+assert.equal(
+  preferredAgent(
+    [
+      { id: 30, name: 'New' },
+      { id: 40, name: 'Another' },
+    ],
+    3,
+  ),
+  undefined,
+);
+assert.equal(preferredAgent([], 3), undefined);
+globalThis.localStorage = {
+  getItem() {
+    throw new Error('Unavailable');
+  },
+  setItem() {
+    throw new Error('Full');
+  },
+};
+assert.equal(preferredAgent(agents, 3), undefined);
+assert.doesNotThrow(() => rememberAgent(3, 10));
+console.log('Agent filtering and persistent recipient selection passed.');
+
+let discoveries = 0;
+let finishDiscovery;
+const concurrentTabs = {
+  ...tabs,
+  list: () => {
+    discoveries++;
+    return new Promise((resolve) => {
+      finishDiscovery = resolve;
+    });
+  },
+};
+const firstDiscovery = availableSendTargets(concurrentTabs, 3, 2);
+const secondDiscovery = availableSendTargets(concurrentTabs, 3, 2);
+assert.equal(discoveries, 1);
+finishDiscovery({
+  tabs: [{ id: 1, sessionId: 3, isOpen: true, agentReceiver: true, name: 'Agent' }],
+});
+assert.equal((await firstDiscovery)[0].id, 1);
+assert.equal((await secondDiscovery)[0].id, 1);
+const refreshedDiscovery = availableSendTargets(concurrentTabs, 3, 2);
+assert.equal(discoveries, 2);
+finishDiscovery({ tabs: [] });
+assert.deepEqual(await refreshedDiscovery, []);
+console.log('Concurrent agent discovery shares requests without retaining stale recipients.');

@@ -502,3 +502,8 @@ SDK callers pass optional `include` and `exclude` strings to `fs.searchFiles`.
 Each filter allows at most 32 comma-separated patterns and 4096 UTF-8 bytes;
 invalid patterns fail explicitly before traversal. Omitted filters preserve the
 previous search behavior.
+
+`tabs.list` includes `agentReceiver`, reflecting the target tab's explicit
+`agentReceiver: true` configuration. Agent send controls require this opt-in as
+well as an available `send-text` action. Direct SDK/CLI interaction actions retain
+their existing behavior.

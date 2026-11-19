@@ -42,6 +42,8 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
       <Discussion
         key={thread.id}
         thread={thread}
+        sessionId={sessionId}
+        tabId={tabId}
         targets={targets}
         send={(commentId, target) => sendComment(thread.id, commentId, target)}
         reply={(text) => {
@@ -57,7 +59,7 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
         }}
       />
     ),
-    [targets, sendComment, changeComments, comments],
+    [targets, sendComment, changeComments, comments, sessionId, tabId],
   );
 
   return {

@@ -11,6 +11,8 @@ pub struct TabConfig {
     pub shell_command: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub load_on_demand: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub agent_receiver: bool,
 }
 
 impl TabConfig {
