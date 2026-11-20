@@ -292,6 +292,8 @@ button:disabled {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
+  /* Keep overlay scrollbars below tab labels and close buttons. */
+  padding-bottom: 10px;
 }
 .tab-item {
   position: relative;
