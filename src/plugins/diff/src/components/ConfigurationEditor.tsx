@@ -53,7 +53,7 @@ export function ComparisonFields({
                 )}
               {commits.map((commit, index) => (
                 <option key={commit.hash} value={commit.hash}>
-                  {t('Commit')} -{index + 1} · {commit.hash.slice(0, 10)} · {commit.subject}
+                  [-{index + 1}] · {commit.hash.slice(0, 10)} · {commit.subject}
                 </option>
               ))}
               <option value="divergence">{t('Branch divergence (default)')}</option>
