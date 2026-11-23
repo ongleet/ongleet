@@ -276,7 +276,8 @@ export const fr: Record<string, string> = {
   'Between two refs': 'Entre deux références',
   'Compare from': 'Comparer depuis',
   'Branch divergence (default)': 'Divergence de branche (par défaut)',
-  'Latest commit': 'Dernier commit',
+  'HEAD (follows new commits)': 'HEAD (suit les nouveaux commits)',
+  Commit: 'Commit',
   'Could not load commits: ': 'Impossible de charger les commits : ',
   'Include uncommitted changes': 'Inclure les modifications non commitées',
   'Compare the starting snapshot with the latest commit. Local changes include staged, unstaged, and untracked files.':
