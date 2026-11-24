@@ -32,9 +32,11 @@ export function FileTree({
   useDiffRenderDiagnostic('FileTree', { files, selected, visible });
   const root = useMemo(() => buildFileTree(files), [files]);
 
-  const renderComments = (threads: readonly Thread[], file?: FileChange) => (
+  const renderThreads = (threads: readonly Thread[], file?: FileChange) => (
     <ul className="diff-tree-comments">
-      {threads.flatMap((thread) => {
+      {threads.map((thread) => {
+        const comment = thread.comments[0];
+        if (!comment) return null;
         const location = thread.orphan ? thread.original : thread.location;
         const label = location.side
           ? t('{side} line {line}', {
@@ -42,14 +44,18 @@ export function FileTree({
               line: location.line!,
             })
           : t('File discussion');
-        return thread.comments.map((comment) => (
-          <li key={comment.id}>
+        const count = `${thread.comments.length} ${thread.comments.length === 1 ? t('message') : t('messages')}`;
+        return (
+          <li key={thread.id}>
             <Button
-              title={`${location.path} · ${label} · ${comment.origin}: ${comment.text}`}
+              title={`${location.path} · ${label} · ${count} · ${comment.origin}: ${comment.text}`}
               onClick={() => onComment(thread, comment.id, file)}
             >
               <span className="diff-comment-bubble" aria-hidden="true" />
               <span className="file-tree-label">{comment.text.replace(/\s+/g, ' ')}</span>
+              <small title={count} aria-label={count}>
+                {thread.comments.length}
+              </small>
               {location.line && (
                 <small>
                   {location.side === 'old' ? '−' : '+'}
@@ -58,7 +64,7 @@ export function FileTree({
               )}
             </Button>
           </li>
-        ));
+        );
       })}
     </ul>
   );
@@ -89,7 +95,7 @@ export function FileTree({
             <FileIcon status={file.status[0]} statusLabel={labels[file.status[0]]} />
             <span className="diff-tree-label file-tree-label">{file.path.split('/').at(-1)}</span>
           </Button>
-          {renderComments(
+          {renderThreads(
             [...discussions.forFile(file.path).file, ...discussions.forFile(file.path).line],
             file,
           )}
@@ -103,7 +109,7 @@ export function FileTree({
       {discussions.orphans.length > 0 && (
         <Disclosure open>
           <DisclosureTrigger>{t('Orphan comments')}</DisclosureTrigger>
-          {renderComments(discussions.orphans)}
+          {renderThreads(discussions.orphans)}
         </Disclosure>
       )}
     </>
