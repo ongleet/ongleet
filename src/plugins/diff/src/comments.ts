@@ -222,6 +222,20 @@ export class CommentStore {
     return { threadId, commentId };
   }
 
+  /** Remove one message, removing the thread only when its last message is deleted. */
+  deleteComment(threadId: string, commentId: string) {
+    const thread = this.get(threadId);
+    if (!thread.comments.some((comment) => comment.id === commentId))
+      throw new SdkError('invalid_arguments', 'Unknown comment ID');
+    const comments = thread.comments.filter((comment) => comment.id !== commentId);
+    this.commit(
+      this.threads.flatMap((item) =>
+        item === thread ? (comments.length ? [{ ...item, comments }] : []) : [item],
+      ),
+    );
+    return { deleted: true };
+  }
+
   /** Remove an existing thread and all of its replies. */
   delete(id: string) {
     this.get(id);

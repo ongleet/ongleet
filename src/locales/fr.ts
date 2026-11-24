@@ -279,6 +279,7 @@ export const fr: Record<string, string> = {
     'Créez une session dans un dossier existant.',
   Comparison: 'Comparaison',
   'Branch changes': 'Modifications de la branche',
+  'Delete comment': 'Supprimer le message',
   'One commit': 'Un seul commit',
   Commit: 'Commit',
   'Show the selected commit against its first parent.':

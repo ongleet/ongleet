@@ -68,6 +68,7 @@ export function Discussion({
   reply,
   edit,
   remove,
+  removeComment,
   targets,
   send,
 }: {
@@ -77,6 +78,7 @@ export function Discussion({
   reply: (text: string) => void;
   edit: (commentId: string, text: string) => void;
   remove: () => void;
+  removeComment: (commentId: string) => void;
   targets: () => Promise<{ id: number; name: string }[]>;
   send: (commentId: string, target: number) => Promise<unknown>;
 }) {
@@ -230,6 +232,17 @@ export function Discussion({
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />
+                  </svg>
+                </Button>
+                <Button
+                  type="button"
+                  className="diff-message-action"
+                  title={t('Delete comment')}
+                  aria-label={t('Delete comment')}
+                  onClick={() => removeComment(comment.id)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
                   </svg>
                 </Button>
               </div>

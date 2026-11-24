@@ -73,6 +73,11 @@ export function useDiffDiscussions(sdk: PluginSdk, sessionId: number, tabId: num
         edit={(commentId, text) => {
           changeComments(() => comments.edit(thread.id, commentId, text));
         }}
+        removeComment={(commentId) => {
+          try {
+            changeComments(() => comments.deleteComment(thread.id, commentId));
+          } catch {}
+        }}
         remove={() => {
           try {
             changeComments(() => comments.delete(thread.id));

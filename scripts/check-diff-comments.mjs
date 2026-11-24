@@ -167,3 +167,42 @@ console.log(
 const sideFile = { ...file, patch: '@@ -2,2 +3,2 @@\n-old value\n+new value\n tail\n' };
 assert.deepEqual(store.anchor('/repo', sideFile, 'old', 2).context, ['old value', 'tail']);
 assert.deepEqual(store.anchor('/repo', sideFile, 'new', 3).context, ['new value', 'tail']);
+
+// Per-message changes preserve neighboring messages, anchors and durable state.
+const individual = new CommentStore(50, 51, storage);
+const first = individual.add(individual.anchor('/repo', file), 'Original', 'User');
+const second = individual.reply(first.threadId, 'Reply', 'Agent');
+const neighbor = individual.add(individual.anchor('/repo', file), 'Other thread', 'User');
+const anchor = individual.get(first.threadId).location;
+individual.edit(first.threadId, second.commentId, 'Edited reply');
+assert.deepEqual(
+  individual.get(first.threadId).comments.map((c) => c.text),
+  ['Original', 'Edited reply'],
+);
+const failedDeletion = new CommentStore(50, 51, {
+  ...storage,
+  setItem: () => {
+    throw new Error('quota');
+  },
+});
+assert.throws(
+  () => failedDeletion.deleteComment(first.threadId, first.commentId),
+  /Could not save/,
+);
+assert.equal(failedDeletion.get(first.threadId).comments.length, 2);
+assert.throws(() => individual.deleteComment(first.threadId, 'missing'), /Unknown comment/);
+individual.deleteComment(first.threadId, first.commentId);
+assert.equal(individual.get(first.threadId).location, anchor);
+assert.deepEqual(
+  individual.get(first.threadId).comments.map((c) => c.text),
+  ['Edited reply'],
+);
+assert.deepEqual(new CommentStore(50, 51, storage).threads, individual.threads);
+individual.deleteComment(first.threadId, second.commentId);
+assert.deepEqual(
+  new CommentStore(50, 51, storage).threads.map((t) => t.id),
+  [neighbor.threadId],
+);
+console.log(
+  'Individual message edits, deletion, last-message cleanup and storage failures passed.',
+);
