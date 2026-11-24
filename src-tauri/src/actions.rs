@@ -7,6 +7,7 @@ use std::{
 };
 
 pub mod external;
+pub mod lifecycle;
 
 const DEFAULTS: &str = include_str!("../../config/actions.yaml");
 const MAX_BYTES: u64 = 65_536;
@@ -17,6 +18,8 @@ pub struct Config {
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub actions: Vec<Action>,
+    #[serde(default)]
+    pub hooks: lifecycle::Hooks,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance: Option<Appearance>,
 }
@@ -99,6 +102,7 @@ fn parse_config_policy(text: &str, allow_unavailable: bool) -> Result<Config, St
     if let Some(appearance) = &config.appearance {
         appearance.validate()?;
     }
+    config.hooks.validate()?;
     if config.actions.is_empty() || config.actions.len() > 100 {
         return Err("Expected between 1 and 100 actions".into());
     }

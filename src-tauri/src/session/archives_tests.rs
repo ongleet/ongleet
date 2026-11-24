@@ -304,3 +304,75 @@ fn restores_legacy_codex_archive_with_new_wrapper_and_original_association() {
     );
     assert!(registry.terminals.is_empty());
 }
+
+#[cfg(unix)]
+#[test]
+fn lifecycle_scripts_block_failures_preserve_context_and_run_on_expiry() {
+    let fixture = Fixture::new("lifecycle-hooks");
+    let mut registry = fixture.open();
+    registry
+        .create(
+            "Literal $(false)".into(),
+            fixture.0.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+    let session = registry.sessions[0].id;
+    let project = registry.sessions[0].project_id;
+    let config_dir = fixture.0.join("config");
+    let path = crate::actions::project_path(&config_dir, project);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let write = |archive: &str, delete: &str| {
+        let yaml = format!("actions:\n- id: shell\n  name: Shell\n  kind: terminal\n  config:\n    executable: bash\nhooks:\n  beforeArchive: {}\n  beforeDelete: {}\n", serde_json::to_string(archive).unwrap(), serde_json::to_string(delete).unwrap());
+        std::fs::write(&path, yaml).unwrap();
+    };
+    write("exit 7", "exit 8");
+    registry.set_actions_directory(config_dir.clone());
+    assert!(registry
+        .close(session, true)
+        .err()
+        .unwrap()
+        .contains("code 7"));
+    assert!(registry.sessions.iter().any(|s| s.id == session));
+    assert!(registry.archives.is_empty());
+    write(
+        "printf '%s\\n' \"$SESSION_NAME\" \"$ONGLEET_SESSION_EVENT\" > hook-context",
+        "exit 8",
+    );
+    registry.close(session, true).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("hook-context")).unwrap(),
+        "Literal $(false)\nbeforeArchive\n"
+    );
+    let id = registry.archives[0].id;
+    assert!(registry.purge_archive(id, false).is_err());
+    assert!(registry
+        .purge_archive(id, true)
+        .err()
+        .unwrap()
+        .contains("code 8"));
+    assert!(!registry.archives[0].purging);
+    registry.restore_archive(id).unwrap();
+    registry.close(session, true).unwrap();
+    let timestamp = registry.archives[0].archived_at + RETENTION_SECONDS;
+    assert!(registry.purge_expired_archives(timestamp).is_err());
+    assert_eq!(registry.archives.len(), 1);
+    registry.archives[0].archived_at = 0;
+    registry.persist().unwrap();
+    drop(registry);
+    let mut registry = SessionRegistry::open_with(&fixture.0, crate::system::services()).unwrap();
+    assert_eq!(registry.archives.len(), 1);
+    registry.set_actions_directory(config_dir);
+    assert_eq!(registry.archives.len(), 1);
+    assert!(registry
+        .archive_cleanup_error
+        .as_ref()
+        .unwrap()
+        .contains("code 8"));
+    write("exit 0", "printf '%s' \"$ONGLEET_SESSION_EVENT\" > deleted");
+    assert_eq!(registry.purge_expired_archives(timestamp).unwrap(), 1);
+    assert_eq!(
+        std::fs::read_to_string(fixture.0.join("deleted")).unwrap(),
+        "beforeDelete"
+    );
+    assert!(registry.archives.is_empty());
+}

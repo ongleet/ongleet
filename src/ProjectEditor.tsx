@@ -34,6 +34,7 @@ type Settings = {
   env: Record<string, string>;
   actions: Action[];
   appearance?: ApplicationAppearance | null;
+  hooks?: { beforeArchive?: string; beforeDelete?: string };
 };
 type EnvRow = { id: string; name: string; value: string };
 const envRows = (env: Record<string, string>): EnvRow[] =>
@@ -87,6 +88,7 @@ export function ProjectEditor({
   const views: View[] = defaults
     ? ['actions', 'appearance', 'yaml']
     : ['general', 'actions', 'yaml'];
+  const [hooks, setHooks] = useState<NonNullable<Settings['hooks']>>({});
   const [commonEnv, setCommonEnv] = useState<EnvRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -112,6 +114,7 @@ export function ProjectEditor({
             if (!disposed) {
               setDraft(drafts(settings.actions));
               setCommonEnv(envRows(settings.env));
+              setHooks(settings.hooks ?? {});
               if (defaults)
                 setAppearanceDraft(settings.appearance ?? currentApplicationAppearance());
             }
@@ -141,6 +144,7 @@ export function ProjectEditor({
     return {
       env: Object.fromEntries(commonEnv.map((row) => [row.name, row.value])),
       actions: actionsFrom(draft),
+      hooks,
       ...(defaults ? { appearance: appearanceDraft } : {}),
     };
   }
@@ -161,6 +165,7 @@ export function ProjectEditor({
         const settings = await invoke<Settings>('parse_actions', { yaml });
         setDraft(drafts(settings.actions));
         setCommonEnv(envRows(settings.env));
+        setHooks(settings.hooks ?? {});
         if (defaults)
           setAppearanceDraft(settings.appearance ?? { ...defaultApplicationAppearance });
       }
@@ -453,6 +458,34 @@ export function ProjectEditor({
           >
             {t('Add variable')}
           </Button>
+        </section>
+        <section className="common-env" aria-label={t('Session hooks')}>
+          <h3>{t('Session hooks')}</h3>
+          <p className="muted">
+            {t(
+              'Scripts run in the session directory before the operation. Failure cancels it. Maximum duration: 20 seconds.',
+            )}
+          </p>
+          {(['beforeArchive', 'beforeDelete'] as const).map((event) => (
+            <label key={event}>
+              {event === 'beforeArchive'
+                ? t('Before session archive')
+                : t('Before permanent session deletion')}
+              <Textarea
+                value={hooks[event] ?? ''}
+                disabled={busy}
+                spellCheck={false}
+                onChange={(e) => {
+                  setHooks((current) => ({
+                    ...current,
+                    [event]: e.target.value.trim() ? e.target.value : undefined,
+                  }));
+                  setDirty(true);
+                  setNotice('');
+                }}
+              />
+            </label>
+          ))}
         </section>
         <div className="action-grid">
           {draft.map((action, index) => (

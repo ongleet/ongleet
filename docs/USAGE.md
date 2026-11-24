@@ -597,3 +597,34 @@ the recipient selector so their queues can still be inspected or cleared.
 
 The GUI queue does not change the direct CLI/SDK `send-text` and Diff
 `send-comment` interactions: those still acknowledge immediate writes.
+
+## Session lifecycle scripts
+
+In **Edit project → Actions → Session hooks**, configure scripts before session
+archiving and permanent deletion. Global settings provide templates copied to newly
+initialized projects; existing projects keep their own settings. YAML equivalent:
+
+```yaml
+hooks:
+  beforeArchive: './scripts/stop-session.sh'
+  beforeDelete: './scripts/cleanup-session.sh'
+```
+
+Scripts use the platform shell, inherit the application environment and project
+common environment, and run in the session directory. Reserved variables override
+project values: `SESSION_ID`, `SESSION_NAME`, `SESSION_PATH`, `PROJECT_ID`,
+`PROJECT_NAME`, `PROJECT_PATH`, and `ONGLEET_SESSION_EVENT` (`beforeArchive` or
+`beforeDelete`). Quote variable expansions in scripts.
+
+Archiving runs the script before stopping terminals. Permanent deletion runs its
+script before removing application artifacts, including automatic expiry after
+30 days. Individual tab operations, terminal stops and application Quit do not run
+these scripts. Hooks use the project's current configuration, even for archived
+sessions. Missing project configuration means no hook.
+
+Failure, timeout (20 seconds), or excessive output (64 KiB per stream) blocks the
+operation and reports an error. Failed expiry cleanup stays available for retry.
+Scripts must be safe to retry: a crash or failed operation can lead to another
+execution. Output is captured; nonzero exit errors include stderr. A successful
+script does not change Ongleet's rule that metadata cleanup itself never deletes
+session working directories; any directory removal must be explicit in your script.

@@ -76,7 +76,7 @@ pub struct Snapshot {
 pub struct SessionRegistry {
     pub(crate) system: crate::system::SystemServices,
     data_directory: Option<std::path::PathBuf>,
-    actions_directory: Option<std::path::PathBuf>,
+    pub(crate) actions_directory: Option<std::path::PathBuf>,
     projects: Vec<Project>,
     next_project_id: u64,
     sessions: Vec<Session>,
@@ -102,11 +102,14 @@ pub struct SessionRegistry {
 impl SessionRegistry {
     pub fn set_actions_directory(&mut self, directory: std::path::PathBuf) {
         self.actions_directory = Some(directory);
+        self.run_archive_maintenance();
     }
 
     #[cfg(test)]
     pub fn open(directory: &std::path::Path) -> Result<Self, String> {
-        Self::open_with(directory, crate::system::services())
+        let mut registry = Self::open_with(directory, crate::system::services())?;
+        registry.run_archive_maintenance();
+        Ok(registry)
     }
     pub fn open_with(
         directory: &std::path::Path,
@@ -114,7 +117,7 @@ impl SessionRegistry {
     ) -> Result<Self, String> {
         let store = MetadataStore::open_with(directory, system.files.as_ref())?;
         let metadata = store.load()?;
-        let mut registry = Self {
+        let registry = Self {
             system,
             data_directory: Some(directory.to_path_buf()),
             projects: metadata.snapshot.projects.clone(),
@@ -138,7 +141,6 @@ impl SessionRegistry {
             plugin_jobs: HashMap::new(),
             http_jobs: HashMap::new(),
         };
-        registry.run_archive_maintenance();
         Ok(registry)
     }
 
@@ -394,6 +396,11 @@ impl SessionRegistry {
                     .into(),
             );
         }
+        self.run_session_hook(
+            &self.sessions[index],
+            self.project(self.sessions[index].project_id)?,
+            false,
+        )?;
         for session in session_ids {
             self.terminate_session(session, confirmed)?;
         }

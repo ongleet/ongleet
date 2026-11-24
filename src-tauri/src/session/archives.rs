@@ -248,6 +248,11 @@ impl SessionRegistry {
             .iter()
             .position(|archive| archive.id == id)
             .ok_or("Archive is unavailable")?;
+        if !self.archives[index].purging {
+            if let ArchivedItem::Session { session, project } = &self.archives[index].item {
+                self.run_session_hook(session, project, true)?;
+            }
+        }
         // Commit a non-restorable tombstone before removing artifacts. Failures
         // remain retryable across restarts, without resurrecting a partial archive.
         if !self.archives[index].purging {

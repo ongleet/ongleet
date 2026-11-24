@@ -1,5 +1,11 @@
 // English source messages are stable catalog keys. Preserve spaces in fragments.
 export const fr: Record<string, string> = {
+  'Session hooks': 'Scripts de session',
+  'Before session archive': 'Avant l’archivage de la session',
+  'Before permanent session deletion': 'Avant la suppression définitive de la session',
+  'Scripts run in the session directory before the operation. Failure cancels it. Maximum duration: 20 seconds.':
+    'Les scripts s’exécutent dans le répertoire de la session avant l’opération. Un échec l’annule. Durée maximale : 20 secondes.',
+
   'Split Right': 'Diviser à droite',
   'Split Down': 'Diviser en dessous',
   'Move to Other Group': 'Déplacer vers l’autre groupe',
