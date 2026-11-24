@@ -279,6 +279,10 @@ export const fr: Record<string, string> = {
     'Créez une session dans un dossier existant.',
   Comparison: 'Comparaison',
   'Branch changes': 'Modifications de la branche',
+  'One commit': 'Un seul commit',
+  Commit: 'Commit',
+  'Show the selected commit against its first parent.':
+    'Afficher le commit sélectionné par rapport à son premier parent.',
   'Between two refs': 'Entre deux références',
   'Compare from': 'Comparer depuis',
   'Branch divergence (default)': 'Divergence de branche (par défaut)',

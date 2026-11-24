@@ -30,6 +30,7 @@ export function ComparisonFields({
           onChange={(e) => onChange(changeMode(config, e.target.value as Settings['mode']))}
         >
           <option value="branch">{t('Branch changes')}</option>
+          <option value="commit">{t('One commit')}</option>
           <option value="refs">{t('Between two refs')}</option>
         </Select>
       </label>
@@ -78,6 +79,34 @@ export function ComparisonFields({
             )}
           </p>
         </>
+      ) : config.mode === 'commit' ? (
+        <label>
+          {t('Commit')}
+          <Select
+            value={config.targetRef}
+            onChange={(e) => onChange({ ...config, targetRef: e.target.value })}
+          >
+            <option value="HEAD">{t('HEAD (follows new commits)')}</option>
+            {config.targetRef !== 'HEAD' &&
+              !commits.some((commit) => commit.hash === config.targetRef) && (
+                <option value={config.targetRef}>{config.targetRef}</option>
+              )}
+            {commits.map((commit, index) => (
+              <option key={commit.hash} value={commit.hash}>
+                [-{index + 1}] · {commit.hash.slice(0, 10)} · {commit.subject}
+              </option>
+            ))}
+          </Select>
+          {commitError && (
+            <span role="alert">
+              {t('Could not load commits: ')}
+              {commitError}
+            </span>
+          )}
+          <span className="diff-comparison-help">
+            {t('Show the selected commit against its first parent.')}
+          </span>
+        </label>
       ) : (
         <>
           <label>

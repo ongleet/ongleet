@@ -20,6 +20,7 @@ export function DiffStatusBar({
           {
             branch: 'Branch changes',
             refs: 'Between two refs',
+            commit: 'One commit',
           }[comparison.config.mode]
         }{' '}
         · {comparison.baseLabel} ({comparison.base.slice(0, 12)}) →{' '}

@@ -19,11 +19,14 @@ const root = await mkdtemp(join(tmpdir(), 'ongleet-diff-'));
 const command = (args) => exec('git', args, { cwd: root });
 const runner = async (r) => {
   try {
-    const result = await exec(r.executable, r.args, {
+    const pending = exec(r.executable, r.args, {
       cwd: r.cwd,
       env: { ...process.env, ...r.env },
       maxBuffer: r.outputLimit,
     });
+    // Match the native process runner: commands receive EOF on stdin.
+    pending.child.stdin.end();
+    const result = await pending;
     return { ...result, code: 0 };
   } catch (e) {
     if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') throw e;
@@ -96,6 +99,17 @@ try {
     includeUncommitted: false,
   });
   assert.equal(initial.files.length, 0, 'base branch compares HEAD with itself');
+  const rootCommit = (await command(['rev-parse', 'HEAD'])).stdout.trim();
+  const rootComparison = await git.compare({ ...config, mode: 'commit', targetRef: rootCommit });
+  assert.equal(rootComparison.files.length, names.length + 1, 'root commit shows every added file');
+  assert.ok(rootComparison.files.every((file) => file.status === 'A'));
+  assert.match(
+    await git.patch(
+      rootComparison,
+      rootComparison.files.find((file) => file.path === 'normal'),
+    ),
+    /\+one/,
+  );
   const indexBefore = await readFile(join(root, '.git/index'));
   await writeFile(join(root, 'café'), 'one\ntwo\nthree\n');
   await git.compare(config);
@@ -156,6 +170,16 @@ try {
   c = await git.compare({ ...config, mode: 'refs', baseRef: 'base-tag', targetRef: 'HEAD' });
   assert.equal(c.files.length, 5);
   await assertBatched(c, 1);
+  const singleCommit = await git.compare({ ...config, mode: 'commit', targetRef: 'HEAD' });
+  assert.equal(singleCommit.files.length, 5, 'single commit excludes untracked and local changes');
+  assert.equal(singleCommit.base, rootCommit, 'single commit starts at its first parent');
+  const historical = await git.compare({ ...config, mode: 'commit', targetRef: rootCommit });
+  assert.equal(historical.target, rootCommit, 'historical selection stays fixed after new commits');
+  assert.ok(
+    historical.files.some((file) => file.path === '.gitignore'),
+    'historical selection shows its own changes',
+  );
+  await assert.rejects(git.compare({ ...config, mode: 'commit', targetRef: 'missing-commit' }));
   const fixed = await git.patch(c, c.files[0]);
   await writeFile(join(root, 'normal'), 'later');
   await command(['add', '.']);

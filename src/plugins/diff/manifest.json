@@ -39,8 +39,16 @@
       },
       "mode": {
         "type": "string",
-        "enum": ["branch", "refs", "auto", "workingDirectory", "mergeBase", "sinceCommit"],
-        "description": "branch: detected base or selected commit to HEAD, optionally including local changes; refs: two committed snapshots. Other values are accepted for legacy saved tabs."
+        "enum": [
+          "branch",
+          "refs",
+          "commit",
+          "auto",
+          "workingDirectory",
+          "mergeBase",
+          "sinceCommit"
+        ],
+        "description": "branch: detected base or selected commit to HEAD, optionally including local changes; refs: two committed snapshots; commit: targetRef against its first parent (or the empty tree for a root commit). Other values are accepted for legacy saved tabs."
       },
       "baseRef": {
         "type": "string",
@@ -52,7 +60,7 @@
         "type": "string",
         "minLength": 1,
         "maxBytes": 8192,
-        "description": "Destination revision for refs mode."
+        "description": "Destination revision for refs mode or selected commit for commit mode."
       },
       "compareFrom": {
         "type": "string",

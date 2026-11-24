@@ -164,7 +164,16 @@ export class GitComparison {
     const targetLabel = config.mode === 'branch' ? 'HEAD' : config.targetRef;
     let detectedBase = '';
     let base: string;
-    if (config.mode === 'branch' && config.compareFrom === 'divergence') {
+    let selectedCommit: string | undefined;
+    if (config.mode === 'commit') {
+      selectedCommit = await resolve(config.targetRef, 'commit');
+      const parents = (await this.git(root, ['rev-list', '--parents', '-n', '1', selectedCommit]))
+        .trim()
+        .split(' ')
+        .slice(1);
+      base = parents[0] ?? (await this.git(root, ['hash-object', '-t', 'tree', '--stdin'])).trim();
+      baseLabel = parents.length ? `${config.targetRef}^1` : 'Empty tree';
+    } else if (config.mode === 'branch' && config.compareFrom === 'divergence') {
       let remoteDefault = '';
       try {
         remoteDefault = (
@@ -200,7 +209,7 @@ export class GitComparison {
     const target =
       config.mode === 'branch' && config.includeUncommitted
         ? null
-        : await resolve(targetLabel, 'commit');
+        : (selectedCommit ?? (await resolve(targetLabel, 'commit')));
     const comparison = {
       root,
       base,

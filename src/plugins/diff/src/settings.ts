@@ -1,6 +1,6 @@
 export type Settings = {
   folder: string | null;
-  mode: 'branch' | 'refs';
+  mode: 'branch' | 'refs' | 'commit';
   baseRef: string;
   targetRef: string;
   compareFrom: string;
@@ -31,7 +31,8 @@ export function settings(value: unknown): Settings {
   } else if (oldMode === 'branch' && !Object.hasOwn(value as object, 'compareFrom')) {
     config.includeUncommitted = true;
   }
-  if (!['branch', 'refs'].includes(config.mode)) throw new Error('Choose a comparison mode.');
+  if (!['branch', 'refs', 'commit'].includes(config.mode))
+    throw new Error('Choose a comparison mode.');
   if (typeof config.includeUncommitted !== 'boolean')
     throw new Error('Choose whether to include uncommitted changes.');
   if (
