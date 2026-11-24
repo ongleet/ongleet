@@ -206,6 +206,33 @@ export function Discussion({
                 {comment.origin}
               </span>
               <time dateTime={comment.at}>{new Date(comment.at).toLocaleString(getLocale())}</time>
+              <div className="diff-message-actions">
+                {editing !== comment.id && (
+                  <Button
+                    type="button"
+                    className="diff-message-action"
+                    title={t('Edit comment')}
+                    aria-label={t('Edit comment')}
+                    onClick={() => setEditing(comment.id)}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m16 3 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z" />
+                    </svg>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  className="diff-message-action"
+                  title={queueing ? t('Add to queue') : t('Send to agent')}
+                  aria-label={queueing ? t('Add to queue') : t('Send to agent')}
+                  disabled={busy || loading || target === undefined}
+                  onClick={() => void deliver(comment.id)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m22 2-7 20-4-9-9-4Z M22 2 11 13" />
+                  </svg>
+                </Button>
+              </div>
             </div>
             {editing === comment.id ? (
               <Composer
@@ -220,20 +247,8 @@ export function Discussion({
                 }}
               />
             ) : (
-              <>
-                <p className="diff-comment-text">{comment.text}</p>
-                <Button type="button" onClick={() => setEditing(comment.id)}>
-                  {t('Edit comment')}
-                </Button>
-              </>
+              <p className="diff-comment-text">{comment.text}</p>
             )}
-            <Button
-              type="button"
-              disabled={busy || loading || target === undefined}
-              onClick={() => void deliver(comment.id)}
-            >
-              {queueing ? t('Add to queue') : t('Send to agent')}
-            </Button>
           </article>
         ))}
       </div>
