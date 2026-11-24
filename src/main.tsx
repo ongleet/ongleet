@@ -1,3 +1,4 @@
+import { useOpeningHighlight } from './components/useOpeningHighlight';
 import { loadTabTitles, openTabTitles, saveTabTitles } from './tab-titles';
 import { useRenderDiagnostic } from './render-diagnostics';
 import { t, useLocale } from './i18n';
@@ -270,6 +271,7 @@ function SessionPane({
   const [sharedSettingsTab, setSharedSettingsTab] = useState<number | null>(null);
   const sessionMenu = useRef<HTMLDetailsElement>(null);
   const openTabs = session.tabs.filter((tab) => tab.isOpen);
+  const openedTabs = useOpeningHighlight(openTabs.map((tab) => tab.id));
   const layout = session.pluginData?.['ongleet.layout']?.value;
   const split = !!layout?.direction;
   const secondary = layout?.secondary ?? [];
@@ -444,7 +446,7 @@ function SessionPane({
                   <div
                     key={tab.id}
                     role="presentation"
-                    className={`tab-item${tab.id === groupActive?.id ? ' selected' : ''}${dragTabId === tab.id ? ' dragging' : ''}${tabDrop?.id === tab.id ? (tabDrop.after ? ' drop-after' : ' drop-before') : ''}`}
+                    className={`tab-item${openedTabs.has(tab.id) ? ' opening-highlight' : ''}${tab.id === groupActive?.id ? ' selected' : ''}${dragTabId === tab.id ? ' dragging' : ''}${tabDrop?.id === tab.id ? (tabDrop.after ? ' drop-after' : ' drop-before') : ''}`}
                     onDragOver={(event) => {
                       if (disabled || dragTabId === null) return;
                       event.preventDefault();

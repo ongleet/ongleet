@@ -1389,3 +1389,60 @@ fn split_layout_new_tabs_follow_active_group_without_durable_storage() {
         vec![a, b, c]
     );
 }
+
+#[test]
+fn opening_tabs_preserves_both_visible_selections_and_persists() {
+    let directory = Directory::new();
+    let data = Directory::new();
+    let mut registry = SessionRegistry::open(&data.0).unwrap();
+    registry
+        .create("Background".into(), directory.path())
+        .unwrap();
+    let session = registry.sessions[0].id;
+    let first = registry.sessions[0].selected_tab_id.unwrap();
+    registry
+        .create_plugin_tab(
+            session,
+            "Files".into(),
+            "files".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let second = registry.next_tab_id;
+    assert_ne!(first, second);
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(first));
+    registry
+        .set_tab_layout(
+            session,
+            Some("right".into()),
+            vec![second],
+            Some(second),
+            0.5,
+        )
+        .unwrap();
+    registry.select_tab(second).unwrap();
+    registry
+        .create_plugin_tab(
+            session,
+            "Notes".into(),
+            "files".into(),
+            1,
+            serde_json::json!({}),
+        )
+        .unwrap();
+    let third = registry.next_tab_id;
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(second));
+    assert_eq!(registry.sessions[0].layout().selected, Some(first));
+    assert_eq!(registry.sessions[0].layout().secondary, vec![second, third]);
+    registry.close_tab(third, true).unwrap();
+    registry.open_tab(third).unwrap();
+    registry.open_tab(first).unwrap();
+    assert_eq!(registry.sessions[0].selected_tab_id, Some(second));
+    assert_eq!(registry.sessions[0].layout().selected, Some(first));
+    drop(registry);
+    let restored = SessionRegistry::open(&data.0).unwrap();
+    assert_eq!(restored.sessions[0].selected_tab_id, Some(second));
+    assert_eq!(restored.sessions[0].layout().selected, Some(first));
+    assert_eq!(restored.sessions[0].layout().secondary, vec![second, third]);
+}

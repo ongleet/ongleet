@@ -1,3 +1,4 @@
+import { useOpeningHighlight } from './components/useOpeningHighlight';
 import { t } from './i18n';
 import { Button } from './components/Controls';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -62,6 +63,14 @@ export function SessionSidebar({
   select,
   reorder,
 }: Props) {
+  const createdSessions = useOpeningHighlight(
+    sessions.map((session) => session.id),
+    ready,
+  );
+  const openedTabs = useOpeningHighlight(
+    sessions.flatMap((session) => session.tabs.filter((tab) => tab.isOpen).map((tab) => tab.id)),
+    ready,
+  );
   const [preferredWidth, setWidth] = useState(savedSidebarWidth);
   const [maxWidth, setMaxWidth] = useState(() =>
     Math.max(150, Math.min(560, window.innerWidth - 240)),
@@ -291,7 +300,7 @@ export function SessionSidebar({
                     return (
                       <li
                         key={session.id}
-                        className={`session-row${selectedId === session.id ? ' selected' : ''}${dragId === session.id ? ' dragging' : ''}${drop?.id === session.id ? (drop.after ? ' drop-after' : ' drop-before') : ''}`}
+                        className={`session-row${createdSessions.has(session.id) || session.tabs.some((tab) => openedTabs.has(tab.id)) ? ' opening-highlight' : ''}${selectedId === session.id ? ' selected' : ''}${dragId === session.id ? ' dragging' : ''}${drop?.id === session.id ? (drop.after ? ' drop-after' : ' drop-before') : ''}`}
                         onDragOver={(event) => {
                           if (
                             disabled ||

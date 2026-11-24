@@ -115,6 +115,7 @@ Use native clipboard and Ghostty paste APIs. Validate selection mutations only o
 
 - Projects contain sessions and plugin tabs. Root changes affect future sessions; session directory changes affect future launches. Never mutate session directories during metadata operations.
 - Validate YAML before creating metadata. A new session launches the first configured terminal action, never a stopped placeholder.
+- New and reopened tabs retain the active tab and both visible split selections; the first tab in an empty session becomes active. New openings join the active split group. Brief sidebar/tab highlights signal new tabs and sessions without moving focus, respect reduced motion, and skip the initial restored snapshot.
 - Keep definitions separate from openings. CLI closure retains definitions; GUI removal archives them. Persist plugin ID/version/payload and selection. Runtime supplies process status.
 - Use Diesel models and queries in `storage/models.rs` and `storage/schema.rs` for metadata reads/writes. Keep raw SQL confined to historical migrations and SQLite pragmas.
 - Use transactional migrations in standard user-data SQLite; never reset a failed database. Store explicit overrides only, never inherited environment or credentials.

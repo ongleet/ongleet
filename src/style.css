@@ -1529,3 +1529,23 @@ button:focus-visible {
 .tab-context-menu button {
   text-align: left;
 }
+
+/* Announce additions without moving keyboard focus or changing layout. */
+.opening-highlight {
+  animation: opening-highlight 1.8s ease-out;
+}
+@keyframes opening-highlight {
+  0%,
+  25% {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .opening-highlight {
+    animation: none;
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+}

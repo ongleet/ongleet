@@ -3,7 +3,9 @@ use super::{PluginTab, SessionRegistry, Snapshot, TabConfig};
 impl SessionRegistry {
     #[cfg(test)]
     pub fn create_tab(&mut self, session_id: u64) -> Result<Snapshot, String> {
-        self.insert_tab(session_id, None)
+        // Existing lifecycle fixtures explicitly work in the newly created terminal.
+        self.insert_tab(session_id, None)?;
+        self.select_tab(self.next_tab_id)
     }
 
     #[cfg(test)]
@@ -19,7 +21,8 @@ impl SessionRegistry {
             "terminal".into(),
             1,
             serde_json::to_value(config).map_err(|e| e.to_string())?,
-        )
+        )?;
+        self.select_tab(self.next_tab_id)
     }
 
     pub(super) fn insert_tab(
@@ -104,7 +107,7 @@ impl SessionRegistry {
             display_order: session.tabs.len(),
             config,
         });
-        session.activate_layout_tab(self.next_tab_id, true);
+        session.open_layout_tab(self.next_tab_id);
         self.persist()
     }
 
@@ -201,7 +204,9 @@ impl SessionRegistry {
             tab.is_open = true;
             tab.resume_on_start = crate::plugins::has_runtime(&tab.kind);
         }
-        session.activate_layout_tab(id, newly_opened);
+        if newly_opened {
+            session.open_layout_tab(id);
+        }
         self.persist()
     }
 

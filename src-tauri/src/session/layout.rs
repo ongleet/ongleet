@@ -11,6 +11,23 @@ pub struct Layout {
     pub ratio: Option<f64>,
 }
 impl Session {
+    /// Add an opening to the active group without replacing either visible tab.
+    pub(super) fn open_layout_tab(&mut self, id: u64) {
+        if self.selected_tab_id.is_none() {
+            self.activate_layout_tab(id, true);
+            return;
+        }
+        let mut layout = self.layout();
+        if self
+            .selected_tab_id
+            .is_some_and(|old| layout.secondary.contains(&old))
+            && !layout.secondary.contains(&id)
+        {
+            layout.secondary.push(id);
+            self.store_layout(layout);
+        }
+    }
+
     pub(super) fn activate_layout_tab(&mut self, id: u64, newly_opened: bool) {
         let mut layout = self.layout();
         let was_secondary = self
