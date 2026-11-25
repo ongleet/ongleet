@@ -47,6 +47,7 @@ export function ComparisonFields({
               value={config.compareFrom}
               onChange={(e) => onChange({ ...config, compareFrom: e.target.value })}
             >
+              <option value="divergence">{t('Branch divergence (default)')}</option>
               <option value="HEAD">{t('HEAD (follows new commits)')}</option>
               {!['divergence', 'HEAD'].includes(config.compareFrom) &&
                 !commits.some((commit) => commit.hash === config.compareFrom) && (
@@ -57,7 +58,6 @@ export function ComparisonFields({
                   [-{index + 1}] · {commit.hash.slice(0, 10)} · {commit.subject}
                 </option>
               ))}
-              <option value="divergence">{t('Branch divergence (default)')}</option>
             </Select>
             {commitError && (
               <span role="alert">
