@@ -26,7 +26,12 @@
   flex: 0 1 240px;
 }
 .diff-toolbar .diff-mode-field {
-  flex: 0 1 290px;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.diff-toolbar .diff-mode-field select {
+  width: auto;
+  max-width: 100%;
 }
 .diff-comparison-help {
   flex-basis: 100%;
