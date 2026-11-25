@@ -250,20 +250,66 @@ fn diagnostics(
     let mut ticks = 0u64;
     gtk::glib::timeout_add_seconds_local(30, move || {
         ticks += 1;
-        // Only selected process counters, never environment or terminal contents.
-        if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
-            for line in status
-                .lines()
-                .filter(|line| line.starts_with("VmRSS:") || line.starts_with("Threads:"))
-            {
-                heartbeat(NativeDiagnostic::Heartbeat {
-                    tick: ticks,
-                    counter: line.into(),
-                });
-            }
+        // Read only allowlisted counters, never environment or terminal contents.
+        for counter in resource_counters() {
+            heartbeat(NativeDiagnostic::Heartbeat {
+                tick: ticks,
+                counter,
+            });
         }
         gtk::glib::ControlFlow::Continue
     });
     record(NativeDiagnostic::Installed);
     Ok(())
+}
+
+/// Best-effort Linux snapshots; missing procfs entries must not stop diagnostics.
+fn resource_counters() -> Vec<String> {
+    let mut counters = Vec::new();
+    for (path, scope, fields) in [
+        (
+            "/proc/self/status",
+            "gui",
+            &["VmRSS", "VmHWM", "VmSize", "VmSwap", "Threads"][..],
+        ),
+        (
+            "/proc/meminfo",
+            "system",
+            &["MemTotal", "MemAvailable", "SwapTotal", "SwapFree"][..],
+        ),
+    ] {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            counters.extend(selected_counters(scope, &contents, fields));
+        }
+    }
+    if let Ok(contents) = std::fs::read_to_string("/proc/pressure/memory") {
+        for line in contents.lines().take(2) {
+            counters.push(format!("system memory_pressure {line}"));
+        }
+    }
+    counters
+}
+
+fn selected_counters(scope: &str, contents: &str, fields: &[&str]) -> Vec<String> {
+    contents
+        .lines()
+        .filter(|line| {
+            line.split_once(':')
+                .is_some_and(|(key, _)| fields.contains(&key))
+        })
+        .map(|line| format!("{scope} {line}"))
+        .collect()
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    #[test]
+    fn counters_exclude_unrequested_process_details() {
+        let snapshot =
+            "Name: secret-command\nVmRSS: 123 kB\nVmSwap: 4 kB\nThreads: 7\nVmRSSExtra: 9\n";
+        assert_eq!(
+            super::selected_counters("gui", snapshot, &["VmRSS", "VmSwap", "Threads"]),
+            ["gui VmRSS: 123 kB", "gui VmSwap: 4 kB", "gui Threads: 7"]
+        );
+    }
 }
